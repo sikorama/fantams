@@ -5,7 +5,8 @@ binary and not against intentions. Standard Z80 mnemonics are not included here:
 they are the same as everyone else's. What follows covers directives, expressions,
 macros, and extended notations.
 
-The **decisions** behind these choices live in `docs/adr/`. Here, only the facts.
+Here, only the facts: what to write, what it does, and where fantams diverges
+from rasm.
 
 ---
 
@@ -24,7 +25,7 @@ label:  instruction operands   ; comment
   two. This is a writing convenience, canonicalized to two lines by the
   preprocessor, and refused by `--strict`.
 - A reserved word before that colon is **never** a label: `nop:nop:nop`
-  assembles to three `nop`, because a mnemonic cannot name a label (ADR 0015).
+  assembles to three `nop`, because a mnemonic cannot name a label.
   It is flagged all the same — `nop:` *reads* like a label — so write
   `nop : nop : nop` to say plainly what is meant.
 - A `label:` attached to its instruction is detached by `--beautify`
@@ -41,7 +42,7 @@ label:  instruction operands   ; comment
 | `%1010` | 2 | |
 | `3.14` | 10, float | the dot only makes sense in base 10 |
 
-All values are **reals**; bitwise operators convert to integer (ADR 0008). `$` alone
+All values are **reals**; bitwise operators convert to integer. `$` alone
 is the current address — `$FF` remains a number, the distinction is made by what
 follows.
 
@@ -50,7 +51,7 @@ follows.
 ## 3. Strings
 
 `'text'` and `"text"` are **two notations for the same object**: delimiters
-are interchangeable, and `'A'` is in no way different from `"A"` (ADR 0010).
+are interchangeable, and `'A'` is in no way different from `"A"`.
 
 - A string of **one byte** has a value in an expression: the code of its
   character. Any other length has none.
@@ -83,14 +84,14 @@ are interchangeable, and `'A'` is in no way different from `"A"` (ADR 0010).
 - **`/` is floating-point division**, `div` is integer division. `7/2` equals 3.5,
   `7 div 2` equals 3.
 - Text aliases designate **bitwise** forms. There is deliberately
-  no text alias for `&&`, `||`, and `!` (ADR 0008).
+  no text alias for `&&`, `||`, and `!`.
 - `//` is **not** an operator: it is a comment.
 
 ### Functions
 
 | Function | Arguments | Note |
 |---|---|---|
-| `sin` `cos` | 1 | angles in **radians** (diverges from rasm, ADR 0021) |
+| `sin` `cos` | 1 | angles in **radians** (diverges from rasm) |
 | `abs` | 1 | |
 | `hi` `lo` | 1 | high / low byte of the integer value |
 | `floor` `ceil` `int` `round` | 1 | toward −∞ / +∞ / zero / nearest |
@@ -99,15 +100,16 @@ are interchangeable, and `'A'` is in no way different from `"A"` (ADR 0010).
 
 Halves round **up** (`3.5 → 4`, `-3.5 → -3`), like rasm.
 
-`sin` and `cos` take **radians**, another deliberate divergence: rasm takes
-degrees (ADR 0021). Write `sin(a*3.14159265/180)` for a degree argument.
+`sin` and `cos` take **radians** — the one deliberate divergence in the
+arithmetic, rasm taking degrees. Write `sin(a*3.14159265/180)` for a degree
+argument.
 
 ### What doesn't exist
 
 There is **no ternary `? :`**, and there won't be: the `:` is already the
 instruction separator as much as it is a label suffix, so
 `1 ? 2 : 3` is split in two before reaching the evaluator. An `if` says the same
-thing more clearly (ADR 0008, amended).
+thing more clearly.
 
 ---
 
@@ -143,7 +145,7 @@ defines `@retry`, a `.local` is qualified as `@retry__2.local`. The symbol table
 
 Registers, pairs, and conditions (`a`, `hl`, `i`, `p`, `nz`, `pc`…) cannot
 name a label, a macro parameter, or a loop index. The refusal names what
-the word is (ADR 0015) — hence the failure of `for i = …` or a
+the word is — hence the failure of `for i = …` or a
 parameter named `p`.
 
 ---
@@ -172,7 +174,7 @@ bytes with value 1 then three with value 2.
 
 `org #A600,#100` assembles for `#A600` — labels take that value — and **stores** the
 bytes at `#100`. It is code meant to be **copied** to its logical address before it
-runs; a loader elsewhere does the copying (ADR 0005).
+runs; a loader elsewhere does the copying.
 
 - `run` takes the **logical** address, because `run label` must equal `label`. The
   `PC` therefore lands on memory nothing has loaded yet: this **warns**.
@@ -192,7 +194,7 @@ address**, the one labels take. The offset within the bank equals
 `address & 0x3FFF`.
 
 Nothing is deduced: a bank has no natural slot, the gate array RAM
-configurations paging any extra bank into slot 1 (ADR 0005).
+configurations paging any extra bank into slot 1.
 
 - Banks **0 to 3** form the base 64 K; without a prefix, the bank follows
   the address (`#8000` is in bank 2).
@@ -247,7 +249,7 @@ The third notation, `name MACRO p,q`, is **inherited from rasm and warns** once 
 
 ```
 name arg1,arg2        bare form, inherited — warns once per macro
-name(arg1,arg2)       parenthesized form (ADR 0018)
+name(arg1,arg2)       parenthesized form
 name()                without argument
 ```
 
@@ -262,7 +264,7 @@ is written `name((4),12)`.
 
 The **bare** form is the **value**, captured at the call site. **Braces**
 are the **text**, which the assembler resolves at the emission point. This is a call
-by value against a call by name, and the difference is observable (ADR 0014):
+by value against a call by name, and the difference is observable:
 
 ```
 n = 5
@@ -290,9 +292,9 @@ The warning is anchored on the line of the **body**, where the correction is wri
 names the **call site**, where the fact comes from. It only appears once per
 (body line, call site) pair: a call in a loop does not warn each time.
 
-A string of **one byte** has a value (ADR 0010): `m('A')` passes 65.
+A string of **one byte** has a value: `m('A')` passes 65.
 
-Braces are never a format prefix (ADR 0011).
+Braces are never a format prefix.
 
 ### Scope
 
@@ -342,8 +344,7 @@ match is an error stating so. Any block `X` closes with `endX` or
 with `end`, without exception — `endr` does not exist.
 
 The `repeat` index starting at 0 is the most silent rasm divergence in the
-project (rasm counts from 1); it is made explicit in use
-(ADR 0016).
+project (rasm counts from 1); it is made explicit in use.
 
 A block can open and close on one line: `repeat 3 : dw a,b : rend`.
 
@@ -360,7 +361,7 @@ A block can open and close on one line: `repeat 3 : dw a,b : rend`.
 ### One-to-many — canonicalized by the preprocessor
 
 The unrolled source shows one instruction per line, so these are expanded
-before the assembler sees them (ADR 0017).
+before the assembler sees them.
 
 | Notation | Equals |
 |---|---|
@@ -396,7 +397,7 @@ them; `--beautify` leaves them alone (it formats, it does not canonicalize).
 `ex af,af` is the **only** tolerance that warns. Its literal reading denotes a
 *different* operation — exchanging AF with itself, which is a no-op — where every
 other one is merely unfashionable. The rule generalizes: fantams warns when the
-text lies, not when it is out of style (ADR 0020).
+text lies, not when it is out of style.
 
 `jp (hl)` remains the **canon**, despite parentheses suggesting a
 non-existent indirection: `ld pc,hl` is non-standard Z80 for everyone, and a
@@ -465,9 +466,10 @@ rasm headers with no effect here.
 
 | Point | rasm | fantams |
 |---|---|---|
-| `repeat` index | starts at 1 | starts at **0** (ADR 0016) |
+| `repeat` index | starts at 1 | starts at **0** |
+| `sin` / `cos` | degrees | **radians** |
 | module syntax | — | assumed divergence |
-| macro call | bare | bare **or parenthesized** (ADR 0018) |
+| macro call | bare | bare **or parenthesized** |
 | `endr` | absent | absent |
 
 ---
@@ -485,7 +487,7 @@ rasm headers with no effect here.
 | `--sym[=file]` | writes the **symbol table** (CSV) for a disassembler or emulator |
 
 `--sym` writes one line per **label and constant** — name, type, logical value,
-storage bank and address, origin file and line (ADR 0019). Not a listing: one line
+storage bank and address, origin file and line. Not a listing: one line
 per *name*, and no bytes. Variables (`=`) are left out. The default path derives
 from `-o`, so the file travels next to the binary it describes. It refuses to
 combine with `--beautify` and `--normalize`, which never reach the assembler, and
