@@ -69,7 +69,7 @@ Contraintes, et les refus qui vont avec :
 Produire une base : démarrer l'émulateur, attendre le `Ready`, enregistrer un
 snapshot **version 2** (en-tête de 256 octets + dump plat de 64 Ko). C'est la
 **ROM** qui doit correspondre, pas seulement le modèle — voir
-`app/public/bases/README.md` pour le catalogue côté z80live.
+le catalogue de bases de l'hôte (`app/public/bases/` dans z80live).
 
 Le chevauchement de deux écritures **du source** produit un avertissement qui
 nomme les deux lignes en conflit (une seule ligne par plage contiguë). Écraser la
@@ -88,17 +88,27 @@ make test        # 382 tests (z80 · expr · pp · parser · asm · beautify · 
 Passe par l'image `emscripten/emsdk` (podman/docker) — pas besoin d'emcc local :
 
 ```bash
-./build-wasm.sh          # -> ../wasm/fantams.mjs + fantams.wasm
-node test-wasm.mjs       # test d'intégration via wasm/assemble.mjs
+./build-wasm.sh                              # -> dist/fantams.mjs + fantams.wasm
+FANTAMS_OUT_DIR=../z80next/wasm \
+FANTAMS_PUB_DIR=../z80next/app/public/wasm \
+  ./build-wasm.sh                            # dépose chez un hôte
 ```
+
+`FANTAMS_OUT_DIR` / `FANTAMS_PUB_DIR` sont les deux seules choses que fantams
+sait de son hôte : où poser les deux fichiers. Chemins relatifs résolus depuis le
+dossier d'appel. Le script ne recompile que si une source est plus récente que le
+`.wasm` (ou que la copie publiée diverge) — `--force` l'impose.
 
 Flags notables : 
  * `-fexceptions` - sans lui, tout `throw` devient `abort()` en WASM,
  * `-sSTACK_SIZE=8388608` (parseur récursif), 
 
-## Intégration app
+## Intégration chez l'hôte
 
-`wasm/assemble.mjs` expose l'assembleur via `assembler: 'fantams'` (ou la directive
+Ce qui suit décrit la façon dont z80live consomme fantams — c'est la
+documentation du contrat, pas du code de ce repo.
+
+Côté hôte, `wasm/assemble.mjs` expose l'assembleur via `assembler: 'fantams'` (ou la directive
 `;z80: assembler=fantams` en tête de source). `wrapFantams` injecte un en-tête
 `org`/`run` (syntaxe lite, **pas** `BUILDSNA`) si absent. Sortie `.sna` byte-identique
 au binaire natif.
