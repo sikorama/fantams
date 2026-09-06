@@ -1,152 +1,365 @@
-# fantams — assembleur Z80 léger (source WASM)
+# fantams
 
-Initiallement un fork simplifié de rasm, compilé vers WebAssembly pour tourner côté client (comme `wasm/rasm.*` et `wasm/sjasmplus.*`).
-A évolué vers un périmètre éloigné, puisque l'assembleur est en 2 passes, et focalise sur l'export SNA. Il est doté d'un **préprocesseur complet** (macros, `REPEAT`/`WHILE`, `IF`, `STRUCT`, scope auto-local, includes)
+A small Z80 assembler with a **full preprocessor** and a **source formatter**,
+targeting Amstrad CPC `.sna` snapshots and raw binaries. Written in portable
+C++17, it builds as a native CLI or as a WebAssembly module that runs in a
+browser.
 
-## Structure
+```bash
+make fantams                          # native CLI
+./fantams game.asm -o game.sna        # assemble to a CPC snapshot
+./fantams game.asm -E -o game.pp.asm  # see what the preprocessor produced
+./fantams game.asm --beautify -o game.asm
+```
 
-| Lib | Rôle |
+---
+
+## What it does that most Z80 assemblers don't
+
+**A real preprocessor, and you can read its output.** Macros, `repeat` / `while`
+/ `for`, `if` / `elseif`, `struct`, `module`, `include`, per-expansion label
+scoping — and `-E`, which writes the **unrolled source**: every macro expanded,
+every loop unrolled, every include inserted, every scoped label renamed. It is
+plain assembly you can read, diff, and re-assemble. When a macro misbehaves you
+look at what it actually generated instead of guessing.
+
+**A formatter with no options to argue about.** `--beautify` puts labels in
+column 1, indents block bodies one step, detaches `label: instruction`, and adds
+call parentheses to the macros it knows. Nothing is configurable and no
+formatting directive exists in the source, so two people's files come out the
+same.
+
+**Snapshot output that survives firmware calls.** `--base` lays the assembled
+bytes onto a captured post-boot machine state, so `call &BB5A` works instead of
+jumping into zeros.
+
+**A machine-readable symbol table.** `--sym` writes a CSV — one line per label
+and constant, with type, logical address, storage bank, and origin file and line
+— for a disassembler or an emulator.
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/sikorama/fantams
+cd fantams
+make            # builds the CLI and the test binaries
+make test       # 7 suites, 675 assertions
+```
+
+A first source:
+
+```asm
+        org #8000
+        run start
+
+macro poke(addr,val)
+        ld a,val
+        ld (addr),a
+end
+
+start:
+        poke(#C000,42)
+        ret
+```
+
+```bash
+./fantams hello.asm -o hello.sna     # snapshot
+./fantams hello.asm -o hello.bin     # raw binary
+./fantams hello.asm -o hello.bin -s  # ... and print the symbol table
+```
+
+The output format is chosen by the extension of `-o`: `.sna` gives a snapshot,
+anything else a raw binary.
+
+---
+
+## The preprocessor
+
+Everything below happens before the assembler sees a single opcode, and `-E`
+shows you the result.
+
+| Feature | |
 |---|---|
-| `z80` (`z80.cpp`) | encodeur d'instructions Z80 |
-| `keywords` (`keywords.cpp`) | « ce mot est-il un label ? », indexé par phase |
-| `pp` + `expr` (`pp.cpp`, `expr.cpp`) | préprocesseur texte→texte + évaluateur d'expressions |
-| `parser` (`parser.cpp`) | ligne texte → instruction |
-| `asm` (`asm.cpp`) | assembleur 2 passes (ORG, symboles, refs avant) |
-| `beautify` (`beautify.cpp`) | mise en forme du source, texte→texte |
-| `sna` (`sna.cpp`) | export snapshot CPC `.sna` |
-| `sym` (`sym.cpp`) | table des symboles en CSV, pour un désassembleur (ADR 0019) |
+| Macros | `macro name(p1,p2)` … `end`, called `name(a,b)` |
+| Loops | `repeat n[,var]`, `while cond`, `for var = low to high` |
+| Conditionals | `if` / `ifdef` / `ifndef`, `elseif`, `else` |
+| Structures | `struct name` … `end`, instances, `sizeof(name)` |
+| Namespaces | `module gfx` prefixes every label with `gfx.` |
+| Inclusion | `include "file"` |
+| PP variables | `LET n = 4`, substituted with `{n}`, computed with `{=n*n}` |
+| Scoped labels | `@loop` is renamed once per expansion; `@@export` opts out |
 
-Outils : `fantams` (`asm_main.cpp`, `.asm → .bin/.sna`) et `ppdump`
-(`pp_main.cpp`, équivalent `-E` : export de la source préprocessée).
+### Loops
 
-## Mise en forme du source
+```asm
+repeat 4,idx
+        db idx          ; -> db 0 / db 1 / db 2 / db 3
+end
 
-Deux règles, pas une de plus — celles-là même que l'assembleur signale déjà :
-un label écrit sans son deux-points, **seul sur sa ligne**, le reçoit ; une
-ligne de code sans label voit son indentation remplacée par quatre espaces.
-Rien n'est paramétrable, et un appel de macro possible (`sprite 4,12`) est
-laissé intact plutôt que deviné.
-
-```bash
-fantams src.asm --beautify -o src.fmt.asm   # le source, mis en forme
-fantams src.asm -E -o src.pp.asm            # la source déroulée, mise en forme
+for k = 1 to 4
+        db {=k*k}       ; -> db 1 / db 4 / db 9 / db 16
+end
 ```
 
-La source déroulée sort mise en forme par définition : c'est un livrable, pas un
-artefact de débogage. Dans z80live, le bouton **¶** (Alt+Maj+F) réécrit le
-tampon de l'éditeur ; l'annulation est celle de l'éditeur.
+`for` takes `to` for an inclusive bound and `until` for an exclusive one. The
+bounds are written down, so there is nothing to guess.
 
-Conception et alternatives écartées : `docs/adr/0013-la-mise-en-forme-preserve-les-lignes-et-refuse-de-deviner.md`.
+### Macro arguments: value or text
 
-## Base : faire tourner du code qui appelle le firmware
+A bare argument is the **value**, captured at the call site. An argument in
+**braces** is the **text**, resolved where it is emitted. The difference is
+visible:
 
-Un snapshot produit par un assembleur ne contient que le code assemblé — tout le
-reste vaut zéro. Or un `CALL &BB5A` a besoin des vecteurs d'indirection au-delà
-de `&B000`, des variables système, des vecteurs de RST, et d'un état matériel où
-la ROM basse est activée : autant de choses que la ROM installe **au boot** et
-qu'aucun assemblage ne produit.
-
-`--base` pose l'assemblage sur un tel état, capturé une fois pour toutes :
-
-```bash
-fantams src.asm -o out.sna --base bases/cpc6128-en.sna
+```asm
+n = 5
+macro m(x)
+    repeat 3
+        db x            ; value -> 5, 5, 5
+        db {x}          ; text  -> 5, 4, 3
+        n = n - 1
+    end
+end
+        m(n)
 ```
 
-Chaque adresse que le source a **réellement** écrite l'emporte ; toutes les
-autres gardent l'octet de la base — y compris quand le source y a écrit un zéro,
-que la *coverage* distingue d'une adresse jamais touchée. L'en-tête de la base
-fait foi (`SP`, gate array, `I`, `IM`, CRTC, palette) et seul `PC` est patché.
+Arguments are evaluated, never pasted: `m(1+1)` in a body doing `db x*2` gives
+4, not 3.
 
-Contraintes, et les refus qui vont avec :
+### Per-expansion labels
 
-| Situation | Comportement |
+A label prefixed with `@` is made unique per expansion, so a macro can loop
+without colliding with itself. A label without the prefix is left alone — reused
+across two expansions it is a genuine duplicate symbol, and you get told.
+
+```asm
+macro wait(n)
+@loop:  dec n
+        jr nz,@loop
+end
+```
+
+---
+
+## Reading the preprocessor's output
+
+```bash
+./fantams src.asm -E -o src.pp.asm
+```
+
+`-E` is a first-class output, not a debug artifact: it comes out formatted, one
+instruction per line, with the extended notations already canonicalized. This
+source:
+
+```asm
+LET COUNT = 4
+        org #8000
+        run start
+
+macro wait(n)
+@loop:  dec n
+        jr nz,@loop
+end
+
+start:
+        ld b,{COUNT}
+        wait(b)
+        wait(b)
+
+tbl:
+for k = 1 to COUNT
+        db {=k*k}
+end
+```
+
+comes out as:
+
+```asm
+    org #8000
+    run start
+start:
+    ld b,4
+@loop__1:
+    dec b
+    jr nz,@loop__1
+@loop__2:
+    dec b
+    jr nz,@loop__2
+tbl:
+    db 1
+    db 4
+    db 9
+    db 16
+```
+
+---
+
+## The formatter
+
+```bash
+./fantams src.asm --beautify -o src.asm
+```
+
+Four rules, and no way to add a fifth from the source:
+
+1. a label alone on its line gets its colon;
+2. labels sit in column 1, everything else is indented;
+3. block bodies get one extra step of indentation;
+4. `label: instruction` is split in two, so all opcodes align.
+
+Before:
+
+```asm
+wait MACRO n
+  dec n
+  jr nz,wait
+MEND
+start
+     ld b,4
+     wait b
+  repeat 3
+  nop
+  rend
+```
+
+After:
+
+```asm
+    MACRO wait n
+        dec n
+        jr nz,wait
+    MEND
+start:
+    ld b,4
+    wait(b)
+    repeat 3
+        nop
+    rend
+```
+
+`--no-detach-labels` and `--no-indent-blocks` opt out of the last two. The
+formatter never canonicalizes — `--normalize` does that, separately, and
+deliberately changes the line count.
+
+A construct it cannot read without guessing is left alone. `sprite 4,12` might
+be a macro call or a label followed by a directive; if the macro is unknown, the
+line comes back untouched.
+
+---
+
+## Snapshots and the base state
+
+An assembler's snapshot contains the assembled bytes and nothing else. A
+`call &BB5A` needs the firmware jumpblock above `&B000`, the system variables,
+the RST vectors, and lower ROM enabled — all of it installed by the ROM at boot,
+none of it produced by assembling.
+
+```bash
+./fantams src.asm -o out.sna --base bases/cpc6128-en.sna
+```
+
+Every address the source actually wrote wins; every other one keeps the base's
+byte. The base's header is authoritative (`SP`, gate array, `I`, `IM`, CRTC,
+palette) and only `PC` is patched.
+
+To capture a base: boot the emulator, wait for `Ready`, save a **version 2**
+snapshot (256-byte header plus a flat 64 K dump). The **ROM** has to match, not
+just the model.
+
+The exported `.sna` carries 64 KB if the source stays within banks 0–3, and
+128 KB as soon as it writes to banks 4–7.
+
+---
+
+## Differences from rasm
+
+fantams started as a simplified rasm fork and has drifted on purpose. The
+divergences below are the ones that change what your source means:
+
+| | rasm | fantams |
+|---|---|---|
+| `repeat` index | starts at **1** | starts at **0** |
+| Macro calls | bare: `sprite 4,12` | bare **or** parenthesized: `sprite(4,12)` |
+| Counted loop over a range | — | **`for k = 1 to n`** / `until` for an exclusive bound |
+| Closing a block | `endif`, `endm`, `rend`, … (`endr` for `repeat`) | the same, **plus `end` for any block** — and `endr` does not exist |
+| `sin` / `cos` | degrees | **radians** |
+| Rounding of halves | up | **away from zero** |
+| Preprocessor output | — | **`-E` writes the unrolled source** |
+| `/` | integer division | **floating-point**; `div` is the integer one |
+
+A few notes on why:
+
+- **`repeat` from 0** matches the index arithmetic you write next to it
+  (`db idx*8`), and is the divergence to keep in mind when porting a source.
+- **Parenthesized calls** are the only form you can read without already knowing
+  the macro list, which matters for a macro coming from an `include` or one not
+  written yet. The bare form still works and warns once per macro; `--beautify`
+  adds the parentheses to the macros it knows.
+- **`end` closes the innermost block**, whatever it is. A named closure that
+  doesn't match is an error that says so.
+- **Radians** because that is what a maths library takes; write
+  `sin(a*3.14159265/180)` for a degree argument.
+
+Also worth knowing: there is no ternary `? :` (the `:` is already the instruction
+separator), and registers, pairs, and conditions are reserved — `for i = …`
+fails, because `i` is a register.
+
+`BUILDSNA`, `BANKSET`, `NOLIST`, and `LIST` are accepted and ignored. `BANK`,
+`SNASET`, `SETCPC`, `CHARSET`, `TICKER`, and `STR` are refused by name rather
+than silently read as labels.
+
+---
+
+## Command line
+
+```
+fantams file.asm [-o out] [-s] [-E] [--beautify] [--normalize] [--strict]
+                 [--no-detach-labels] [--no-indent-blocks]
+                 [--base base.sna] [--sym[=out.sym]]
+```
+
+| Option | Effect |
 |---|---|
-| Base en version 3 (chunks `MEM0`) | refus, en nommant le remplaçant : réenregistrer en v2 |
-| Base de 128 Ko | refus : une base ne peuple que les 64 K de base |
-| Base absente ou illisible | refus — jamais de repli sur des zéros, qui produirait un `.sna` qui démarre et plante au premier appel firmware |
-| `--base` avec une sortie autre que `.sna` | refus : la base est une option du backend `sna` |
+| `-o file` | output; `.sna` selects the snapshot backend, anything else a raw binary |
+| `-s` | print the symbol table |
+| `-E` | write the unrolled source instead of assembling |
+| `--beautify` | format only — no preprocessing, no assembling |
+| `--normalize` | canonicalize without unrolling |
+| `--strict` | refuse anything that is not canonical Z80 |
+| `--no-detach-labels` | keep `label: instruction` on one line |
+| `--no-indent-blocks` | do not indent block bodies |
+| `--base f.sna` | lay the assembled bytes onto a captured machine state (`.sna` output only) |
+| `--sym[=file]` | write the symbol table as CSV; the default path derives from `-o` |
 
-Produire une base : démarrer l'émulateur, attendre le `Ready`, enregistrer un
-snapshot **version 2** (en-tête de 256 octets + dump plat de 64 Ko). C'est la
-**ROM** qui doit correspondre, pas seulement le modèle — voir
-le catalogue de bases de l'hôte (`app/public/bases/` dans z80live).
+`ppdump` is the preprocessor alone, equivalent to `-E`.
 
-Le chevauchement de deux écritures **du source** produit un avertissement qui
-nomme les deux lignes en conflit (une seule ligne par plage contiguë). Écraser la
-base n'en produit jamais aucun : c'est l'usage normal.
+---
 
-Conception et alternatives écartées : `docs/adr/0012-base-snapshot-fusionnee-par-la-coverage.md`.
+## WebAssembly build
 
-## Tests natifs
-
-```bash
-make test        # 382 tests (z80 · expr · pp · parser · asm · beautify · sna)
-```
-
-## Build WASM
-
-Passe par l'image `emscripten/emsdk` (podman/docker) — pas besoin d'emcc local :
+Goes through the `emscripten/emsdk` image under podman or docker, so no local
+`emcc` is needed:
 
 ```bash
-./build-wasm.sh                              # -> dist/fantams.mjs + fantams.wasm
-FANTAMS_OUT_DIR=../z80next/wasm \
-FANTAMS_PUB_DIR=../z80next/app/public/wasm \
-  ./build-wasm.sh                            # dépose chez un hôte
+./build-wasm.sh                             # -> dist/fantams.mjs + fantams.wasm
+FANTAMS_OUT_DIR=../myapp/wasm ./build-wasm.sh
 ```
 
-`FANTAMS_OUT_DIR` / `FANTAMS_PUB_DIR` sont les deux seules choses que fantams
-sait de son hôte : où poser les deux fichiers. Chemins relatifs résolus depuis le
-dossier d'appel. Le script ne recompile que si une source est plus récente que le
-`.wasm` (ou que la copie publiée diverge) — `--force` l'impose.
+The result is an ES6 module (`export default createFantams`) exposing `callMain`
+and `FS`, with no auto-run — usable from Node and from a browser.
+`FANTAMS_OUT_DIR` and `FANTAMS_PUB_DIR` say where to drop the two files; relative
+paths resolve from the calling directory. Nothing is recompiled unless a source
+is newer than the `.wasm`, and `--force` overrides that.
 
-Flags notables : 
- * `-fexceptions` - sans lui, tout `throw` devient `abort()` en WASM,
- * `-sSTACK_SIZE=8388608` (parseur récursif), 
+Two flags matter: `-fexceptions`, without which every `throw` becomes `abort()`,
+and `-sSTACK_SIZE=8388608`, because the parser recurses.
 
-## Intégration chez l'hôte
+---
 
-Ce qui suit décrit la façon dont z80live consomme fantams — c'est la
-documentation du contrat, pas du code de ce repo.
+## Documentation
 
-Côté hôte, `wasm/assemble.mjs` expose l'assembleur via `assembler: 'fantams'` (ou la directive
-`;z80: assembler=fantams` en tête de source). `wrapFantams` injecte un en-tête
-`org`/`run` (syntaxe lite, **pas** `BUILDSNA`) si absent. Sortie `.sna` byte-identique
-au binaire natif.
-
-La base voyage par `; z80: base=<id>` ou par l'option `base` de l'appel : l'hôte
-résout l'**identifiant de catalogue** en fichier, l'écrit dans le FS wasm et
-passe `--base <chemin>`. Le cœur ne voit jamais un id ni une URL. `base=none`
-annule une base héritée d'une couche inférieure (la valeur vide, elle, est
-indistinguable de l'absence dans `buildDirectiveLine`).
-
-### Priorité entre les sources d'options
-
-De la plus forte à la plus faible :
-
-1. **option explicite** passée à l'invocation (CLI, appel d'API) ;
-2. **directive `;z80:`** en tête de source ;
-3. **fiche en base** (colonnes `assembler`, `buildmode`, `entry_point`) ;
-4. **défaut du code** (`fantams`, `org #8000`…).
-
-La directive fait donc autorité sur le **stocké**, non sur l'**explicite** —
-sinon toucher un réglage de l'éditeur resterait sans effet.
-
-Où chaque niveau existe réellement :
-
-- la **CLI** est le niveau explicite : elle ne lit aucune directive `;z80:`, ses
-  options s'appliquent telles quelles ;
-- dans l'hôte JS (`assemble()`), les options passées par l'appelant sont du
-  **stocké** : la directive les écrase (`{ ...raw, ...parseDirectives(code) }`),
-  ce qui est voulu — `scripts/export-sna.mjs` alimente ces options depuis les
-  colonnes de la fiche ;
-- dans l'éditeur z80live, les contrôles ne passent pas par-dessus : ils
-  **réécrivent la directive** (`upsertDirectives`) avant d'assembler, de sorte
-  que la seule autorité visible reste le source.
-
-Une contradiction entre deux couches se règle en faveur de la plus forte, avec un
-avertissement (base écartée parce que la sortie n'est pas un snapshot, par
-exemple). Une contradiction **au sein d'un même appel** est une erreur : là,
-l'appelant se contredit lui-même.
-
-> Piste différée (jugée trop complexe pour l'instant) : binder `pp::preprocess`
-> seul pour **afficher** la source expansée dans l'éditeur (pas de preview live).
+- [`docs/syntax.md`](docs/syntax.md) — the full syntax reference
+- [`docs/principes.md`](docs/principes.md) — design principles
+- [`docs/adr/`](docs/adr) — architecture decision records
+- [`CONTEXT.md`](CONTEXT.md) — the codebase, module by module
