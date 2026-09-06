@@ -133,7 +133,8 @@ exister ici.
 `asm.cpp` conflait jusqu'ici les deux notions : `image_` est un tableau plat de
 65 536 octets et `emit()` écrit en `image_[pc_ & 0xFFFF]`. Il n'existe aucun
 endroit où loger une banque — le modèle mémoire est à remplacer, pas à étendre. De
-même, `sna::build()` exige une image de 64 K exactement, et `compare.mjs` ne
+même, `sna::build()` exige une image de 64 K exactement, et le harnais de
+comparaison de z80live-lite (`scripts/compare/`) ne
 reconstruit que le chunk `MEM0`, avec le commentaire « fantams ne gère pas le
 multi-bank » : sans mise à jour, tout code écrit en banque 4 serait déclaré
 identique à la référence sans jamais avoir été lu.

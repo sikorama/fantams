@@ -5,8 +5,9 @@ status: accepted
 # `sin` et `cos` prennent des radians, divergence délibérée avec rasm
 
 `sin(x)` et `cos(x)` interprètent `x` en **radians**. rasm l'interprète en
-degrés, et fantams reproduisait ce comportement. C'est la deuxième divergence
-assumée avec la sortie de rasm, après l'arrondi (ADR 0009).
+degrés, et fantams reproduisait ce comportement. C'est la seule divergence
+assumée avec la sortie de rasm en arithmétique : l'arrondi, lui, reste celui de
+rasm.
 
 ## Contexte
 
@@ -39,8 +40,8 @@ sin(angle*3.14159265/180)
 ## Conséquences
 
 Toute source rasm utilisant `SIN`/`COS` produit désormais des octets
-**différents**. Le corpus de non-régression mesuré à l'ADR 0009 comptait 6
-sources sur 84 dans ce cas : elles ne peuvent plus servir de comparaison
+**différents**. Le corpus de non-régression comptait 6 sources sur 84
+utilisant `SIN`/`COS` : elles ne peuvent plus servir de comparaison
 bit-à-bit avec rasm et doivent être re-baselinées sur fantams. La divergence est
 silencieuse — aucun diagnostic ne la signale, parce qu'aucune expression n'est
 en soi suspecte.

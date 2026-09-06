@@ -1,14 +1,32 @@
-# La mise en forme préserve les lignes et refuse de deviner
+---
+status: accepted
+---
+
+# La mise en forme refuse de deviner
 
 Le beautify est une passe texte vers texte, indépendante du préprocesseur et de
-l'assembleur, tenue par trois règles :
+l'assembleur, tenue par quatre règles :
 
-1. **Bijection sur les lignes.** La ligne *n* de l'entrée devient la ligne *n* de
-   la sortie. Jamais de scission, jamais de jointure.
-2. **Refus de deviner.** Le deux-points n'est ajouté qu'à un label **seul sur sa
-   ligne**. Un premier mot suivi de quoi que ce soit est laissé intact.
-3. **Rien de paramétrable.** Quatre espaces, pas de largeur configurable, pas de
-   directive dans le source, pas d'option d'invocation pour choisir les règles.
+1. **Le deux-points.** Un label **seul sur sa ligne** le reçoit. Un premier mot
+   suivi de quoi que ce soit est laissé intact — sauf s'il est suivi d'un mot
+   réservé, qui lève l'ambiguïté (amendement plus bas).
+2. **L'indentation.** Tout ce qui est du code — instructions **et** directives —
+   est indenté de quatre espaces.
+3. **Le détachement.** `label: instruction` devient deux lignes, pour que tous
+   les opcodes s'alignent. `--no-detach-labels` l'annule.
+4. **La colonne 1 aux labels, un cran par bloc.** Un label part en colonne 1 ; le
+   corps d'un bloc prend un cran de plus. `--no-indent-blocks` annule le second
+   point.
+
+Deux propriétés encadrent ces règles :
+
+- **Rien n'est paramétrable depuis le source.** Quatre espaces, pas de largeur
+  configurable, pas de directive de mise en forme. Les deux seules options
+  d'invocation ci-dessus désactivent, elles ne règlent pas.
+- **La bijection sur les lignes** — la ligne *n* de l'entrée reste la ligne *n*
+  de la sortie — n'est vraie que sous `--no-detach-labels`, la règle 3 la rompant
+  par défaut. Elle reste testée sous cette option. L'histoire de ce renoncement
+  est au premier amendement.
 
 ## Contexte
 
@@ -16,7 +34,7 @@ L'assembleur signale deux écarts de mise en forme : un label écrit sans son
 deux-points, et une instruction laissée en colonne 1. Signaler sans savoir
 corriger fait porter à l'auteur un travail purement mécanique — d'où cette
 passe. Mais une passe qui réécrit du source est une passe qui peut le détruire,
-et chacune des trois règles ferme une porte précise.
+et chacune des décisions ci-dessous ferme une porte précise.
 
 **La bijection** protège la provenance. Un diagnostic se recale dans l'éditeur
 par un décalage de lignes ; une source déroulée porte le fichier et la ligne
@@ -51,7 +69,7 @@ colonne 1) et noierait le signal que l'avertissement existe pour porter.
 **Le rien-de-paramétrable** est l'ADR 0004 appliqué à l'entrée plutôt qu'à la
 sortie. Chaque règle ajoutée est une règle que quelqu'un voudra désactiver, et
 chaque paramètre exige un endroit où le mettre — un cran de plus vers la
-directive de mise en forme dans le source. Les deux règles retenues ont
+directive de mise en forme dans le source. Les règles retenues ont
 l'avantage rare d'être déjà justifiées par un avertissement existant. La casse
 des mnémoniques ne l'est pas : rien ne dit aujourd'hui si `ld` ou `LD` est
 correct, et le beautify n'est pas l'endroit où en décider.
@@ -91,7 +109,7 @@ contresens, d'où le drapeau séparé plutôt qu'une option de `-E`.
 
 Trois propriétés sont tenues par les tests, dans cet ordre de gravité : les
 octets assemblés sont inchangés ; la mise en forme est idempotente ; les deux
-avertissements s'éteignent, aux exceptions de la règle 2 près — un test vérifie
+avertissements s'éteignent, aux exceptions de la règle 1 près — un test vérifie
 justement qu'un avertissement **survit** sur `sprite 4,12`.
 
 La source déroulée étant mise en forme par définition, le préprocesseur perd son
@@ -105,9 +123,10 @@ une correction d'un goût.
 
 ## Amendement — la préservation des lignes ne survit qu'en option
 
-Le titre de cet ADR est désormais inexact pour le beautify lui-même. Sa règle 3
-(ADR 0017) détache « label: instruction » en deux lignes, par défaut, et rompt
-donc la bijection.
+Cet ADR posait d'abord la bijection sur les lignes en première règle, et son
+titre l'annonçait. La règle 3 (ADR 0017) détache « label: instruction » en deux
+lignes, par défaut, et rompt donc la bijection : elle a cessé d'être une règle
+pour devenir une propriété conditionnelle, et le titre a suivi.
 
 Ce qui a rendu la décision possible est que la justification écrite ici était
 fausse. Cet ADR affirmait que la bijection protégeait « la provenance et le
@@ -125,7 +144,7 @@ La préservation des lignes reste vraie, et testée, sous `--no-detach-labels`.
 
 ## Amendement — refuser de deviner n'est pas refuser de regarder
 
-La règle 2 telle qu'elle est énoncée plus haut — « le deux-points n'est ajouté
+La règle 1 telle qu'elle était énoncée d'abord — « le deux-points n'est ajouté
 qu'à un label **seul sur sa ligne** » — détruisait du source. Elle repose sur
 cette phrase, qui est fausse :
 
@@ -146,7 +165,7 @@ endm
 
 le beautify écrivait `fill_screen:`, changeant l'appel en label — c'est-à-dire
 en rien. Le source s'assemblait toujours, et ne faisait plus rien. C'est
-exactement le mode de défaillance que la règle 2 existait pour empêcher.
+exactement le mode de défaillance que la règle 1 existait pour empêcher.
 
 Symétriquement, la règle était trop timide dans l'autre sens : `pcoltab dw
 coltab` était laissé intact alors qu'il est **décidable** — `dw` est un mot
@@ -183,7 +202,8 @@ symétrique : un avertissement laissé debout coûte une correction à la main, 
 appel de macro détruit coûte une séance de débogage sur du code qui s'assemble
 sans rien faire.
 
-Le nombre de règles ne change pas. C'est toujours trois.
+Le nombre de règles ne change pas : l'amendement précise la règle 1, il n'en
+ajoute pas une.
 
 ## Amendement — règle 4 : la colonne 1 aux labels, un cran par bloc
 

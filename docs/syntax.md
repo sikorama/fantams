@@ -97,8 +97,7 @@ are interchangeable, and `'A'` is in no way different from `"A"` (ADR 0010).
 | `min` `max` | 2 | |
 | `sizeof` | 1 | size of a `struct` |
 
-Rounding departs from zero on halves, a deliberate divergence from rasm
-(ADR 0009).
+Halves round **up** (`3.5 → 4`, `-3.5 → -3`), like rasm.
 
 `sin` and `cos` take **radians**, another deliberate divergence: rasm takes
 degrees (ADR 0021). Write `sin(a*3.14159265/180)` for a degree argument.
@@ -467,7 +466,6 @@ rasm headers with no effect here.
 | Point | rasm | fantams |
 |---|---|---|
 | `repeat` index | starts at 1 | starts at **0** (ADR 0016) |
-| rounding of halves | toward up | **away from zero** (ADR 0009) |
 | module syntax | — | assumed divergence |
 | macro call | bare | bare **or parenthesized** (ADR 0018) |
 | `endr` | absent | absent |

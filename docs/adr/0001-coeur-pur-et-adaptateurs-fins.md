@@ -1,16 +1,20 @@
+---
+status: accepted
+---
+
 # Cœur pur et adaptateurs fins, plutôt qu'un CLI émulé
 
-Le cœur de fantams est une fonction pure sans état ni entrées-sorties : les six
-modules ne contiennent aucun `fstream`/`fopen`, et les fichiers inclus arrivent
+Le cœur de fantams est une fonction pure sans état ni entrées-sorties : les neuf
+modules (`z80`, `keywords`, `expr`, `pp`, `parser`, `asm`, `beautify`, `sna`,
+`sym`) ne contiennent aucun `fstream`/`fopen`, et les fichiers inclus arrivent
 par le callback `pp::FileProvider`. Nous en faisons un invariant et exposons ce
-cœur directement à chaque hôte (CLI natif, WASM, serveur, CI, MCP) via un
-adaptateur fin, au lieu de faire imiter à fantams l'interface en ligne de
-commande de rasm et sjasmplus.
+cœur à chaque hôte via un adaptateur fin, au lieu de faire imiter à fantams
+l'interface en ligne de commande de rasm et sjasmplus.
 
 ## Contexte
 
 L'intégration WASM initiale reproduisait un CLI — `argv`, `callMain`, système de
-fichiers virtuel — pour que `wasm/assemble.mjs` traite les trois assembleurs par
+fichiers virtuel — pour qu'un hôte JS traite les trois assembleurs par
 un chemin unique. rasm et sjasmplus sont des programmes externes non
 modifiables ; fantams ne l'est pas, et payait ce coût d'imitation sans
 contrepartie : `-sFORCE_FILESYSTEM`, l'écriture de `/in.asm` puis la relecture du
@@ -22,19 +26,23 @@ venaient pas de l'assembleur mais de `wrapFantams`, dont la regex `hasLiteOrg`
 devinait à tort qu'une source portait déjà son `ORG` parce qu'elle en contenait
 un 200 lignes plus bas. L'encodeur, lui, était byte-identique à rasm.
 
+## Ce qui est acquis, et ce qui ne l'est pas
+
+**L'invariant tient.** Aucun des neuf modules ne fait d'entrées-sorties, et
+`pp::FileProvider` reste le seul chemin par lequel un `include` atteint un
+fichier. C'est ce qui permet au même cœur de servir le CLI natif et le WASM sans
+qu'aucun des deux ne contamine l'autre.
+
+**L'adaptateur fin, lui, reste à écrire.** L'intégration WASM est toujours le CLI
+émulé que cet ADR voulait remplacer : `build-wasm.sh` exporte `callMain` et `FS`
+sous `-sFORCE_FILESYSTEM=1`, et l'hôte fabrique encore un en-tête `org`/`run`
+concaténé en tête de source, décidé par la regex `hasLiteOrg` — celle-là même
+qui causait les deux divergences d'octets décrites plus haut. Tant que cet
+adaptateur n'existe pas, la partie « exposer le cœur directement » de cette
+décision est une intention et non un état.
+
 ## Conséquences
 
-Les paramètres (`org`, `run`, options de backend) passent par une structure, plus
-par du texte concaténé en tête de source : il n'y a plus d'en-tête à fabriquer ni
-de regex à avoir raison. Les diagnostics sortent structurés — `pp::Diagnostic` et
-`asmb::Diagnostic` existent déjà mais étaient aplatis en `fprintf(stderr)`, au
-point que le harnais de comparaison devait les reparser par expression
-régulière.
-
-En contrepartie, fantams cesse d'être interchangeable avec rasm et sjasmplus dans
-`assemble.mjs` : il y devient un cas particulier, mieux traité que les deux
-autres. C'est le prix assumé.
-
 La règle de tri qui en découle, et qui protège le projet des dérives reprochées à
-rasm : **une fonctionnalité qui n'a pas de sens pour les cinq hôtes est un
+rasm : **une fonctionnalité qui n'a pas de sens pour tous les hôtes est un
 adaptateur, pas le cœur.**

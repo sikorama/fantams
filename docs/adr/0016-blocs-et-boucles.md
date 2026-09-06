@@ -13,7 +13,7 @@ porte des bornes écrites.
 
 ## Contexte des fermetures
 
-`findMatching` (`pp.cpp:623`) compte la profondeur sur **une seule paire** de
+`findMatching` (`pp.cpp`) compte la profondeur sur **une seule paire** de
 mots-clés : elle est appelée avec `{"REPEAT"}, {"REND"}`. Elle ne sait donc pas
 quel bloc est ouvert, seulement combien d'ouvreurs d'un type donné restent à
 fermer. Deux conséquences : un `end` polyvalent est impossible — le premier `end`

@@ -13,9 +13,9 @@ de registres et de conditions entrent dans le vocabulaire réservé.
 
 La règle n'existait ni dans son périmètre, ni dans ses positions.
 
-`isReservedWord` (`keywords.h:40`) couvre les mnémoniques et les directives, par
+`isReservedWord` (`keywords.h`) couvre les mnémoniques et les directives, par
 phase. Les **registres et conditions** vivaient dans un ensemble privé de
-`pp.cpp:414`, invisible du reste du projet, alors qu'ils décrivent le vocabulaire
+`pp.cpp`, invisible du reste du projet, alors qu'ils décrivent le vocabulaire
 de la machine — exactement la duplication que l'en-tête de `keywords.h` dit avoir
 supprimée pour les labels. Conséquence : `hl equ 5` et `c = 7` passaient.
 
@@ -26,7 +26,7 @@ sans préprocesseur — définissait donc bien un label nommé `call` sur `call:
 
 Le cas qui a forcé la décision est celui du bug muet. Un compteur ou un
 paramètre nommé `c` est substitué dans `db c` et **ne l'est pas** dans `ld a,c`,
-où la protection des noms de registres (`pp.cpp:414`) le laisse lire comme un
+où la protection des noms de registres (`pp.cpp`) le laisse lire comme un
 registre. Deux lectures du même nom sur deux lignes voisines, et rien dans la
 ligne ne dit laquelle s'applique. Le code s'assemble et fait autre chose.
 
@@ -62,7 +62,7 @@ est utile de savoir lequel s'applique.
 
 Pour un mnémonique, une directive ou un mot-clé du préprocesseur, le
 préprocesseur ne lisait déjà pas `call:` comme un label : `splitStatements`
-(`pp.cpp:172`) traite ce deux-points comme un **séparateur d'instructions**, ce
+(`pp.cpp`) traite ce deux-points comme un **séparateur d'instructions**, ce
 qui est licite et idiomatique — `ei: ret` vaut `ei` puis `ret`. Aucun label nommé
 `call` ne pouvait donc naître par ce chemin ; ce qui manquait était le
 diagnostic, qui parlait de style là où il y a une règle. Il le dit désormais.

@@ -20,7 +20,7 @@ couche d'assemblage épurée ?
 Une première réponse invoquait les adresses : une réécriture qui change le nombre
 d'octets émis devrait vivre avant elles. **Elle est fausse.** `push hl,de` rend
 deux octets, et ce compte est déterminé par la ligne source ; aucune adresse n'est
-en jeu. La preuve est dans le code : `emitDB` (`asm.cpp:332`) émet déjà N octets à
+en jeu. La preuve est dans le code : `emitDB` (`asm.cpp`) émet déjà N octets à
 partir d'une ligne, dans l'assembleur, sans difficulté. Émettre deux opcodes
 depuis une ligne, c'est deux appels à `emit`.
 
@@ -58,7 +58,7 @@ détachement des labels n'en relèvent pas : ce sont des styles, donc des option
 
 ## La canonisation est la dernière étape
 
-Elle n'intervient qu'en aval de toute substitution. `emit` (`pp.cpp:551-559`)
+Elle n'intervient qu'en aval de toute substitution. `emit` (`pp.cpp`)
 applique `splitStatements` puis `expandPushPop` sur le résultat de
 `substituteVars`, lui-même postérieur aux `{...}`. C'est ce qui répond au cas
 d'un argument de macro **valant** `ld hl,de` et utilisé en `{x}` : la ligne émise
@@ -110,7 +110,7 @@ elle ne peut pas être portée par le préprocesseur, qui déroule.
 
 ## Le beautify
 
-Indentation remplacée par quatre espaces (`beautify.cpp:10`, à rendre
+Indentation remplacée par quatre espaces (`beautify.cpp`, à rendre
 paramétrable plus tard), deux-points ajouté au label seul sur sa ligne, et
 **labels détachés de l'instruction par défaut**, avec `--no-detach-labels` pour
 s'en dispenser.
@@ -159,7 +159,7 @@ rien : il passera dès le premier jour, puisqu'elles sont déjà canoniques, et 
 ## Conséquences
 
 La **politique des alias** reste différée : l'état actuel — l'assembleur accepte
-neuf orthographes pour trois directives (`asm.cpp:410-412`) — est la réponse
+neuf orthographes pour trois directives (`asm.cpp`) — est la réponse
 laxiste par défaut, et le mode strict rend son maintien sans coût sur la pureté.
 La renverser plus tard serait un changement mécanique confiné à ces lignes et à
 leurs tests, avec un prix connu : `asm_test.cpp` exerce l'assembleur **sans**

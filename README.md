@@ -284,7 +284,6 @@ divergences below are the ones that change what your source means:
 | Counted loop over a range | — | **`for k = 1 to n`** / `until` for an exclusive bound |
 | Closing a block | `endif`, `endm`, `rend`, … (`endr` for `repeat`) | the same, **plus `end` for any block** — and `endr` does not exist |
 | `sin` / `cos` | degrees | **radians** |
-| Rounding of halves | up | **away from zero** |
 | Preprocessor output | — | **`-E` writes the unrolled source** |
 | `/` | integer division | **floating-point**; `div` is the integer one |
 
@@ -299,7 +298,8 @@ A few notes on why:
 - **`end` closes the innermost block**, whatever it is. A named closure that
   doesn't match is an error that says so.
 - **Radians** because that is what a maths library takes; write
-  `sin(a*3.14159265/180)` for a degree argument.
+  `sin(a*3.14159265/180)` for a degree argument. Rounding, on the other hand, is
+  rasm's: halves go up, so `-3.5` gives `-3`.
 
 Also worth knowing: there is no ternary `? :` (the `:` is already the instruction
 separator), and registers, pairs, and conditions are reserved — `for i = …`

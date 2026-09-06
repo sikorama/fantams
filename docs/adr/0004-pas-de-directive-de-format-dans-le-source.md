@@ -1,10 +1,13 @@
+---
+status: accepted
+---
+
 # Aucune directive de format de sortie dans le source
 
 Le format produit et ses paramètres — modèle de CPC, contenu de l'en-tête du
 snapshot, géométrie d'une disquette — sont fixés à l'invocation, jamais par une
-directive écrite dans le source. `SNASET`, `SETCPC` et leurs équivalents pour
-l'export DSK sont acceptés en compatibilité rasm, avec un avertissement de
-dépréciation indiquant l'option correspondante.
+directive écrite dans le source. `SNASET` et `SETCPC` sont **refusés**, par un
+message qui nomme le remplaçant : passer l'information à l'invocation.
 
 ## Contexte
 
@@ -28,8 +31,10 @@ tri de l'ADR 0001 et le premier cas concret qui la met à l'épreuve.
 
 En contrepartie, une source rasm qui s'appuyait sur `SNASET` pour se décrire
 elle-même perd cette autonomie : l'information doit être transmise au moment de
-l'invocation. L'avertissement de dépréciation existe pour rendre cette migration
-explicite plutôt que silencieuse.
+l'invocation. Le refus la porte au grand jour plutôt que de laisser croire, par
+un simple avertissement, que la directive a quand même agi — un `SNASET` ignoré
+en silence produirait un snapshot dont l'en-tête n'est pas celui que le source
+annonce.
 
 Cette décision ne couvre pas `ORG` ni le placement en banque, qui décrivent où le
 programme s'exécute et relèvent donc bien du source.

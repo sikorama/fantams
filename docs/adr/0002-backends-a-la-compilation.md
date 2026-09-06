@@ -1,8 +1,12 @@
-# Backends de format sélectionnés à la compilation, pas de plugins dynamiques
+---
+status: accepted
+---
 
-Les producteurs de formats de sortie (`sna`, plus tard `dsk`) sont des backends
-derrière une interface commune, choisis dans une table statique à la
-compilation. Nous renonçons explicitement au chargement dynamique.
+# Pas de plugins dynamiques : l'extensibilité se paie à la compilation
+
+Nous renonçons explicitement au chargement dynamique de code dans fantams. Un
+format de sortie s'ajoute en recompilant, jamais en chargeant un module au
+lancement.
 
 ## Contexte
 
@@ -12,15 +16,13 @@ sous forme de plugins, se heurte à la cible réelle du projet : WASM n'a pas de
 runtime regonflé — précisément ce que nous cherchons à éviter.
 
 Dans cette cible, « plugin » ne peut donc signifier que modularité à la
-compilation derrière une interface stable. `sna.h` a déjà exactement cette forme :
-fonction pure, options en structure, sans état ni entrées-sorties. Ajouter un
-format revient à un fichier de plus avec la même signature et une ligne dans la
-table.
+compilation derrière une interface stable. `sna.h` en donne la forme : fonction
+pure, options en structure, sans état ni entrées-sorties.
 
-> **Amendé par l'ADR 0007.** Le contrat décrit ici sur le modèle de
-> `sna::build()` — une fonction rendant un `vector<uint8_t>` unique — ne tient
-> pas : plusieurs formats produisent plusieurs fichiers. Un backend rend un
-> ensemble d'artefacts nommés. Ce qui suit reste valable par ailleurs.
+Quelle interface exactement, et comment les formats se composent, ne relève pas
+de cet ADR : c'est l'objet de l'ADR 0007. Aujourd'hui, un seul backend existe —
+`sna` — et le choix entre lui et le binaire brut se fait sur l'extension de
+`-o`, dans l'adaptateur CLI.
 
 ## Conséquences
 

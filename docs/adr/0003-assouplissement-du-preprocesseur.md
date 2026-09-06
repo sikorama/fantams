@@ -15,10 +15,10 @@ résoluble au temps préprocesseur y est une erreur et non un report.
 
 `pp.h` documentait la contrainte ainsi : « le contrôle de flux (IF/REPEAT/WHILE)
 exige des expressions résolubles au préprocesseur. Une référence à un label
-temps-assemblage est une erreur. » Concrètement, `evalPP` (`pp.cpp:298-307`) ne
+temps-assemblage est une erreur. » Concrètement, `evalPP` (`pp.cpp`) ne
 consulte que trois tables — compteurs de boucle, `ppvars` alimentée uniquement
 par `LET`, et arguments de macro — et `pp.cpp` ne parse jamais `EQU` ni
-`nom = expr`. Cette détection n'existe que dans `asm.cpp:302`, soit après
+`nom = expr`. Cette détection n'existe que dans `asm.cpp`, soit après
 l'échec du préprocesseur.
 
 La mesure sur le corpus a tranché. Sur 121 sources rasm qui n'assemblent pas,
@@ -44,10 +44,10 @@ argument contre l'assouplissement : elle est la raison d'être de l'outil qui la
 rend vérifiable. Nous relâchons la contrainte et nous appuyons sur la source
 déroulée, complétée d'avertissements, plutôt que sur un refus en amont.
 
-Le mécanisme existe d'ailleurs déjà côté assembleur : `asm.cpp:125-135` réévalue
+Le mécanisme existe d'ailleurs déjà côté assembleur : `asm.cpp` réévalue
 les `EQU`/`=` jusqu'à point fixe pour gérer les références avant. Cette décision
 étend un comportement en place, elle n'en introduit pas un nouveau. De même,
-`findAssign()` (`asm.cpp:91-101`) sait déjà repérer un `=` d'assignation hors
+`findAssign()` (`asm.cpp`) sait déjà repérer un `=` d'assignation hors
 chaîne en écartant `==`, `<=`, `>=` et `!=` : le préprocesseur le réutilise.
 
 ## Frontière conservée

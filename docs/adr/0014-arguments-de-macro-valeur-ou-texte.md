@@ -19,13 +19,13 @@ L'asymétrie vient de deux chemins distincts. `repeat <expr>` est une expression
 **évaluée** par `evalPP`, dont le résolveur consulte quatre tables — compteurs,
 `ppvars`, arguments, `asmvars`. Un corps de macro, lui, est **émis** : la
 substitution textuelle des lignes émises est faite par `substituteVars`
-(`pp.cpp:444`), qui ne consulte que les compteurs et `ppvars`. Ni les arguments,
+(`pp.cpp`), qui ne consulte que les compteurs et `ppvars`. Ni les arguments,
 ni `asmvars`.
 
 Pour `asmvars` l'omission est justifiée et invisible : `db high` n'a pas besoin
 de substitution, l'assembleur connaît le symbole. Pour un argument de macro elle
 est pénalisante : l'argument n'existe pas côté assembleur, donc s'il n'est pas
-substitué au préprocesseur il n'existe nulle part. `{}` (`pp.cpp:367`) était le
+substitué au préprocesseur il n'existe nulle part. `{}` (`pp.cpp`) était le
 seul chemin. Cette règle n'était écrite nulle part, et sa violation ne produisait
 aucun diagnostic — seulement un `unknown symbol` plus loin, ou du silence si un
 vrai symbole portait le nom du paramètre.
@@ -69,7 +69,7 @@ C'est aussi ce qui a fait amender l'ADR 0011 : `{X}` n'évalue pas toujours.
 l'environnement de l'**appelant**. La forme nue lit la valeur, `{}` lit le texte.
 
 Ce choix ferme une question restée ouverte : `evalPP` évaluait un argument avec
-un résolveur **vide** (`pp.cpp:326-327`), si bien que `MAC high` avec un corps
+un résolveur **vide** (`pp.cpp`), si bien que `MAC high` avec un corps
 faisant `repeat n` échouait, alors que `repeat high` marche hors macro. Avec
 l'évaluation avide, rien dans le corps n'a besoin du contexte de l'appelant : un
 argument arrive déjà résolu ou ne le sera jamais. Le résolveur vide devient la

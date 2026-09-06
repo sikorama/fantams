@@ -1,8 +1,15 @@
 ---
-status: accepted
+status: proposed
 ---
 
 # Pipeline d'export en trois couches, et noms de morceaux dérivés
+
+> **Rien de cet ADR n'est écrit.** Il n'existe aujourd'hui qu'un seul format —
+> `sna` — plus le binaire brut, choisis sur l'extension de `-o` dans
+> l'adaptateur CLI. Ni découpage, ni morceaux nommés, ni DSK, ni CPR, ni CRO, ni
+> en-tête AMSDOS. Ce document décrit la forme visée le jour où un deuxième
+> format arrivera ; il est conservé pour cela, et pour le piège RLE consigné
+> plus bas.
 
 L'export se décompose en trois couches composables plutôt qu'en un backend
 monolithique par format :
@@ -33,6 +40,13 @@ AMSDOS sur disquette » vient sans effort supplémentaire.
 
 ## Le SNA reste à part
 
+> **Dépassé par l'ADR 0006 sur les chunks.** Le paragraphe qui suit tranchait
+> pour les chunks `MEM0`/`MEM1` de la version 3. L'ADR 0006 a tranché l'inverse,
+> et c'est lui qui est implémenté : `sna.cpp` écrit un dump plat de 64 ou 128 Ko
+> (`h[0x6B]`), au motif que tout ce qui lit un dump de 64 K lit un dump de
+> 128 K. Les chunks restent le bon format au-delà de 128 K et pour la
+> compression, ce que le reste du paragraphe décrit encore utilement.
+
 Le SNA n'est pas un conteneur de morceaux mais un état machine : il lui faut la
 mémoire entière plus des registres, une palette et un état CRTC, que `sna.cpp`
 fabrique déjà. Il ne reçoit donc pas de morceaux nommés mais la collection
@@ -50,7 +64,7 @@ accepte les deux, et elle peut donc arriver après. Un piège à ne pas manquer 
 jour où elle sera écrite — l'encodage est `0xE5 <compte> <valeur>`, et un octet
 `0xE5` littéral doit être échappé en `0xE5 0x00`, sur deux octets et sans
 troisième. Cette exception est vérifiée empiriquement contre la sortie de rasm
-(`compare/compare.mjs`, fonction `decodeRLE`).
+(fonction `decodeRLE` du harnais de comparaison de z80live-lite).
 
 ## Nommage
 
@@ -76,11 +90,10 @@ l'exécution — où charger le bloc — plutôt qu'une étiquette arbitraire.
 
 ## Conséquences
 
-**Cet ADR amende l'ADR 0002.** Le contrat de backend y était décrit sur le modèle
-de `sna::build()`, qui rend un `vector<uint8_t>` unique. Le binaire brut, le
-binaire AMSDOS et le DSK produisent plusieurs fichiers : un backend rend un
-ensemble d'artefacts nommés. Le fond de l'ADR 0002 — sélection à la compilation,
-aucun chargement dynamique — reste inchangé.
+**Le contrat de backend n'est pas celui de `sna::build()`**, qui rend un
+`vector<uint8_t>` unique. Le binaire brut, le binaire AMSDOS et le DSK
+produisent plusieurs fichiers : un backend rend un ensemble d'artefacts nommés.
+Le fond de l'ADR 0002 — aucun chargement dynamique — n'est pas touché.
 
 Sur un DSK, les huit caractères sont saturés : il ne reste aucune place pour un
 préfixe. Le seul degré de liberté restant est l'extension, sur trois caractères.
