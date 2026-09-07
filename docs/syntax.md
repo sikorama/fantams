@@ -145,6 +145,28 @@ same section is measured while assembling, and refused there if it leaves
 there. No guard byte is ever emitted without its relocation, so an out-of-range
 jump is never silent.
 
+### Separate assembly
+
+| Command | Effect |
+|---|---|
+| `fantams a.asm -o a.fo` | assembles **only**, and writes the object |
+| `fantams a.fo b.fo -o prog.bin` | links objects into a binary |
+
+The output kind is read from the extension, as `.sna` already was: `-o x.fo`
+stops after assembling. An input ending in `.fo` is an object already assembled,
+so it is read back rather than reassembled.
+
+A `.fo` is **text**, on purpose: a wrong object is read by eye, which is worth
+more than anything at the stage that introduces relocation. It carries the
+sections and their fragments, the symbols, the relocations, and the bytes in
+hexadecimal — one object line per source line that wrote bytes, so provenance
+travels without a number per byte. Writing it, reading it back and writing it
+again gives the **same text**. A malformed one is refused with a diagnostic that
+names the faulty line.
+
+The `--sym` table is a **subset** of the `symbol` block: same names, plus the
+scope and the fragment each one is anchored in.
+
 ### Scope between objects
 
 | Directive | Effect |

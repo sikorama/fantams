@@ -1,8 +1,12 @@
 // asm_main.cpp - end-to-end CLI: .asm source -> preprocessor -> assembler -> .bin
 //
-//   fantams file.asm [-o out] [-s] [-E] [--strict] [--beautify] [--normalize]
-//           [--no-detach-labels] [--no-indent-blocks] [--base base.sna]
+//   fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify]
+//           [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna]
 //     -o : output binary file (default: <source>.bin)
+//          Le TYPE de sortie se deduit de l'extension, comme pour .sna :
+//          « -o x.fo » assemble SEUL et ecrit l'objet, sans linker.
+//          Et une entree « .fo » est un objet DEJA assemble : on le relit au
+//          lieu de l'assembler. C'est ce que la compilation separee demande.
 //     -s : print the symbol table
 //     --base : reference snapshot the assembled bytes are laid onto (ADR 0012).
 //          Only meaningful for a .sna output. Every address the source did NOT
@@ -38,6 +42,7 @@
 //          canonise deja PUIS deroule : deux sorties differentes.
 #include "asm.h"
 #include "beautify.h"
+#include "fo.h"
 #include "link.h"
 #include "pp.h"
 #include "sna.h"
@@ -59,6 +64,7 @@ static bool readFile(const std::string &path, std::string &out) {
 
 int main(int argc, char **argv) {
     std::string path, outPath, basePath;
+    std::vector<std::string> inputs;
     bool showSyms = false;
     bool dumpOnly = false;
     bool beautifyOnly = false;
@@ -84,9 +90,19 @@ int main(int argc, char **argv) {
         else if (a == "--strict") strict = true;
         else if (a == "--no-detach-labels") detachLabels = false;
         else if (a == "--no-indent-blocks") indentBlocks = false;
-        else path = a;
+        else inputs.push_back(a);
     }
-    if (path.empty()) { fprintf(stderr, "usage: fantams file.asm [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]]\n"); return 2; }
+    if (!inputs.empty()) path = inputs.front();
+    // Un `.fo` en ENTREE est un objet deja assemble : on le relit au lieu de
+    // l'assembler. Un `.fo` en SORTIE demande l'inverse — assembler seul, et
+    // s'arreter la. Deduit de l'extension, comme `.sna` : c'est le fichier qui
+    // dit ce qu'il est, et l'auteur n'a pas un drapeau de plus a retenir.
+    auto isFo = [](const std::string &p) {
+        return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
+    };
+    if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]]\n"
+                                     "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
+                                     "  file.fo... : des objets deja assembles, a linker\n"); return 2; }
     // Le mode « la sortie est un source » : l'un ou l'autre des deux drapeaux suffit.
     const bool sourceOut = beautifyOnly || normalizeOnly;
     if (outPath.empty()) {
@@ -121,6 +137,12 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    const bool wantFo = isFo(outPath);
+    if (wantFo && (dumpOnly || sourceOut)) {
+        fprintf(stderr, "error: un .fo est un objet assemble ; %s ne passe pas par l'assembleur\n",
+                dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : "--normalize"));
+        return 2;
+    }
     bool wantSna = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".sna";
     if (!basePath.empty() && (dumpOnly || sourceOut || !wantSna)) {
         fprintf(stderr, "error: --base ne s'applique qu'a une sortie .sna : %s\n", outPath.c_str());
@@ -146,7 +168,38 @@ int main(int argc, char **argv) {
         hasBase = true;
     }
 
+    // Les entrees `.fo` sont des objets DEJA assembles : on les relit, on ne les
+    // reassemble pas. C'est tout l'objet de la compilation separee.
+    std::vector<asmb::Object> objects;
+    std::vector<std::string> sources;
+    for (const std::string &in : inputs) {
+        if (!isFo(in)) { sources.push_back(in); continue; }
+        std::string raw;
+        if (!readFile(in, raw)) { fprintf(stderr, "error: file not found: %s\n", in.c_str()); return 2; }
+        asmb::Object obj;
+        std::string err;
+        if (!fo::read(raw, obj, err)) {
+            fprintf(stderr, "error: %s: %s\n", in.c_str(), err.c_str());
+            return 1;
+        }
+        objects.push_back(std::move(obj));
+    }
+    if (sources.size() > 1) {
+        fprintf(stderr, "error: un seul source .asm a la fois ; assemble-les separement en .fo puis linke-les\n");
+        return 2;
+    }
+    if (sources.empty() && objects.empty()) {
+        fprintf(stderr, "error: rien a assembler ni a linker\n");
+        return 2;
+    }
+
+    // Tout ce qui suit — preprocesseur, mise en forme, assemblage — ne concerne
+    // qu'un SOURCE. Quand il n'y en a pas, les objets sont deja la et l'on tombe
+    // directement dans le linkage.
+    asmb::Object out;
     std::string content;
+    if (!sources.empty()) {
+    path = sources.front();
     if (!readFile(path, content)) { fprintf(stderr, "error: file not found: %s\n", path.c_str()); return 2; }
 
     // --beautify : la mise en forme rend le source de l'AUTEUR — ses macros, ses
@@ -215,17 +268,47 @@ int main(int argc, char **argv) {
     // 2) assembler (2 passes) on the flat text
     std::vector<asmb::SourceLine> lines;
     for (auto &l : pre.lines) lines.push_back({l.text, l.file, l.line, l.col0});
-    asmb::Object out = asmb::assemble(lines);
+    out = asmb::assemble(lines);
+    objects.push_back(out);
     // PRINT n'est ni une erreur ni un avertissement : c'est ce que la source a
     // demande d'afficher. Sur stderr comme le reste, pour que stdout reste libre
     // (l'option -E y ecrit la source deroulee).
     for (auto &p : out.prints) fprintf(stderr, "%s:%d: %s\n", p.file.c_str(), p.line, p.message.c_str());
 
+    }   // fin du chemin « il y a un source »
+
+    // `-o quelque-chose.fo` : ECRIRE UN OBJET, et ne rien linker. C'est ce que la
+    // compilation separee demande — et c'est aussi ce qui rend l'aller-retour
+    // verifiable, puisqu'un `.fo` relu se reecrit par le meme chemin.
+    if (wantFo) {
+        for (auto &w : out.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
+        if (!out.ok) {
+            for (auto &e : out.errors) fprintf(stderr, "%s:%d: error: %s\n", e.file.c_str(), e.line, e.message.c_str());
+            return 1;
+        }
+        // Un objet est UNE unite de compilation : en fusionner plusieurs
+        // demanderait de renumeroter sections, fragments et sites, et ce serait
+        // un linkage partiel qui ne dit pas son nom.
+        if (objects.size() != 1) {
+            fprintf(stderr, "error: un .fo est UNE unite de compilation ; %zu objets ont ete donnes\n",
+                    objects.size());
+            return 2;
+        }
+        const std::string text = fo::write(objects.front());
+        std::ofstream f(outPath, std::ios::binary);
+        if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
+        f.write(text.data(), (std::streamsize)text.size());
+        fprintf(stderr, "%s: object (%zu fragments, %zu relocations, %zu symbols)\n",
+                outPath.c_str(), objects.front().fragments.size(),
+                objects.front().relocs.size(), objects.front().symbolTable.size());
+        return 0;
+    }
+
     // 3) linkage : l'assembleur a rendu un OBJET, le linker en fait une IMAGE.
     // C'est le seul chemin par lequel un octet sort d'ici, et c'est lui qui
     // decide des banques, des adresses et du recouvrement — le CLI n'en derive
     // plus aucune.
-    const link::Image img = link::build({out});
+    const link::Image img = link::build(objects);
     for (auto &w : out.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     for (auto &w : img.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     if (!out.ok || !img.ok) {

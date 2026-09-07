@@ -36,7 +36,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B4 | La table des symboles produite par le linker | B3 | **faite** |
 | B5 | La relocalisation de bout en bout | B1, B3 | **faite** |
 | B6 | `PUBLIC` et `EXTERN` | B5 | **faite** |
-| B7 | Le fichier objet, aller-retour | B6 | à faire |
+| B7 | Le fichier objet, aller-retour | B6 | **faite** |
 | B8 | Le multi-objet et l'exemple d'acceptation | B7 | à faire |
 | B9 | Les accès à adresse littérale dans l'objet | B3 | à faire |
 | B10 | L'ADR de clôture | B1, B2, B7, B8, B9 | à faire |
@@ -286,12 +286,27 @@ Pas de format compact : un objet faux se lit à l'œil, ce qui vaut plus que tou
 l'étage qui introduit la relocalisation, et la couture *format* reste
 hypothétique jusqu'à l'étage D.
 
-- [ ] Assembler seul écrit un `.fo`
-- [ ] fantams relit un `.fo`
-- [ ] L'aller-retour est stable : écrire, relire, réécrire, et les deux textes sont identiques
-- [ ] Le fichier est lisible et compréhensible sans outil, à l'écran
-- [ ] Un `.fo` malformé est refusé avec un diagnostic qui nomme la ligne fautive
-- [ ] La table des symboles exportable en reste un sous-ensemble
+- [x] Assembler seul écrit un `.fo`
+- [x] fantams relit un `.fo`
+- [x] L'aller-retour est stable : écrire, relire, réécrire, et les deux textes sont identiques
+- [x] Le fichier est lisible et compréhensible sans outil, à l'écran
+- [x] Un `.fo` malformé est refusé avec un diagnostic qui nomme la ligne fautive
+- [x] La table des symboles exportable en reste un sous-ensemble
+
+Trois choix de format, à relire en B10 :
+
+- **Les octets vont par RUNS partageant leur ligne d'origine** — `data <site>
+  <hexa>`, et `gap <n>` pour ce qu'un `ds` a réservé sans l'écrire. Une ligne
+  d'objet pour une ligne de source : la provenance voyage sans un nombre par
+  octet, et la coverage se lit comme « ce qui n'est pas un `gap` ».
+- **Le type de sortie se déduit de l'extension**, comme `.sna` le faisait déjà :
+  `-o x.fo` assemble seul, une entrée `.fo` se relit. Pas de drapeau de plus à
+  retenir, et c'est le fichier qui dit ce qu'il est.
+- **Un `.fo` est UNE unité de compilation.** En écrire un depuis plusieurs
+  objets demanderait de renuméroter sections, fragments et sites : ce serait un
+  linkage partiel qui ne dit pas son nom, et c'est refusé.
+
+Une nouvelle suite, `fo_test`, inscrite dans les **deux** listes de tests.
 
 ## B8 — le multi-objet et l'exemple d'acceptation
 
