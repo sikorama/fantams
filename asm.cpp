@@ -18,6 +18,11 @@ namespace asmb {
 namespace {
 
 using kw::isIdentChar;
+std::string lower(std::string s) { for (char &c : s) c = (char)std::tolower((unsigned char)c); return s; }
+std::string hex4(int v) { char b[8]; snprintf(b, sizeof b, "%04X", v & 0xFFFF); return b; }
+// Une TAILLE s'ecrit en 0x…, comme le §4.1 l'ecrit ; le prefixe « & » reste
+// celui des adresses.
+std::string hexSize(int64_t v) { char b[32]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); return b; }
 std::string upper(std::string s) { for (char &c : s) c = (char)std::toupper((unsigned char)c); return s; }
 std::string trim(const std::string &s) {
     size_t a = 0, b = s.size();
@@ -83,7 +88,9 @@ public:
 
         pass_ = 1; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         badNames_.clear();
-        for (const auto &l : lines) process(l);
+        pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
+        sectionMax_.clear(); sectionSite_.clear(); sectionSize_.clear();
+        runPass(lines);
 
         // Les labels sont fixés (adresses indépendantes des valeurs). On réévalue
         // les EQU/= jusqu'à point fixe : gère les EQU utilisés avant leur définition
@@ -100,9 +107,12 @@ public:
 
         pass_ = 2; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0;
         displacedRanges_.clear(); currentGlobal_.clear();
-        for (const auto &l : lines) process(l);
+        pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
+        sectionSize_.clear();   // les octets ne se comptent qu'en passe 2
+        runPass(lines);
         flushOverlap();   // le dernier chevauchement accumulé doit sortir avant les diagnostics
         warnRunDisplaced();
+        checkSectionSizes();
 
         Output o;
         // Output.symbols reste entier : c'est une table d'ADRESSES destinee aux
@@ -164,9 +174,137 @@ public:
         }
     }
 
+    // Une passe complete sur les lignes. L'index est EXPLICITE — et non un
+    // range-for — parce qu'un BOUNDARY doit mesurer son bloc avant de savoir ou
+    // le poser : on parcourt les lignes jusqu'a END_BOUNDARY sans rien definir
+    // ni emettre, on revient au debut, puis on les assemble pour de bon.
+    void runPass(const std::vector<SourceLine> &lines) {
+        for (size_t i = 0; i < lines.size(); ++i) {
+            process(lines[i]);
+            if (!pendingBoundary_) continue;
+            const int64_t n = pendingBoundary_;
+            pendingBoundary_ = 0;
+            if (n <= 0) continue;
+            const int start = pc_;
+            // Compte AVANT le controle de taille : un bloc refuse reste un bloc
+            // ouvert, et son END_BOUNDARY ne doit pas passer pour orphelin.
+            ++openBoundary_;
+            ++measuring_;
+            for (size_t j = i + 1; j < lines.size() && !closesBoundary(lines[j]); ++j)
+                process(lines[j]);
+            const int64_t size = (int64_t)pc_ - start;
+            --measuring_;
+            pc_ = start;
+            // Plus grand que sa frontiere : la condition ne peut JAMAIS etre
+            // satisfaite, et sauter de page en page ne la satisferait pas
+            // davantage. L'erreur est attribuee a la ligne du BOUNDARY, seule
+            // ligne que son auteur peut corriger.
+            if (size > n) {
+                cur_ = boundarySite_;
+                structErr("Block " + (boundaryName_.empty()
+                              ? "at &" + hex4(start)
+                              : "'" + boundaryName_ + "'") +
+                          " (" + std::to_string(size) + " bytes) exceeds the boundary limit (" +
+                          std::to_string(n) + " bytes)");
+                continue;
+            }
+            // La regle, et il n'y en a qu'une : le bloc tient dans la page
+            // courante, ou il part au debut de la suivante.
+            if (size > 0 && (int64_t)(start % n) + size > n)
+                pc_ = (int)(((start + n - 1) / n) * n);
+        }
+        // Un bloc jamais ferme a bien ete mesure — jusqu'a la fin du fichier — mais
+        // ce n'est pas ce que son auteur a ecrit.
+        if (openBoundary_ > 0) {
+            cur_ = boundarySite_;
+            structErr("BOUNDARY without a matching END_BOUNDARY");
+        }
+    }
+
+    // --- Ecriture en "ro", detectee statiquement (§4.2) ---------------------
+    // Le SEUL cas attrapable : une adresse ecrite EN CLAIR, donc un operande
+    // MemImm en position de destination. Un « ld (hl),a » dont HL est calcule
+    // n'y figure pas et ne sera jamais attrape — c'est la limite du controle,
+    // et elle est ecrite plutot qu'a decouvrir (§4.6).
+    void checkReadOnlyWrite(const z80::Instruction &in) {
+        if (pass_ != 2) return;   // les symboles avant ne sont connus qu'ici
+        if (in.mnemo != z80::Mnemo::LD) return;
+        if (in.a.kind != z80::Operand::Kind::MemImm) return;
+        for (const std::string &id : identifiers(in.a.expr)) {
+            auto it = symInfo_.find(qualify(id));
+            if (it == symInfo_.end() || it->second.section.empty()) continue;
+            auto k = sectionKind_.find(it->second.section);
+            if (k == sectionKind_.end() || k->second != "RO") continue;
+            push("\"ld (nn), " + operandName(in.b) + "\" writes into read-only section '" +
+                 it->second.section + "'");
+            return;
+        }
+    }
+
+    // Les identifiants d'une expression, dans l'ordre. Une suite qui COMMENCE par
+    // une lettre et n'est pas precedee d'un caractere de nombre : « 0x1F » et
+    // « #FF » n'en donnent aucun, « mon_tableau+1 » en donne un.
+    static std::vector<std::string> identifiers(const std::string &e) {
+        std::vector<std::string> out;
+        auto isHead = [](char c) { return std::isalpha((unsigned char)c) || c == '_' || c == '.' || c == '@'; };
+        auto isTail = [](char c) { return std::isalnum((unsigned char)c) || c == '_' || c == '.' || c == '@'; };
+        for (size_t i = 0; i < e.size();) {
+            if (!isHead(e[i])) { ++i; continue; }
+            const char prev = i ? e[i - 1] : ' ';
+            size_t j = i;
+            while (j < e.size() && isTail(e[j])) ++j;
+            if (!std::isalnum((unsigned char)prev) && prev != '#' && prev != '$' && prev != '_')
+                out.push_back(e.substr(i, j - i));
+            i = j;
+        }
+        return out;
+    }
+
+    // Le nom du registre source, pour que le diagnostic cite l'instruction telle
+    // qu'elle est ecrite.
+    static std::string operandName(const z80::Operand &o) {
+        if (o.kind != z80::Operand::Kind::Reg) return "n";
+        switch (o.reg) {
+            case z80::Reg::A: return "a";
+            case z80::Reg::BC: return "bc";
+            case z80::Reg::DE: return "de";
+            case z80::Reg::HL: return "hl";
+            case z80::Reg::SP: return "sp";
+            case z80::Reg::IX: return "ix";
+            case z80::Reg::IY: return "iy";
+            default: return "r";
+        }
+    }
+
+    // Le type d'une section, sans ses guillemets ; chaine vide si ce n'est aucun
+    // des trois. Les deux delimiteurs sont equivalents (ADR 0010).
+    static std::string sectionType(const std::string &raw) {
+        std::string t = trim(raw);
+        if (t.size() >= 2 && (t.front() == '"' || t.front() == '\'') && t.back() == t.front())
+            t = t.substr(1, t.size() - 2);
+        t = upper(t);
+        if (t == "RO" || t == "RW" || t == "UNINIT") return t;
+        return std::string();
+    }
+
+    static bool closesBoundary(const SourceLine &sl) {
+        return upper(firstToken(trim(stripComment(sl.text)))) == "END_BOUNDARY";
+    }
+
     // --- IAsmContext ---
     void emit(uint8_t b) override {
-        if (pass_ == 2) {
+        // En mesure, seul `pc_` avance : aucun octet, aucune coverage, aucun
+        // recouvrement — le bloc sera reellement assemble juste apres.
+        if (pass_ == 2 && !measuring_) {
+            // La taille d'une section est CUMULEE sur ses reouvertures, et non
+            // l'etendue max-min de ses adresses : ce qui compte est la place
+            // qu'elle demande — celle que le linker posera d'un bloc — et non
+            // l'intervalle qu'elle couvre, qui avec `org` absolu a l'interieur
+            // serait de toute facon un nombre sans signification.
+            // `align` et `boundary` n'y comptent pas : ils avancent `pc_` sans
+            // emettre, et a cet etage le remplissage n'existe pas. Ce sera a
+            // recompter a l'etage C, ou c'est le linker qui aligne.
+            if (!curSection_.empty()) ++sectionSize_[curSection_];
             // L'octet va a l'adresse de RANGEMENT ; l'adresse logique, elle, ne
             // sert qu'aux labels et aux expressions. Hors bloc deplace les deux
             // coincident, `displacement_` valant zero.
@@ -307,6 +445,18 @@ private:
     std::vector<Diagnostic> errors_;
     std::vector<Diagnostic> warnings_;
     int pass_ = 1, pc_ = 0, lo_ = 0, hi_ = 0;
+    // Frontiere demandee par un BOUNDARY que `runPass` n'a pas encore traite, et
+    // profondeur de mesure (0 = parcours reel).
+    int64_t pendingBoundary_ = 0;
+    int measuring_ = 0;
+    std::string curSection_;     // la section courante, vide avant toute declaration
+    std::map<std::string, std::string> sectionKind_;   // nom -> "RO" / "RW" / "UNINIT"
+    std::map<std::string, int64_t> sectionMax_;        // nom -> plafond declare, fige a la premiere declaration
+    std::map<std::string, int64_t> sectionSize_;       // nom -> octets emis, cumules sur les reouvertures
+    std::map<std::string, SourceLine> sectionSite_;    // la ligne qui porte le plafond, pour lui attribuer son erreur
+    int openBoundary_ = 0;       // blocs ouverts, pour refuser les fermetures qui manquent
+    SourceLine boundarySite_;    // la ligne du BOUNDARY, pour lui attribuer son erreur
+    std::string boundaryName_;   // le premier label du bloc, s'il y en a un
     int orgBank_ = -1;   // -1 : aucun prefixe rencontre, la banque suit l'adresse
     // Ecart entre l'adresse de rangement et l'adresse logique, pose par le second
     // parametre d'ORG. Zero hors bloc deplace, remis a zero par tout ORG nu.
@@ -322,9 +472,11 @@ private:
     // labels locaux ".nom" (comme l'assembleur de référence : ".nom" == "<global>.nom" — cf. defineLabel/qualify).
     std::string currentGlobal_;
 
-    void push(const std::string &msg) { errors_.push_back({cur_.file, cur_.line, msg}); }
+    // Muets pendant une mesure : le bloc est parcouru DEUX fois, et le
+    // diagnostic appartient au parcours reel.
+    void push(const std::string &msg) { if (!measuring_) errors_.push_back({cur_.file, cur_.line, msg}); }
     // avertissement de bonne pratique (non bloquant) : émis en passe 2 seulement (pas de doublon).
-    void warn(const std::string &msg) { if (pass_ == 2) warnings_.push_back({cur_.file, cur_.line, msg}); }
+    void warn(const std::string &msg) { if (pass_ == 2 && !measuring_) warnings_.push_back({cur_.file, cur_.line, msg}); }
     // erreur structurelle (signalée dès la passe 1, ne se reproduit pas en passe 2)
     void structErr(const std::string &msg) { if (pass_ == 1) push(msg); }
 
@@ -354,6 +506,9 @@ private:
         s.file = cur_.file;
         s.line = cur_.line;
         if (!isConst) {
+            // La section est un fait de RANGEMENT, comme la banque : une
+            // constante, qui n'habite nulle part, n'en porte pas.
+            s.section = curSection_;
             const int st = (pc_ + displacement_) & 0xFFFF;
             s.bank = bankOf(st);
             s.store = st;
@@ -406,6 +561,13 @@ private:
     }
 
     void defineLabel(const std::string &n) {
+        if (measuring_) {
+            // Le premier label du bloc le NOMME, pour le diagnostic de
+            // depassement. Le definir serait faux : son adresse n'est connue
+            // qu'apres la decision de saut.
+            if (boundaryName_.empty()) boundaryName_ = n;
+            return;
+        }
         if (nameRefused(n, "a label")) return;
         std::string qn = qualify(n);
         if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
@@ -416,6 +578,7 @@ private:
     // ('EQU') non. Cf. ADR 0003 — "angle = i - 1" dans un "repeat 256,i" est
     // idiomatique, et l'interdire rejetait 9 sources du corpus.
     void defineSymbol(const std::string &n, double v, bool reassignable = false) {
+        if (measuring_) return;
         if (nameRefused(n, "a symbol")) return;
         std::string qn = qualify(n);
         if (pass_ == 1 && !reassignable) {
@@ -559,6 +722,61 @@ private:
         displacement_ = displaced ? (int)evalExpr(storage) - pc_ : 0;
     }
 
+    // Le plafond de taille declare (§4.1). Il suit la meme regle que le type :
+    // il est FIGE a la premiere declaration. Le laisser relever a la reouverture
+    // — depuis un fichier inclus, par exemple — desarmerait le controle en
+    // silence, exactement comme le ferait un type qui change.
+    void noteSectionMax(const std::vector<std::string> &parts, bool reopened) {
+        if (parts.size() > 3) {
+            structErr("SECTION '" + curSection_ + "': too many arguments "
+                      "(a name, a type, and an optional maximum size)");
+            return;
+        }
+        if (parts.size() < 3 || trim(parts[2]).empty()) return;   // pas de plafond sur cette ligne
+        const int64_t mx = evalExpr(parts[2]);
+        // Le plafond decide d'un refus : il doit etre connu quand les octets se
+        // comptent, donc des la passe 1 — comme la taille d'un `ds`.
+        if (!evalOk_) {
+            structErr("SECTION '" + curSection_ + "': maximum size is not resolvable in pass 1");
+            return;
+        }
+        if (mx < 0) {
+            structErr("SECTION '" + curSection_ + "': maximum size cannot be negative");
+            return;
+        }
+        if (reopened) {
+            auto m = sectionMax_.find(curSection_);
+            if (m == sectionMax_.end())
+                structErr("SECTION '" + curSection_ + "' was first declared without a maximum size: "
+                          "a section keeps the maximum size of its first declaration");
+            else if (m->second != mx)
+                structErr("SECTION '" + curSection_ + "' was already declared with a maximum size of " +
+                          hexSize(m->second) + ": a section keeps the maximum size of its first declaration");
+            return;
+        }
+        sectionMax_[curSection_] = mx;
+        sectionSite_[curSection_] = cur_;
+    }
+
+    // Le depassement sort A L'ASSEMBLAGE, sans attendre le linkage (§4.1). Il ne
+    // se constate qu'a la fin de la passe 2 : la taille etant cumulee, elle n'est
+    // connue qu'une fois la derniere reouverture traversee. L'erreur est attribuee
+    // a la ligne qui porte le plafond, seule ligne que son auteur peut corriger.
+    //
+    // push() et non structErr() : ce dernier ne rapporte qu'en passe 1, or les
+    // octets ne se comptent qu'en passe 2 — le diagnostic y serait avale (meme
+    // piege que pour ASSERT).
+    void checkSectionSizes() {
+        for (const auto &kv : sectionMax_) {
+            auto s = sectionSize_.find(kv.first);
+            const int64_t size = (s == sectionSize_.end()) ? 0 : s->second;
+            if (size <= kv.second) continue;   // le refus ne mord pas a `max` exactement
+            cur_ = sectionSite_[kv.first];
+            push("Section '" + kv.first + "' exceeds maximum declared size (" +
+                 hexSize(size) + " > " + hexSize(kv.second) + " bytes)");
+        }
+    }
+
     void emitDS(const std::string &ops) {
         auto parts = splitTopLevel(ops, ',');
         dropTrailingEmpty(parts);
@@ -612,6 +830,7 @@ private:
             if (!label.empty()) defineLabel(label);
             else if (cur_.col0)
                 warn("instruction '" + pr.mnemonic + "' in column 1 (best practice: indent instructions — only labels/symbols should start in column 1)");
+            checkReadOnlyWrite(pr.instr);
             instrStart_ = pc_;
             inInstruction_ = true;
             z80::encode(*this, pr.instr);
@@ -642,6 +861,73 @@ private:
             if (!label.empty()) defineLabel(label);
             return;
         }
+        // --- BOUNDARY : un contrat d'allocation, pas un alignement (§5) -----
+        // Le bloc est MESURE par l'assembleur ; la regle est unique : emettre a
+        // la suite s'il tient entierement dans la page courante, sinon sauter au
+        // debut de la suivante.
+        // --- SECTION : une unite logique d'assemblage (§4.1) ----------------
+        if (W0 == "SECTION") {
+            if (!label.empty()) defineLabel(label);
+            auto parts = splitTopLevel(after0, ',');
+            if (parts.empty() || trim(parts[0]).empty()) { structErr("SECTION without a name"); return; }
+            if (parts.size() < 2 || trim(parts[1]).empty()) {
+                structErr("SECTION '" + trim(parts[0]) + "': missing type "
+                          "(one of \"ro\", \"rw\", \"uninit\")");
+                return;
+            }
+            const std::string ty = sectionType(parts[1]);
+            if (ty.empty()) {
+                structErr("SECTION '" + trim(parts[0]) + "': unknown type " + trim(parts[1]) +
+                          " (the three types are \"ro\", \"rw\" and \"uninit\")");
+                return;
+            }
+            curSection_ = trim(parts[0]);
+            const bool reopened = sectionKind_.count(curSection_) != 0;
+            // Une section se ROUVRE — c'est ainsi qu'on alterne code et donnees —
+            // mais son type est fixe a la premiere declaration. Le laisser changer
+            // desarmerait le controle d'ecriture en "ro" en silence.
+            auto k = sectionKind_.find(curSection_);
+            if (k != sectionKind_.end() && k->second != ty)
+                structErr("SECTION '" + curSection_ + "' was already declared \"" +
+                          lower(k->second) + "\": a section keeps the type of its first declaration");
+            else sectionKind_[curSection_] = ty;
+            // Le plafond est traite en passe 1 seulement : sa valeur s'y fixe, et
+            // c'est la passe ou sortent les diagnostics structurels.
+            if (pass_ == 1) noteSectionMax(parts, reopened);
+            return;
+        }
+
+        if (W0 == "BOUNDARY") {
+            if (!label.empty()) defineLabel(label);
+            // Pose la demande ; c'est `runPass` qui mesure, parce que seule la
+            // boucle voit les lignes qui suivent. Un BOUNDARY rencontre EN MESURE
+            // est ignore : mesurer dans une mesure n'a pas de sens.
+            if (!measuring_) {
+                // Un bloc dans un bloc : la mesure de l'externe s'arreterait au
+                // END_BOUNDARY de l'interne. On compte l'ouverture malgre le
+                // refus, pour que les fermetures restent appariees et que le
+                // diagnostic reste unique.
+                if (openBoundary_ > 0) {
+                    ++openBoundary_;
+                    structErr("BOUNDARY inside another BOUNDARY block is not supported: "
+                              "the outer block's measurement would stop at the inner END_BOUNDARY");
+                    return;
+                }
+                pendingBoundary_ = evalExpr(after0);
+                boundarySite_ = cur_;
+                boundaryName_.clear();
+            }
+            return;
+        }
+        if (W0 == "END_BOUNDARY") {
+            if (!label.empty()) defineLabel(label);
+            if (!measuring_) {
+                if (openBoundary_ <= 0) structErr("END_BOUNDARY without a matching BOUNDARY");
+                else --openBoundary_;
+            }
+            return;
+        }
+
         if (W0 == "DB" || W0 == "DEFB" || W0 == "DM" || W0 == "DEFM") { if (!label.empty()) defineLabel(label); emitDB(after0); return; }
         if (W0 == "DW" || W0 == "DEFW") { if (!label.empty()) defineLabel(label); emitDW(after0); return; }
         if (W0 == "DS" || W0 == "DEFS" || W0 == "RMB") { if (!label.empty()) defineLabel(label); emitDS(after0); return; }

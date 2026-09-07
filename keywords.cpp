@@ -32,6 +32,12 @@ const std::set<std::string> &instructionWords() {
     static const std::set<std::string> kws = {
         "ORG", "RUN", "ALIGN", "DB", "DEFB", "DM", "DEFM", "DW", "DEFW",
         "DS", "DEFS", "RMB", "EQU",
+        // §5 : un bloc auto-mesure. Sans eux ici, « BOUNDARY 256 » se lit comme
+        // un label « BOUNDARY » suivi de la directive « 256 ».
+        "BOUNDARY", "END_BOUNDARY",
+        // §4.1 : « section nom, "type" » — sans elle ici, « section » se lit
+        // comme un label.
+        "SECTION",
         // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.

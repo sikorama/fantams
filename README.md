@@ -34,7 +34,8 @@ bytes onto a captured post-boot machine state, so `call &BB5A` works instead of
 jumping into zeros.
 
 **A machine-readable symbol table.** `--sym` writes a CSV — one line per label
-and constant, with type, logical address, storage bank, and origin file and line
+and constant, with type, owning section, logical address, storage bank, and origin
+file and line
 — for a disassembler or an emulator.
 
 ---

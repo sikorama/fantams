@@ -45,6 +45,10 @@ struct Symbol {
     int64_t value = 0;      // adresse logique, ou valeur de la constante
     int bank = -1;          // banque de rangement, -1 pour une constante
     int store = -1;         // adresse de rangement, -1 pour une constante
+    // La section qui PORTE le symbole (§4.1). Vide hors de toute section — le
+    // cas d'une source qui n'en declare aucune, et celui d'une constante, qui
+    // n'habite nulle part.
+    std::string section;
     std::string file;       // fichier D'ORIGINE, avant preprocesseur
     int line = 0;           // ligne dans ce fichier
 };

@@ -168,6 +168,120 @@ bytes with value 1 then three with value 2.
 | `org logical,[b<n>:]storage` | assembles for one address, stores at another |
 | `align n` | aligns to a multiple of `n` |
 | `run address` | entry point |
+| `boundary n` … `end_boundary` | a block that must not straddle an `n`-byte boundary |
+| `section name, "type"[, max]` | opens a logical unit of assembly (`"ro"`, `"rw"`, `"uninit"`) |
+
+### Boundary blocks
+
+A `boundary` block is an **allocation contract**, not an alignment: this structure
+must not straddle a boundary of `n` bytes — 256, typically, so that `H` does not
+change while walking the table.
+
+```asm
+        boundary 256
+my_table:
+        dw label_1
+        dw label_2
+        db #FF
+        end_boundary
+```
+
+The assembler **measures the block itself** — here 5 bytes — looks at the current
+address, and applies one rule:
+
+> Emit in place if the block fits entirely within the current `n`-byte page;
+> otherwise skip to the start of the next one.
+
+At `&2FFE` the 5 bytes do not fit in the two remaining, so the block goes to
+`&3000`. At `&2F00` it is emitted in place, with no skip at all. Nothing to
+compute by hand, and no magic number to pass.
+
+- The skip **emits nothing**: like `align`, it advances the address, and the
+  skipped bytes stay outside the coverage.
+- A block **larger** than its boundary can never satisfy the rule, and is an
+  assembly error naming the block and both sizes.
+- The first label inside the block **names** it, for that diagnostic.
+- A missing `end_boundary`, an `end_boundary` with no block open, and a block
+  **nested** in another are all refused. Nesting is refused rather than
+  mis-measured: the outer block's measurement would stop at the inner
+  `end_boundary`.
+
+### Sections
+
+A **section** is a logical unit of assembly — the unit a linker will one day place
+as a whole. Declaring one is what lets the assembler say *where a symbol lives*,
+and refuse a write into read-only memory.
+
+```asm
+        section tables_data, "ro"
+mon_tableau:
+        db 1, 2, 3, 4
+
+        section execution, "ro"
+        ld a, 5
+        ld (mon_tableau), a     ; refused: writes into a "ro" section
+```
+
+Three types, and they are the only hardware semantics the assembler knows:
+
+| Type | Content | Emits bytes |
+|---|---|---|
+| `"ro"` | executable code and constants | yes |
+| `"rw"` | initialized, modifiable data | yes |
+| `"uninit"` | reserved space, not initialized | no |
+
+The type is **mandatory**, and a fourth one is refused, naming the three.
+
+- A section **reopens** — that is how code and data alternate — but it keeps the
+  type of its **first** declaration. Changing it is refused: `"ro"` then `"rw"`
+  under one name would silently disarm the check below.
+- Placement stays **absolute**: `org` inside a section still decides addresses.
+  A section names and classifies; it does not yet relocate.
+- The section that owns each symbol appears in the symbol table (`--sym`). A
+  constant carries none: it lives nowhere.
+
+### A declared maximum size
+
+The third argument caps a section, and the overflow is reported **at assembly
+time**, without waiting for a linker:
+
+```asm
+        section audio, "ro", 0x2000
+```
+
+```
+Section 'audio' exceeds maximum declared size (0x2140 > 0x2000 bytes)
+```
+
+- The size is the **sum of the bytes emitted**, cumulated over every reopening —
+  not the `max − min` span of the addresses. What a section costs is the room it
+  asks for, the room a linker will place as one block.
+- `align` and `boundary` do **not** count: they move the address without emitting,
+  and at this stage padding does not exist.
+- The maximum is **frozen at the first declaration**, like the type. A reopening
+  may leave it out — that is the normal form — but not raise it, lower it, or
+  introduce one that the first declaration did not carry.
+- It must be resolvable in **pass 1**, since it decides a refusal while the bytes
+  are being counted. A forward `equ` is refused.
+- A size exactly equal to the maximum is accepted: a cap is a permitted size, not
+  the first refused one.
+
+### Writes into `"ro"`, refused statically
+
+Knowing the type of the section that owns each symbol, the assembler refuses a
+write whose destination is a **literal address**:
+
+```
+"ld (nn), a" writes into read-only section 'tables_data'
+```
+
+The check applies to `ld (nn),a` and `ld (nn),hl/bc/de/sp/ix/iy`, and follows an
+expression: `ld (mon_tableau+1),hl` is caught too. Reads are untouched — a `"ro"`
+section exists to be read — and so is a hard-coded address, which owns no symbol.
+
+**The limit is written rather than discovered**: a `ld (hl),a` whose `HL` is
+computed does not appear here and will **never** be caught. This refusal covers
+addresses written in the clear, and nothing else.
 
 ### Displaced blocks
 
@@ -490,8 +604,8 @@ get wrong. None of them is negotiable, and each is argued in an ADR.
 | `--no-indent-blocks` | does not indent block bodies |
 | `--sym[=file]` | writes the **symbol table** (CSV) for a disassembler or emulator |
 
-`--sym` writes one line per **label and constant** — name, type, logical value,
-storage bank and address, origin file and line. Not a listing: one line
+`--sym` writes one line per **label and constant** — name, type, owning section,
+logical value, storage bank and address, origin file and line. Not a listing: one line
 per *name*, and no bytes. Variables (`=`) are left out. The default path derives
 from `-o`, so the file travels next to the binary it describes. It refuses to
 combine with `--beautify` and `--normalize`, which never reach the assembler, and

@@ -20,12 +20,15 @@ namespace sym {
 
 // Le CSV complet, en-tete comprise, terminee par un '\n'.
 //
-// Colonnes : name,type,value,bank,store,file,line
+// Colonnes : name,type,section,value,bank,store,file,line
 //
 //   name   le nom tel que l'assembleur le connait : QUALIFIE (« plot.loop ») et
 //          MANGLE (« retry__7 »). C'est le nom qui correspond reellement a
 //          l'adresse, seul utilisable par un consommateur.
 //   type   « label » ou « const ». Les variables ('=') ne sont pas exportees.
+//   section la section qui PORTE le symbole (§4.1 de spec-chaine-outils.md). « - »
+//          hors de toute section, et « - » pour une constante : elle n'habite
+//          nulle part, ce que disent deja `bank` et `store`.
 //   value  l'adresse LOGIQUE d'un label, la valeur d'une constante. Hexa 0x de
 //          largeur variable, signe pour une constante negative.
 //   bank   la banque de RANGEMENT, en decimal. « - » pour une constante.

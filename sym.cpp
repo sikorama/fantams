@@ -53,10 +53,14 @@ std::string format(const asmb::Output &o) {
         return a.name < b.name;
     });
 
-    std::string out = "name,type,value,bank,store,file,line\n";
+    std::string out = "name,type,section,value,bank,store,file,line\n";
     for (const auto &s : rows) {
         out += csv(s.name);
         out += s.isConst ? ",const," : ",label,";
+        // Hors de toute section, un tiret : la meme convention que `bank` et
+        // `store`, pour que l'absence se lise sans champ vide a interpreter.
+        out += s.section.empty() ? "-" : csv(s.section);
+        out += ',';
         out += hex(s.value);
         out += ',';
         out += s.isConst ? "-" : std::to_string(s.bank);

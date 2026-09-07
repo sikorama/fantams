@@ -445,24 +445,24 @@ int main() {
         const std::string t = sym::format(o);
 
         // L'en-tete est une VRAIE ligne CSV : les noms de colonnes SONT la version.
-        okc("sym : en-tete exacte", t.rfind("name,type,value,bank,store,file,line\n", 0) == 0);
+        okc("sym : en-tete exacte", t.rfind("name,type,section,value,bank,store,file,line\n", 0) == 0);
         // 5 symboles : 2 labels + 3 constantes. La variable 'count' n'y est PAS.
         okc("sym : une ligne par symbole, plus l'en-tete", csvLines(t) == 6);
         okc("sym : la variable n'est pas exportee", symRow(t, "count").empty());
 
         okc("sym : un label porte son type, sa valeur et son rangement",
-            symRow(t, "main") == "main,label,0x8000,2,0x8000,t.asm,7");
+            symRow(t, "main") == "main,label,-,0x8000,2,0x8000,t.asm,7");
         // Bloc deplace ET en banque : la valeur reste logique, le rangement suit.
         okc("sym : un label deplace separe valeur et rangement",
-            symRow(t, "far") == "far,label,0x4000,4,0x100,t.asm,10");
+            symRow(t, "far") == "far,label,-,0x4000,4,0x100,t.asm,10");
         // Une constante n'habite nulle part : ni banque ni rangement.
         okc("sym : une constante n'a ni banque ni rangement",
-            symRow(t, "SCREEN") == "SCREEN,const,0xC000,-,-,t.asm,1");
+            symRow(t, "SCREEN") == "SCREEN,const,-,0xC000,-,-,t.asm,1");
         // Non masquee, et signee : c'est la valeur que l'assembleur a utilisee.
         okc("sym : une constante n'est pas masquee en 16 bits",
-            symRow(t, "BIG") == "BIG,const,0x100000,-,-,t.asm,2");
+            symRow(t, "BIG") == "BIG,const,-,0x100000,-,-,t.asm,2");
         okc("sym : une constante negative garde son signe",
-            symRow(t, "MINUS") == "MINUS,const,-0x1,-,-,t.asm,3");
+            symRow(t, "MINUS") == "MINUS,const,-,-0x1,-,-,t.asm,3");
 
         // Tri : banque, puis rangement, puis nom ; les constantes en QUEUE. Un
         // consommateur qui lit jusqu'a la premiere banque « - » a tous les
@@ -491,6 +491,142 @@ int main() {
         okc("sym : un chemin a virgule est guillemete",
             t.find(",\"mon,brouillon.asm\",2\n") != std::string::npos);
     }
+
+    // --- SECTION : la section dans la table des symboles (§4.1, §4.6) --------
+    {
+        // Un label habite la section courante, et la table le dit : c'est ce qui
+        // permet a un consommateur de savoir de quelle unite relogeable il parle.
+        asmb::Output o = asmb::assembleText(
+            "  section tables_data, \"ro\"\n"
+            "  org #8000\n"
+            "my_table:\n"
+            "  nop\n", "t.asm");
+        const std::string t = sym::format(o);
+        okc("sym : un label porte sa section",
+            symRow(t, "my_table") == "my_table,label,tables_data,0x8000,2,0x8000,t.asm,3");
+    }
+    {
+        // Une constante n'habite nulle part — c'est deja ce que disent `bank` et
+        // `store`. Declaree dans une section, elle n'en herite donc PAS : elle
+        // n'est pas une adresse, et rien ne la reloge.
+        asmb::Output o = asmb::assembleText(
+            "  section tables_data, \"ro\"\n"
+            "  org #8000\n"
+            "WIDTH equ 80\n"
+            "  nop\n", "t.asm");
+        const std::string t = sym::format(o);
+        okc("sym : une constante n'herite pas de la section",
+            symRow(t, "WIDTH") == "WIDTH,const,-,0x50,-,-,t.asm,3");
+    }
+
+    // Les trois types du §4.1 sont la SEULE semantique materielle que
+    // l'assembleur connaisse. Un quatrieme se refuse en nommant les trois.
+    chkErr("section : un type inconnu est refuse",
+           "  section audio, \"rox\"\n  org #8000\n  nop\n");
+    // Le type est OBLIGATOIRE : sans lui, l'assembleur ne saurait ni refuser une
+    // ecriture, ni dire au linker si la section porte des octets.
+    chkErr("section : un type manquant est refuse",
+           "  section audio\n  org #8000\n  nop\n");
+
+    // --- Ecriture en "ro", detectee statiquement (§4.2) ----------------------
+    // Connaissant le type de la section qui porte chaque symbole, l'assembleur
+    // refuse une ecriture vers une section en lecture seule. C'est l'exemple du
+    // §4.2, mot pour mot.
+    chkErr("ro : « ld (nn),a » vers une section \"ro\" est refuse",
+           "  section tables_data, \"ro\"\n"
+           "  org #8000\n"
+           "mon_tableau:\n"
+           "  db 1, 2, 3, 4\n"
+           "  section execution, \"ro\"\n"
+           "  ld a, 5\n"
+           "  ld (mon_tableau), a\n");
+
+    // Une section se REOUVRE — c'est ainsi qu'on alterne code et donnees — mais
+    // pas avec un autre type : sans ce refus, « ro » puis « rw » sous le meme nom
+    // desarmerait le controle ci-dessus en silence.
+    chkErr("ro : rouvrir une section avec un autre type est refuse",
+           "  section data, \"ro\"\n"
+           "  org #8000\n"
+           "mon_tableau:\n"
+           "  db 1\n"
+           "  section data, \"rw\"\n"
+           "  ld (mon_tableau), a\n");
+
+    // Le refus NE MORD PAS au-dela : une section "rw" s'ecrit, et une section
+    // "ro" se LIT — c'est meme sa raison d'etre.
+    chk("ro : ecrire dans une section \"rw\" est permis",
+        "  section vars, \"rw\"\n  org #8000\ncompteur:\n  db 0\n"
+        "  ld (compteur), a\n", {0x00, 0x32, 0x00, 0x80}, 0x8000);
+    chk("ro : lire une section \"ro\" est permis",
+        "  section tables, \"ro\"\n  org #8000\ntable:\n  db 0\n"
+        "  ld a, (table)\n", {0x00, 0x3A, 0x00, 0x80}, 0x8000);
+    // Une adresse litterale ne designe aucun symbole : rien a controler.
+    chk("ro : une adresse en dur n'est pas controlee",
+        "  section tables, \"ro\"\n  org #8000\n  ld (#C000), a\n", {0x32, 0x00, 0xC0}, 0x8000);
+    {
+        // Le diagnostic cite l'instruction et NOMME la section fautive : celui qui
+        // le lit doit savoir laquelle des deux corriger.
+        asmb::Output o = asmb::assembleText(
+            "  section tables_data, \"ro\"\n  org #8000\nmon_tableau:\n  db 1\n"
+            "  ld (mon_tableau + 1), hl\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message == "\"ld (nn), hl\" writes into read-only section 'tables_data'";
+        okc("ro : le diagnostic cite l'instruction et nomme la section", named);
+    }
+
+    // --- Le plafond de taille declare (§4.1) ---------------------------------
+    //
+    // Le depassement sort A L'ASSEMBLAGE, sans attendre le linkage. Le message
+    // nomme la section et donne les deux tailles : celui qui le lit doit savoir
+    // de combien il deborde, pas seulement qu'il deborde.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  section audio, \"ro\", 4\n  org #8000\n  db 1, 2, 3, 4, 5\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message ==
+                         "Section 'audio' exceeds maximum declared size (0x5 > 0x4 bytes)";
+        okc("section : le depassement du plafond est refuse, avec ses deux tailles", named);
+    }
+    // Le refus ne mord pas A `max` exactement : un plafond est une taille
+    // permise, pas la premiere taille refusee.
+    chk("section : la taille exactement egale au plafond est acceptee",
+        "  section audio, \"ro\", 4\n  org #8000\n  db 1, 2, 3, 4\n",
+        {0x01, 0x02, 0x03, 0x04}, 0x8000);
+    // La taille est CUMULEE sur les reouvertures, et non l'etendue des adresses :
+    // deux octets ici, deux octets la, et le plafond de trois est franchi — alors
+    // meme que chaque ouverture, prise seule, tient.
+    chkErr("section : la taille se cumule sur les reouvertures",
+           "  section audio, \"ro\", 3\n  org #8000\n  db 1, 2\n"
+           "  section code, \"ro\"\n  nop\n"
+           "  section audio, \"ro\"\n  db 3, 4\n");
+    // Ce qui n'emet pas ne compte pas : `align` et `boundary` avancent `pc_` sans
+    // ecrire, et a cet etage le remplissage n'existe pas.
+    chk("section : un align ne compte pas dans la taille",
+        "  section audio, \"ro\", 2\n  org #8000\n  db 1\n  align 16\n  db 2\n",
+        {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02}, 0x8000);
+    // Le plafond decide d'un refus : il doit etre connu quand les octets se
+    // comptent, donc des la passe 1.
+    chkErr("section : un plafond non evaluable en passe 1 est refuse",
+           "  section audio, \"ro\", plus_tard\n  org #8000\n  db 1\n"
+           "plus_tard equ 4\n");
+    // Meme regle que pour le type : le laisser relever a la reouverture
+    // desarmerait le controle en silence.
+    chkErr("section : rouvrir une section avec un autre plafond est refuse",
+           "  section audio, \"ro\", 4\n  org #8000\n  db 1\n"
+           "  section audio, \"ro\", 8\n  db 2\n");
+    chkErr("section : rouvrir avec un plafond ce qui n'en avait pas est refuse",
+           "  section audio, \"ro\"\n  org #8000\n  db 1\n"
+           "  section audio, \"ro\", 8\n  db 2\n");
+    // Rouvrir SANS plafond conserve celui de la premiere declaration : c'est la
+    // forme normale de l'alternance code / donnees.
+    chkErr("section : le plafond survit a une reouverture qui ne le repete pas",
+           "  section audio, \"ro\", 2\n  org #8000\n  db 1\n"
+           "  section audio, \"ro\"\n  db 2, 3\n");
+    // Un quatrieme argument accepte et ignore serait le pire des etats : son
+    // auteur croirait avoir dit quelque chose.
+    chkErr("section : un quatrieme argument est refuse",
+           "  section audio, \"ro\", 4, 8\n  org #8000\n  db 1\n");
 
     // --- ADR 0020 : ce que l'assembleur TOLERE, et ce qu'il refuse -----------
     //
@@ -523,6 +659,82 @@ int main() {
     chk("rlc (ix+1)",    "  rlc (ix+1)\n", {0xDD, 0xCB, 0x01, 0x06});
     chk("rst #38",       "  rst #38\n",  {0xFF});
     chk("ld hl,#1234",   "  ld hl,#1234\n", {0x21, 0x34, 0x12});
+
+    // --- BOUNDARY : un bloc auto-mesure qui ne croise pas une frontiere (§5) --
+    // La regle est unique : emettre a la suite si le bloc tient entierement dans
+    // la page courante, sinon sauter au debut de la suivante.
+    chkSym("BOUNDARY : le bloc tient dans la page, rien ne bouge",
+           "  org #2F00\n"
+           "  BOUNDARY 256\n"
+           "my_table:\n"
+           "  dw #1111\n"
+           "  dw #2222\n"
+           "  db #FF\n"
+           "  END_BOUNDARY\n", "my_table", 0x2F00);
+
+    // A &2FFE, les 5 octets ne tiennent pas dans les deux octets restants : le
+    // bloc part en &3000, sans que l'auteur ait eu a mesurer sa table.
+    chkSym("BOUNDARY : le bloc ne tient pas, il saute a la page suivante",
+           "  org #2FFE\n"
+           "  BOUNDARY 256\n"
+           "my_table:\n"
+           "  dw #1111\n"
+           "  dw #2222\n"
+           "  db #FF\n"
+           "  END_BOUNDARY\n", "my_table", 0x3000);
+
+    // Un bloc plus grand que sa frontiere ne peut JAMAIS satisfaire la regle :
+    // c'est une erreur d'assemblage, pas un remplissage sans fin.
+    chkErr("BOUNDARY : un bloc plus grand que sa frontiere est refuse",
+           "  org #2F00\n"
+           "  BOUNDARY 4\n"
+           "  db 1, 2, 3, 4, 5\n"
+           "  END_BOUNDARY\n");
+
+    {
+        // Le diagnostic NOMME le bloc et ses deux tailles, et pointe la ligne du
+        // BOUNDARY : c'est la seule que son auteur peut corriger.
+        asmb::Output o = asmb::assembleText(
+            "  org #2F00\n"
+            "  BOUNDARY 256\n"
+            "my_table:\n"
+            "  ds 300\n"
+            "  END_BOUNDARY\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message.find("'my_table'") != std::string::npos &&
+                     o.errors[0].message.find("300 bytes") != std::string::npos &&
+                     o.errors[0].message.find("256 bytes") != std::string::npos &&
+                     o.errors[0].line == 2;
+        okc("BOUNDARY : le depassement nomme le bloc et sa ligne", named);
+    }
+
+    // Le saut n'EMET rien : il avance l'adresse, comme ALIGN. Les octets sautes
+    // restent hors coverage, ce dont depend la fusion avec une base (ADR 0012).
+    chk("BOUNDARY : le saut n'emet aucun octet de remplissage",
+        "  org #2FFE\n"
+        "  db #AA\n"
+        "  BOUNDARY 256\n"
+        "  db #BB, #CC, #DD\n"
+        "  END_BOUNDARY\n", {0xAA, 0x00, 0xBB, 0xCC, 0xDD}, 0x2FFE);
+
+    // Les deux fermetures qui manquent. Un END_BOUNDARY orphelin et un BOUNDARY
+    // jamais ferme sont des fautes de structure : muets, ils feraient croire a
+    // une garantie de frontiere qui n'est pas la.
+    chkErr("BOUNDARY : END_BOUNDARY orphelin refuse",
+           "  org #2F00\n  db 1\n  END_BOUNDARY\n");
+    chkErr("BOUNDARY : un bloc jamais ferme est refuse",
+           "  org #2F00\n  BOUNDARY 256\n  db 1\n");
+    // L'imbrication est REFUSEE, et non silencieusement mal mesuree : la mesure
+    // du bloc externe s'arreterait au premier END_BOUNDARY, celui du bloc
+    // interne, et rendrait une garantie de frontiere fausse.
+    chkErr("BOUNDARY : l'imbrication est refusee",
+           "  org #2F00\n"
+           "  BOUNDARY 256\n"
+           "  BOUNDARY 16\n"
+           "  db 1\n"
+           "  END_BOUNDARY\n"
+           "  db 2\n"
+           "  END_BOUNDARY\n");
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
