@@ -90,7 +90,7 @@ public:
         badNames_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
-        sectionMax_.clear(); sectionSite_.clear(); sectionSize_.clear();
+        sections_.clear();
         runPass(lines);
 
         // Les labels sont fixés (adresses indépendantes des valeurs). On réévalue
@@ -110,7 +110,7 @@ public:
         displacedRanges_.clear(); currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
-        sectionSize_.clear();   // les octets ne se comptent qu'en passe 2
+        for (auto &kv : sections_) kv.second.size = 0;   // les octets ne se comptent qu'en passe 2
         runPass(lines);
         flushOverlap();   // le dernier chevauchement accumulé doit sortir avant les diagnostics
         warnRunDisplaced();
@@ -242,8 +242,8 @@ public:
         for (const std::string &id : identifiers(in.a.expr)) {
             auto it = symInfo_.find(qualify(id));
             if (it == symInfo_.end() || it->second.section.empty()) continue;
-            auto k = sectionKind_.find(it->second.section);
-            if (k == sectionKind_.end() || k->second != "RO") continue;
+            const SectionInfo *sec = section(it->second.section);
+            if (!sec || sec->kind != "RO") continue;
             push("\"ld (nn), " + operandName(in.b) + "\" writes into read-only section '" +
                  it->second.section + "'");
             return;
@@ -304,8 +304,8 @@ public:
     // pas ecrit (§4.1).
     bool inUninit() const {
         if (curSection_.empty()) return false;
-        auto k = sectionKind_.find(curSection_);
-        return k != sectionKind_.end() && k->second == "UNINIT";
+        const SectionInfo *sec = section(curSection_);
+        return sec && sec->kind == "UNINIT";
     }
 
     // La taille d'une section est CUMULEE sur ses reouvertures, et non l'etendue
@@ -319,7 +319,7 @@ public:
     // reserver, et a cet etage le remplissage n'existe pas. Ce sera a recompter a
     // l'etage C, ou c'est le linker qui aligne.
     void countSectionBytes(int64_t n) {
-        if (pass_ == 2 && !measuring_ && !curSection_.empty()) sectionSize_[curSection_] += n;
+        if (pass_ == 2 && !measuring_ && !curSection_.empty()) sections_[curSection_].size += n;
     }
 
     // Reserver, c'est avancer sans ecrire : `pc_` bouge, la coverage ne bouge pas
@@ -488,10 +488,25 @@ private:
     int64_t pendingBoundary_ = 0;
     int measuring_ = 0;
     std::string curSection_;     // la section courante, vide avant toute declaration
-    std::map<std::string, std::string> sectionKind_;   // nom -> "RO" / "RW" / "UNINIT"
-    std::map<std::string, int64_t> sectionMax_;        // nom -> plafond declare, fige a la premiere declaration
-    std::map<std::string, int64_t> sectionSize_;       // nom -> octets emis, cumules sur les reouvertures
-    std::map<std::string, SourceLine> sectionSite_;    // la ligne qui porte le plafond, pour lui attribuer son erreur
+    // Ce qu'on sait d'une section, en UN enregistrement : sa presence dans la
+    // table dit qu'elle a ete declaree. Les quatre tables paralleles qu'elle
+    // remplace se desynchronisaient a la moindre etourderie ; c'est aussi
+    // l'objet dans lequel le fragment viendra se ranger.
+    struct SectionInfo {
+        std::string kind;         // "RO" / "RW" / "UNINIT", fige a la premiere declaration
+        bool hasMax = false;      // un plafond a-t-il ete declare ?
+        int64_t max = 0;          // le plafond, fige a la premiere declaration
+        SourceLine site;          // la ligne qui porte le plafond, pour lui attribuer son erreur
+        int64_t size = 0;         // octets emis, cumules sur les reouvertures
+    };
+    std::map<std::string, SectionInfo> sections_;   // nom -> ce qu'on en sait
+
+    // La section nommee, ou nullptr si elle n'a jamais ete declaree. `const`
+    // pour que la lecture ne cree pas d'entree la ou `find` protegeait.
+    const SectionInfo *section(const std::string &name) const {
+        auto it = sections_.find(name);
+        return it == sections_.end() ? nullptr : &it->second;
+    }
     bool uninitSaid_ = false;    // le refus d'emission en "uninit" est dit une fois par ligne
     int openBoundary_ = 0;       // blocs ouverts, pour refuser les fermetures qui manquent
     SourceLine boundarySite_;    // la ligne du BOUNDARY, pour lui attribuer son erreur
@@ -792,18 +807,19 @@ private:
             structErr("SECTION '" + curSection_ + "': maximum size cannot be negative");
             return;
         }
+        SectionInfo &sec = sections_[curSection_];
         if (reopened) {
-            auto m = sectionMax_.find(curSection_);
-            if (m == sectionMax_.end())
+            if (!sec.hasMax)
                 structErr("SECTION '" + curSection_ + "' was first declared without a maximum size: "
                           "a section keeps the maximum size of its first declaration");
-            else if (m->second != mx)
+            else if (sec.max != mx)
                 structErr("SECTION '" + curSection_ + "' was already declared with a maximum size of " +
-                          hexSize(m->second) + ": a section keeps the maximum size of its first declaration");
+                          hexSize(sec.max) + ": a section keeps the maximum size of its first declaration");
             return;
         }
-        sectionMax_[curSection_] = mx;
-        sectionSite_[curSection_] = cur_;
+        sec.hasMax = true;
+        sec.max = mx;
+        sec.site = cur_;
     }
 
     // Le depassement sort A L'ASSEMBLAGE, sans attendre le linkage (§4.1). Il ne
@@ -815,13 +831,13 @@ private:
     // octets ne se comptent qu'en passe 2 — le diagnostic y serait avale (meme
     // piege que pour ASSERT).
     void checkSectionSizes() {
-        for (const auto &kv : sectionMax_) {
-            auto s = sectionSize_.find(kv.first);
-            const int64_t size = (s == sectionSize_.end()) ? 0 : s->second;
-            if (size <= kv.second) continue;   // le refus ne mord pas a `max` exactement
-            cur_ = sectionSite_[kv.first];
+        for (const auto &kv : sections_) {
+            const SectionInfo &sec = kv.second;
+            if (!sec.hasMax) continue;
+            if (sec.size <= sec.max) continue;   // le refus ne mord pas a `max` exactement
+            cur_ = sec.site;
             push("Section '" + kv.first + "' exceeds maximum declared size (" +
-                 hexSize(size) + " > " + hexSize(kv.second) + " bytes)");
+                 hexSize(sec.size) + " > " + hexSize(sec.max) + " bytes)");
         }
     }
 
@@ -952,15 +968,17 @@ private:
                 return;
             }
             curSection_ = trim(parts[0]);
-            const bool reopened = sectionKind_.count(curSection_) != 0;
             // Une section se ROUVRE — c'est ainsi qu'on alterne code et donnees —
             // mais son type est fixe a la premiere declaration. Le laisser changer
-            // desarmerait le controle d'ecriture en "ro" en silence.
-            auto k = sectionKind_.find(curSection_);
-            if (k != sectionKind_.end() && k->second != ty)
+            // desarmerait le controle d'ecriture en "ro" en silence. C'est le TYPE
+            // qui dit la declaration, et non la seule presence dans la table :
+            // l'enregistrement, lui, peut naitre d'un comptage d'octets.
+            SectionInfo &sec = sections_[curSection_];
+            const bool reopened = !sec.kind.empty();
+            if (reopened && sec.kind != ty)
                 structErr("SECTION '" + curSection_ + "' was already declared \"" +
-                          lower(k->second) + "\": a section keeps the type of its first declaration");
-            else sectionKind_[curSection_] = ty;
+                          lower(sec.kind) + "\": a section keeps the type of its first declaration");
+            else sec.kind = ty;
             // Le plafond est traite en passe 1 seulement : sa valeur s'y fixe, et
             // c'est la passe ou sortent les diagnostics structurels.
             if (pass_ == 1) noteSectionMax(parts, reopened);
