@@ -19,7 +19,8 @@ est identique.
 
 C'est aussi la porte par laquelle les assembleurs dérivent. Une fois qu'une
 directive peut décrire la sortie, plus rien ne délimite ce qu'une directive peut
-décrire — et rasm a fini par embarquer l'export audio et les segments compressés
+décrire — et une chaîne complète finit par embarquer l'export audio et les
+segments compressés
 par ce chemin.
 
 ## Conséquences
@@ -29,7 +30,7 @@ options appartiennent à l'adaptateur, donc à la ligne de commande, à l'appel
 d'API ou à la configuration de l'hôte. C'est l'application directe de la règle de
 tri de l'ADR 0001 et le premier cas concret qui la met à l'épreuve.
 
-En contrepartie, une source rasm qui s'appuyait sur `SNASET` pour se décrire
+En contrepartie, une source du corpus qui s'appuyait sur `SNASET` pour se décrire
 elle-même perd cette autonomie : l'information doit être transmise au moment de
 l'invocation. Le refus la porte au grand jour plutôt que de laisser croire, par
 un simple avertissement, que la directive a quand même agi — un `SNASET` ignoré

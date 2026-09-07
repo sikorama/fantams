@@ -272,42 +272,15 @@ The exported `.sna` carries 64 KB if the source stays within banks 0–3, and
 
 ---
 
-## Differences from rasm
+## Differences from other assemblers
 
-fantams started as a simplified rasm fork and has drifted on purpose. The
-divergences below are the ones that change what your source means:
-
-| | rasm | fantams |
-|---|---|---|
-| `repeat` index | starts at **1** | starts at **0** |
-| Macro calls | bare: `sprite 4,12` | bare **or** parenthesized: `sprite(4,12)` |
-| Counted loop over a range | — | **`for k = 1 to n`** / `until` for an exclusive bound |
-| Closing a block | `endif`, `endm`, `rend`, … (`endr` for `repeat`) | the same, **plus `end` for any block** — and `endr` does not exist |
-| `sin` / `cos` | degrees | **radians** |
-| Preprocessor output | — | **`-E` writes the unrolled source** |
-| `/` | integer division | **floating-point**; `div` is the integer one |
-
-A few notes on why:
-
-- **`repeat` from 0** matches the index arithmetic you write next to it
-  (`db idx*8`), and is the divergence to keep in mind when porting a source.
-- **Parenthesized calls** are the only form you can read without already knowing
-  the macro list, which matters for a macro coming from an `include` or one not
-  written yet. The bare form still works and warns once per macro; `--beautify`
-  adds the parentheses to the macros it knows.
-- **`end` closes the innermost block**, whatever it is. A named closure that
-  doesn't match is an error that says so.
-- **Radians** because that is what a maths library takes; write
-  `sin(a*3.14159265/180)` for a degree argument. Rounding, on the other hand, is
-  rasm's: halves go up, so `-3.5` gives `-3`.
-
-Also worth knowing: there is no ternary `? :` (the `:` is already the instruction
-separator), and registers, pairs, and conditions are reserved — `for i = …`
-fails, because `i` is a register.
-
-`BUILDSNA`, `BANKSET`, `NOLIST`, and `LIST` are accepted and ignored. `BANK`,
-`SNASET`, `SETCPC`, `CHARSET`, `TICKER`, and `STR` are refused by name rather
-than silently read as labels.
+* **`repeat` index starts at 0**: indexing begins at 0 (rather than 1), matching standard index arithmetic (`db idx*8`).
+* **Counted loops**: provides `for k = 1 to n` (and `until` for exclusive bounds) as a native construct.
+* **Parenthesized macro calls**: supports parenthesized syntax `sprite(4, 12)` alongside bare calls `sprite 4, 12`. This makes macro calls readable without prior knowledge of the symbol list (e.g., macros coming from an `include`). Bare calls trigger a single warning per macro, and `--beautify` automatically adds parentheses.
+* **Universal block closure**: the `end` keyword closes any innermost block (`if`, `macro`, `repeat`), alongside standard closing keywords (`endif`, `endm`, etc.). A mismatched closing tag produces an explicit error.
+* **Trigonometry in radians**: `sin` and `cos` operate on radians instead of degrees. Degree inputs require explicit conversion (`sin(a * 3.14159265 / 180)`).
+* **Floating-point division**: the `/` operator performs floating-point division, while `div` is used for integer division.
+* **Preprocessor output (`-E`)**: a `-E` flag is available to output the fully unrolled source code for debugging.
 
 ---
 

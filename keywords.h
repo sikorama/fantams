@@ -101,7 +101,7 @@ bool parenCall(const std::string &s, std::string &name, std::string &args);
 // y suggerent une indirection qui n'existe pas. Mais `ld pc,hl` n'est du Z80
 // standard pour personne, et un canon que les autres assembleurs refusent perd
 // ce qui fait sa valeur.
-// Couvre aussi « jp hl » (idem ix, iy), la forme de rasm sans parentheses.
+// Couvre aussi « jp hl » (idem ix, iy), la forme de l'assembleur de référence sans parentheses.
 std::string canonicalJump(const std::string &stmt);
 
 // Les orthographes de `EX`, ou la chaine inchangee :
@@ -141,7 +141,7 @@ std::string reservedName(const std::string &name, const std::string &position);
 
 // Sépare un éventuel label de tête « ident: » du reste — ou « ident » seul
 // (sans ':') si `ident` n'est pas réservé à cette phase, forme tolérée et
-// courante chez rasm. `code` doit être dépourvu de commentaire et d'espaces de
+// courante chez l'assembleur de référence. `code` doit être dépourvu de commentaire et d'espaces de
 // tête ; `rest` est rendu trimé.
 //
 // `sawColon` (optionnel) : lequel des deux cas s'est produit, pour permettre
@@ -162,7 +162,7 @@ void peelLabel(const std::string &code, std::string &label, std::string &rest, P
 //
 // Un littéral court jusqu'à la prochaine occurrence de SON PROPRE délimiteur :
 // l'autre y est un caractère ordinaire, sans échappement (« db 'a"b' » émet
-// trois octets). C'est ce que fait déjà rasm, et ce que faisaient déjà les
+// trois octets). C'est ce que fait déjà l'assembleur de référence, et ce que faisaient déjà les
 // scanners de pp.cpp et parser.cpp — l'écrire ici une fois supprime une
 // divergence plutôt qu'elle n'en ajoute une.
 struct Literal {

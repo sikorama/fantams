@@ -5,8 +5,8 @@ binary and not against intentions. Standard Z80 mnemonics are not included here:
 they are the same as everyone else's. What follows covers directives, expressions,
 macros, and extended notations.
 
-Here, only the facts: what to write, what it does, and where fantams diverges
-from rasm.
+Here, only the facts: what to write, what it does, and where fantams is
+unusual.
 
 ---
 
@@ -91,18 +91,17 @@ are interchangeable, and `'A'` is in no way different from `"A"`.
 
 | Function | Arguments | Note |
 |---|---|---|
-| `sin` `cos` | 1 | angles in **radians** (diverges from rasm) |
+| `sin` `cos` | 1 | angles in **radians**, never degrees |
 | `abs` | 1 | |
 | `hi` `lo` | 1 | high / low byte of the integer value |
 | `floor` `ceil` `int` `round` | 1 | toward −∞ / +∞ / zero / nearest |
 | `min` `max` | 2 | |
 | `sizeof` | 1 | size of a `struct` |
 
-Halves round **up** (`3.5 → 4`, `-3.5 → -3`), like rasm.
+Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 
-`sin` and `cos` take **radians** — the one deliberate divergence in the
-arithmetic, rasm taking degrees. Write `sin(a*3.14159265/180)` for a degree
-argument.
+`sin` and `cos` take **radians**, which is what a maths library takes. Write
+`sin(a*3.14159265/180)` for a degree argument.
 
 ### What doesn't exist
 
@@ -242,7 +241,7 @@ endmacro              |   endmacro              |   endmacro
 
 Closures: `endmacro` (canonical), `endm`, `mend`, or `end`.
 
-The third notation, `name MACRO p,q`, is **inherited from rasm and warns** once per macro;
+The third notation, `name MACRO p,q`, is **inherited and warns** once per macro;
 `--beautify` rewrites it to `macro name p,q`.
 
 ### Call
@@ -298,8 +297,8 @@ Braces are never a format prefix.
 
 ### Scope
 
-A label prefixed with **`@`** is made **unique to each expansion** — the rasm
-convention. A label without the prefix is **not renamed**: reused across two
+A label prefixed with **`@`** is made **unique to each expansion**. A label
+without the prefix is **not renamed**: reused across two
 expansions, it stays a real collision, and the assembler says so
 (`duplicate symbol`).
 
@@ -343,8 +342,8 @@ endmacro
 match is an error stating so. Any block `X` closes with `endX` or
 with `end`, without exception — `endr` does not exist.
 
-The `repeat` index starting at 0 is the most silent rasm divergence in the
-project (rasm counts from 1); it is made explicit in use.
+The `repeat` index starts at 0, which is what the index arithmetic written next
+to it expects (`db idx*8`).
 
 A block can open and close on one line: `repeat 3 : dw a,b : rend`.
 
@@ -416,21 +415,21 @@ that reading exactly.
   an expression touching a **label** is not — at preprocessor time no address
   exists. To reserve space measured on labels defined *above*, use `ds`.
 - `nop 0` is legal and emits nothing; a negative count is an error.
-- The rule covers **every** operand-less mnemonic, which is broader than rasm
-  (it hand-codes ten, so `cpi 4` and `ldir 2` are errors there). `ret` and `im`
-  are not operand-less, so a count on them is not a count.
+- The rule covers **every** operand-less mnemonic, with no blocklist: a rule with
+  exceptions costs more to remember than it saves. `ret` and `im` are not
+  operand-less, so a count on them is not a count.
 
-### What is refused, though rasm accepts it
+### What is refused, though other assemblers accept it
 
 | Form | Why |
 |---|---|
-| `ld hl,sp` | rasm makes it `ld hl,0 : add hl,sp` — 4 bytes, and the carry is clobbered |
+| `ld hl,sp` | it is usually rendered as `ld hl,0 : add hl,sp` — 4 bytes, and the carry is clobbered |
 | `rlc hl` · `rr de` · `srl8 de` | 2 to 4 `cb` operations: a routine, not an orthography — write a macro |
 | `rst z,#38` | 2 bytes that **overlap** — the `jr` displacement is itself the `rst` opcode — so no pair of canonical Z80 lines expresses it |
 | `inc hl,de` · `dec bc,de` | no idiom behind it, and it collides with `add hl,de`; multi-register lists stay on `push`/`pop`, which are a sequence by nature |
 
-`add a,b` and `add b` are **both** accepted (as are `and a,b`, `or a,b`,
-`xor a,b`, which rasm refuses). Neither is elected canon: both are one opcode in a
+`add a,b` and `add b` are **both** accepted, as are `and a,b`, `or a,b` and
+`xor a,b`. Neither is elected canon: both are one opcode in a
 standard spelling, so the difference is a taste, not a structure. `--normalize`
 leaves them, `--strict` takes both.
 
@@ -457,20 +456,25 @@ fail by naming the replacement:
 | `TICKER` | counting cycles is a control flow analysis, not a directive |
 | `STR` | not yet implemented: use `db` (`STR` sets bit 7 of the last character) |
 
-`BUILDSNA`, `BANKSET`, `NOLIST`, and `LIST` are **accepted and ignored**: they are
-rasm headers with no effect here.
+`BUILDSNA`, `BANKSET`, `NOLIST`, and `LIST` are **accepted and ignored**: they
+are output-format or listing headers, which have no place in a source and no
+effect here.
 
 ---
 
-## 14. Assumed divergences from rasm
+## 14. Where fantams is unusual
 
-| Point | rasm | fantams |
-|---|---|---|
-| `repeat` index | starts at 1 | starts at **0** |
-| `sin` / `cos` | degrees | **radians** |
-| module syntax | — | assumed divergence |
-| macro call | bare | bare **or parenthesized** |
-| `endr` | absent | absent |
+These are the points a reader coming from another Z80 assembler is most likely to
+get wrong. None of them is negotiable, and each is argued in an ADR.
+
+| Point | fantams |
+|---|---|
+| `repeat` index | starts at **0** |
+| `sin` / `cos` | **radians**, never degrees |
+| modules | **switch**, they do not nest — labels get a `gfx.` prefix |
+| macro call | bare **or parenthesized** |
+| block closing | `endX` or **`end`** for any block; `endr` does not exist |
+| `/` | floating-point; `div` is the integer one |
 
 ---
 

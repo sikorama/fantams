@@ -195,7 +195,7 @@ std::vector<std::string> expandPushPop(const std::string &stmt) {
 // (`SP` et `AF` ne sont pas adressables par moitiés).
 //
 // Les moitiés de IX/IY sont NON DOCUMENTÉES mais assemblées par fantams comme par
-// rasm. Elles restent du Z80 canonique au sens de l'ADR 0017 — un opcode, une
+// l'assembleur de référence. Elles restent du Z80 canonique au sens de l'ADR 0017 — un opcode, une
 // ligne — ce qui est la seule condition qu'une règle de canonisation doive tenir.
 bool reg16Halves(const std::string &R, std::string &hi, std::string &lo) {
     if (R == "BC") { hi = "b";  lo = "c";  return true; }
@@ -211,14 +211,14 @@ inline bool isIndexPair(const std::string &R) { return R == "IX" || R == "IY"; }
 // indexées. Sucre un-vers-plusieurs, donc canonisation de préprocesseur
 // (ADR 0017/0020) : la source déroulée doit montrer les deux opcodes.
 //
-// L'ordre est HAUT puis BAS, comme rasm. Aucun recouvrement n'est possible : les
+// L'ordre est HAUT puis BAS, comme l'assembleur de référence. Aucun recouvrement n'est possible : les
 // deux paires sont disjointes (le cas dest == src est écarté), donc la moitié
 // haute écrite n'est jamais la moitié basse encore à lire.
 //
 // `ld hl,ix` et ses semblables n'existent pas, et c'est une contrainte de la
 // machine, pas un choix : le préfixe DD fait de `h` la moitié de IX, si bien
 // qu'aucune instruction ne nomme H et IXH à la fois. Deux paires d'index non
-// plus, pour la même raison. rasm les refuse aussi.
+// plus, pour la même raison. l'assembleur de référence les refuse aussi.
 std::vector<std::string> expandLd16(const std::string &stmt) {
     std::string label, rest; peelLabel(stmt, label, rest);
     const std::string mnTok = firstToken(rest);
@@ -376,7 +376,7 @@ std::string canonicalizeSpelling(const std::string &stmt) {
 
 // --- Blocs (ADR 0016) --------------------------------------------------------
 // Un bloc a un OUVREUR, une fermeture CANONIQUE et d'éventuelles fermetures
-// TOLÉRÉES, héritées de rasm et conservées en silence : elles sont omniprésentes
+// TOLÉRÉES, héritées et conservées en silence : elles sont omniprésentes
 // et, la correspondance étant désormais vérifiée, elles ne sont plus ambiguës.
 struct Macro {
     std::string name;
@@ -554,7 +554,7 @@ private:
     // IFDEF / IFNDEF. Voit tout ce que le préprocesseur a RENCONTRÉ jusqu'ici :
     // variables LET, macros, locaux et arguments, mais aussi les constantes et
     // variables d'assemblage (ADR 0003) et les labels déjà définis — « FOO » seul
-    // sur une ligne est un drapeau, idiome rasm courant.
+    // sur une ligne est un drapeau, idiome courant.
     //
     // La limite est celle de la frontière de phase : un symbole défini PLUS BAS
     // reste invisible, le préprocesseur n'ayant qu'une passe avant. Ce n'est pas
@@ -630,20 +630,20 @@ private:
                 while (j < text.size() && d) { if (text[j] == '{') ++d; else if (text[j] == '}') --d; if (d) ++j; }
                 if (j >= text.size()) { error(sl, "unclosed brace '{'"); out += text.substr(i); break; }
                 std::string inner = trim(text.substr(i + 1, j - i - 1));
-                // rasm surcharge les accolades : « {hex}valeur » y est un format
+                // l'assembleur de référence surcharge les accolades : « {hex}valeur » y est un format
                 // d'affichage et « {sizeof}type » un opérateur. Dans fantams, {X}
                 // a un seul rôle — évaluer X et substituer. Ces sources doivent
                 // être éditées, autant le dire précisément. Cf. ADR 0011.
-                static const std::map<std::string, std::string> rasmBrace = {
+                static const std::map<std::string, std::string> formatBrace = {
                     {"SIZEOF", "write sizeof(name) instead"},
                     {"HEX", "use the print format prefix: print \"x=\", hex expr"},
                     {"BIN", "use the print format prefix: print \"x=\", bin expr"},
                     {"CHAR", "use the print format prefix: print \"x=\", char expr"},
                     {"INT", "use the print format prefix: print \"x=\", int expr"},
                 };
-                auto rb = rasmBrace.find(upper(inner));
-                if (rb != rasmBrace.end()) {
-                    error(sl, "'{" + inner + "}' is a rasm notation that fantams does not accept: "
+                auto rb = formatBrace.find(upper(inner));
+                if (rb != formatBrace.end()) {
+                    error(sl, "'{" + inner + "}' is a format-prefix notation that fantams does not accept: "
                               "here '{X}' only ever means 'evaluate X and substitute' — " + rb->second);
                     i = j + 1;
                     continue;
@@ -695,7 +695,7 @@ private:
 
     // Remplace, dans les opérandes d'une ligne prête à être émise, les variables du
     // préprocesseur (LET) et les compteurs de boucle (REPEAT/WHILE) écrits en clair
-    // par leur valeur. rasm les expose comme des symboles ordinaires de l'assembleur ;
+    // par leur valeur. l'assembleur de référence les expose comme des symboles ordinaires de l'assembleur ;
     // ici elles n'existent qu'au préprocesseur, d'où cette substitution textuelle.
     // Chaînes et littéraux caractère sont recopiés tels quels, et un identifiant collé
     // à un préfixe numérique (#FF, $1A, %10, 0x1F) n'est pas un symbole.
@@ -788,7 +788,7 @@ private:
     // C'est le preprocesseur qui porte cette connaissance : apres l'abaissement
     // des STRUCT, il n'y a plus de structure, seulement des EQU.
     //
-    // On n'implemente PAS la notation rasm {sizeof}NOM : dans fantams, {X}
+    // On n'implemente PAS la notation l'assembleur de référence {sizeof}NOM : dans fantams, {X}
     // signifie « evalue X et substitue », un seul role grammatical. Cf. ADR 0011.
     std::string expandSizeof(const std::string &code, const SrcLine &src) {
         std::string out; size_t i = 0;
@@ -828,7 +828,7 @@ private:
     // « nop fin-debut » en découle au lieu d'être un cas particulier.
     //
     // La règle porte sur TOUT mnémonique sans opérande, plus large que les dix
-    // que rasm code à la main : « pourquoi `ldi 4` et pas `cpi 4` ? » n'a pas de
+    // que l'assembleur de référence code à la main : « pourquoi `ldi 4` et pas `cpi 4` ? » n'a pas de
     // réponse, et une règle sans exception coûte moins cher à retenir (ADR 0015).
     bool repetitionCount(const std::string &stmt, const Env &env, const SrcLine &src,
                          std::string &one, long &count) {
@@ -951,9 +951,9 @@ private:
     // skipNestedModule=true : ignore les labels des blocs MODULE imbriqués
     // (ils seront préfixés par le MODULE interne lors de la récursion).
     // onlyAtPrefixed=true : ne retient que les labels préfixés par '@' — c'est la
-    // convention rasm pour l'auto-unicité par expansion (MACRO/REPEAT/WHILE) ; un
+    // convention héritée pour l'auto-unicité par expansion (MACRO/REPEAT/WHILE) ; un
     // label ordinaire réutilisé entre deux expansions doit rester une vraie collision
-    // ("symbole déjà défini"), comme chez rasm. MODULE, lui, renomme tout (onlyAtPrefixed=false).
+    // ("symbole déjà défini"), comme chez l'assembleur de référence. MODULE, lui, renomme tout (onlyAtPrefixed=false).
     std::vector<std::string> collectLabels(const std::vector<SrcLine> &body, bool skipNestedModule,
                                            bool onlyAtPrefixed = false) {
         std::vector<std::string> locals;
@@ -1285,14 +1285,14 @@ private:
                     std::string bad = kw::reservedName(var, "a loop index");
                     if (!bad.empty()) { error(raw, bad); var.clear(); }
                 }
-                // ADR 0016 : l'index vaut 0 au premier tour, contre 1 chez rasm. C'est
+                // ADR 0016 : l'index vaut 0 au premier tour, contre 1 chez l'assembleur de référence. C'est
                 // la seule divergence du projet qu'aucune détection ne peut trouver — une
                 // table décalée d'un cran s'assemble parfaitement. Elle est donc rendue
                 // bruyante autrement : TOUT usage de la forme à index est signalé, sans
                 // faux positif possible puisque c'est la construction qu'on déprécie.
                 if (!var.empty())
-                    warning(raw, "the index of 'repeat' starts at 0 here, not at 1 as in rasm: "
-                                 "a source written for rasm must read '" + var + "+1' — prefer "
+                    warning(raw, "the index of 'repeat' starts at 0 here, not at 1: "
+                                 "a source written for another assembler may need '" + var + "+1' — prefer "
                                  "'for " + var + " = 0 until <count>', where the bounds are written");
                 std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + rend);
                 if (!r.ok) error(raw, "REPEAT: " + (parts.empty() ? "missing counter" : r.error));
@@ -1393,7 +1393,7 @@ private:
                 if (!m.name.empty() && m.name.back() == ':') m.name.pop_back();
                 if (m.name.empty()) error(raw, "MACRO without a name");
                 else {
-                    // « nom MACRO p,q » : graphie rasm héritée. Elle est la seule
+                    // « nom MACRO p,q » : graphie héritée. Elle est la seule
                     // raison d'une exception dans peelLabel — un nom en tête de ligne
                     // qui n'est pas un label — et rien ne la distingue d'un appel de
                     // macro sans la connaître. Avertie une fois, comme l'appel nu.
@@ -1407,7 +1407,7 @@ private:
             }
 
             // --- MODULE name | MODULE [OFF] | ENDMODULE (scope par préfixe) ---
-            // rasm : PAS de nesting. "MODULE x" bascule le module actif (remplace, ne cumule
+            // l'assembleur de référence : PAS de nesting. "MODULE x" bascule le module actif (remplace, ne cumule
             // pas) ; "MODULE", "MODULE OFF" et "ENDMODULE" désactivent le module en cours.
             if (kw == "MODULE" || kw == "ENDMODULE") {
                 std::string arg = trim(restAfterFirst(rest));
@@ -1421,7 +1421,7 @@ private:
                     if (kw2 == "MODULE" || kw2 == "ENDMODULE") { endIdx = j; break; }
                 }
                 std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + endIdx);
-                // Séparateur '.' (pas '_' comme rasm) : cohérent avec le mécanisme des labels
+                // Séparateur '.' (pas '_' comme l'assembleur de référence) : cohérent avec le mécanisme des labels
                 // locaux ".nom" (asm.cpp), qui qualifie déjà par le label global précédent —
                 // ici ce "global précédent" devient le nom renommé "module.label", donnant
                 // naturellement "module.label.local" sans traitement spécial. Les labels

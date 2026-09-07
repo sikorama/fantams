@@ -63,7 +63,8 @@ La compression RLE de ces chunks est souhaitable mais facultative : un lecteur
 accepte les deux, et elle peut donc arriver après. Un piège à ne pas manquer le
 jour où elle sera écrite — l'encodage est `0xE5 <compte> <valeur>`, et un octet
 `0xE5` littéral doit être échappé en `0xE5 0x00`, sur deux octets et sans
-troisième. Cette exception est vérifiée empiriquement contre la sortie de rasm
+troisième. Cette exception est vérifiée empiriquement contre la sortie de
+l'assembleur de référence
 (fonction `decodeRLE` du harnais de comparaison de z80live-lite).
 
 ## Nommage

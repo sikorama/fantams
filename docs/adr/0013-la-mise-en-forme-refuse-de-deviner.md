@@ -63,7 +63,7 @@ instructions. Ce n'est pas une règle de plus, c'est la même règle appliquée 
 tout ce qui est du code : une sortie où `ld a,1` serait indenté mais `org
 #8000` resterait en colonne 1 se lirait comme un bug de la mise en forme. Le
 choix inverse aurait été d'élargir l'avertissement aux directives, mais il
-ferait crier tous les en-têtes rasm (`BUILDSNA`, `BANKSET`, `ORG`, `RUN` en
+ferait crier tous les en-têtes du corpus (`BUILDSNA`, `BANKSET`, `ORG`, `RUN` en
 colonne 1) et noierait le signal que l'avertissement existe pour porter.
 
 **Le rien-de-paramétrable** est l'ADR 0004 appliqué à l'entrée plutôt qu'à la

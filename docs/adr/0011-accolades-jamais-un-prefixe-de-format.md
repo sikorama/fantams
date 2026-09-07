@@ -4,14 +4,15 @@ status: accepted
 
 # Les accolades ne sont jamais un préfixe de format
 
-Nous refusons les notations rasm `{sizeof}`, `{hex}`, `{bin}`, `{char}` et
+Nous refusons les notations `{sizeof}`, `{hex}`, `{bin}`, `{char}` et
 `{int}`. `sizeof` devient une fonction — `sizeof(nom)` — et les formats
 d'affichage de `PRINT` s'écrivent en mot-clé nu devant l'expression :
 `print "addr=", hex init_music`.
 
 ## Contexte
 
-rasm surcharge les accolades. Dans une même source du corpus, on trouve à la
+L'usage établi surcharge les accolades. Dans une même source du corpus, on
+trouve à la
 fois la substitution de variable `{mode}` et le préfixe de format `{hex}` :
 
 ```asm

@@ -131,14 +131,14 @@ int main() {
     chk("db expr", "  db 2*3+1, 1<<4\n", {0x07, 0x10});
     chk("db char", "  db 'A','Z'\n", {0x41, 0x5A});
 
-    // label sans ':' (toléré, comme rasm) tant que le 1er mot n'est pas un mnémo/directive connu
+    // label sans ':' (toléré, comme l'assembleur de référence) tant que le 1er mot n'est pas un mnémo/directive connu
     chk("label sans ':'", "start\n  ld a,1\n  jp start\n", {0x3E, 0x01, 0xC3, 0x00, 0x00});
     chkSym("label sans ':' addr", "  org 0x4000\nstart\n  nop\n", "start", 0x4000);
-    // NOLIST/LIST : no-op (contrôle du listing seulement, comme rasm)
+    // NOLIST/LIST : no-op (contrôle du listing seulement, comme l'assembleur de référence)
     chk("nolist no-op", "  nolist\n  ld a,1\n  list\n  ld b,2\n", {0x3E, 0x01, 0x06, 0x02});
     // BUILDSNA/BANKSET : no-op chez fantams (le split sur ':' est fait par pp.cpp en amont ;
     // ici chaque statement est déjà sur sa propre ligne, comme le reçoit vraiment asm.cpp).
-    chk("BUILDSNA en-tête rasm (no-op)",
+    chk("BUILDSNA en-tête d'export (no-op)",
         "BUILDSNA V2\nBANKSET 0\nORG 0x8000\nRUN $\n  ld a,1\n", {0x3E, 0x01}, 0x8000);
 
     // avertissements de bonne pratique (non bloquants)
@@ -147,7 +147,7 @@ int main() {
     chkWarn("warn instruction en colonne 1", "start:\nnop\n", true);
     chkWarn("pas de warn instruction indentée", "start:\n  nop\n", false);
 
-    // labels locaux ".nom" : qualifiés par le dernier label global (comme rasm) ->
+    // labels locaux ".nom" : qualifiés par le dernier label global (comme l'assembleur de référence) ->
     // deux ".loop" sous deux globaux différents ne collisionnent pas.
     chkSym("label local .nom sous 2 globaux distincts (A)",
         "blockA:\n.loop:\n  nop\nblockB:\n.loop:\n  nop\n", "blockA.loop", 0);
@@ -158,7 +158,7 @@ int main() {
     // référence qualifiée explicite "global.local" depuis un autre contexte
     chkSym("label local référencé via global.local", "blockA:\n.loop:\n  nop\n  jp blockA.loop\n", "blockA.loop", 0);
 
-    // repli insensible à la casse (rasm ne distingue pas la casse) : résolu + avertissement
+    // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse) : résolu + avertissement
     chkWarn("repli casse : résolu avec avertissement", "Foo: nop\n  jp foo\n", true);
     chkErr("casse : rien à replier -> erreur si vraiment absent", "  jp doesNotExist\n");
 
@@ -262,7 +262,7 @@ int main() {
             "  org #8000\n  db 'a'-'z'\n", {0xE7}, 0x8000);
 
         // --- Refus ----------------------------------------------------------
-        // Contexte SCALAIRE : aucune valeur n'existe, et rasm y repond par un
+        // Contexte SCALAIRE : aucune valeur n'existe, et l'assembleur de référence y repond par un
         // zero silencieux qu'on se refuse a reproduire.
         chkErr("refus : ld hl,'ab' (aucune convention d'endianness)",
                "  org #8000\n  ld hl,'ab'\n");
@@ -381,7 +381,7 @@ int main() {
 
     // --- ORG a deux parametres : logique et rangement (ADR 0005) --------------
     //
-    // Semantique rasm, mesuree contre rasm : le PREMIER parametre est l'adresse
+    // Semantique usuelle, mesuree contre l'assembleur de référence : le PREMIER parametre est l'adresse
     // logique — celle des labels, celle pour laquelle le code est assemble — et le
     // SECOND l'adresse de rangement, ou les octets sont reellement ecrits en
     // attendant qu'un chargeur les recopie.
@@ -395,11 +395,11 @@ int main() {
         okc("deplace : rien a l'adresse logique", o.coverage[0x2000] == 0);
         okc("deplace : loadAddress est le rangement", o.loadAddress == 0x3000);
     }
-    // ALIGN aligne le LOGIQUE (comme rasm) : c'est l'adresse ou le code tournera
+    // ALIGN aligne le LOGIQUE (comme l'assembleur de référence) : c'est l'adresse ou le code tournera
     // apres recopie. Le rangement suit du meme ecart, donc n'est pas aligne.
     chkSym("deplace : ALIGN aligne le logique",
            "  org #2000,#3000\n  nop\n  align 16\naligned:\n  nop\n", "aligned", 0x2010);
-    // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero (comme rasm).
+    // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero (comme l'assembleur de référence).
     {
         asmb::Output o = asmb::assembleText("  org #2000,#3000\n  nop\n  org #5000\n  db #42\n", "t.asm");
         okc("deplace : un ORG nu remet le deplacement a zero", o.image[0x5000] == 0x42);
@@ -510,7 +510,7 @@ int main() {
     chkWarn("ex af,af ne dit rien a l'assembleur", "  ex af,af\n", false);
 
     // Les refus. Chacun nomme sa raison plutot que « unrecognized form » : ces
-    // formes existent chez rasm, et celui qui les ecrit les croit valides.
+    // formes existent ailleurs, et celui qui les ecrit les croit valides.
     chkErr("inc hl,de refuse", "  inc hl,de\n");   // rendait UN octet, en silence
     chkErr("dec bc,de refuse", "  dec bc,de\n");
     chkErr("ld hl,sp refuse",  "  ld hl,sp\n");    // arithmetique inventee, carry ecrase

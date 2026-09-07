@@ -18,15 +18,15 @@ Le corpus compte 265 chaînes en `'…'` et 589 en `"…"` sur des lignes de don
 `PRINT`. **21 textes distincts emploient les deux délimiteurs**, ce qui suffit à
 dire que la distinction n'existe pas dans l'esprit des auteurs.
 
-Ce n'est pas rasm qui manquait de symétrie, c'est fantams. Mesuré : rasm émet
-`3e 78` pour `ld a,"x"`, `42` pour `db "A"+1`, `61 22 62` pour `db 'a"b'` et
-`61 27 62` pour `db "a'b"`. Fantams, lui, réservait `"` aux chaînes de `DB` et
+Le manque de symétrie était du côté de fantams. Mesuré sur l'assembleur de
+référence : `3e 78` pour `ld a,"x"`, `42` pour `db "A"+1`, `61 22 62` pour
+`db 'a"b'` et `61 27 62` pour `db "a'b"`. Fantams, lui, réservait `"` aux chaînes de `DB` et
 `'` aux caractères d'expression — deux trous symétriques, pas un.
 
 **Cette ADR corrigeait une version antérieure d'elle-même qui affirmait un fait
 faux.** Elle donnait `db 'HELLO' - 'A'` comme distribuant l'arithmétique sur les
-caractères « comme rasm ». Vérification faite contre rasm : il émet **un seul
-octet, `0xBF`**, soit `(0 - 65) & 0xFF` — le littéral multi-caractères y vaut
+caractères, à l'imitation d'un usage supposé. Vérification faite contre
+l'assembleur de référence : il émet **un seul octet, `0xBF`**, soit `(0 - 65) & 0xFF` — le littéral multi-caractères y vaut
 zéro, silencieusement, et il n'y a aucune distribution. `ld hl,'ab'`, `'abc'`,
 `'abcd'` valent zéro de la même façon. Toute la justification bâtie sur cette
 phrase était sans objet.
@@ -49,7 +49,7 @@ beautify correspondante.
 
 **Un littéral en expression doit faire un octet.** `ld hl,'ab'` est une erreur,
 tout comme `'abc'` et `''`. Le tolérer supposerait une valeur à lui donner : ou
-bien celle de rasm — un zéro silencieux, c'est-à-dire du faux émis sans le dire —
+bien un zéro silencieux, c'est-à-dire du faux émis sans le dire —
 ou bien une convention d'endianness que rien dans le source n'énonce. Un
 avertissement ne rattraperait pas ça : il laisserait passer des octets qu'aucune
 règle ne définit.
@@ -68,8 +68,8 @@ Tous les opérateurs binaires sont admis — restreindre à `+` et `-` serait un
 règle de plus à retenir sans rien acheter. Seuls `DB`/`DEFB`/`DM`/`DEFM`
 distribuent, plus la future famille `STRING` ; `DW` et `PRINT` refusent.
 
-C'est une **divergence assumée** vis-à-vis de rasm, où la même ligne produit un
-octet au lieu de cinq. Elle ne casse aucune source : la forme n'apparaît nulle
+C'est une **divergence assumée** : ailleurs, la même ligne produit un octet au
+lieu de cinq. Elle ne casse aucune source : la forme n'apparaît nulle
 part dans le corpus, et pour cause — elle y produirait du faux.
 
 ## Pourquoi pas de mesure d'usage à l'appui
@@ -124,7 +124,7 @@ Prix assumé : 11 textes sur 377 demanderont du portage.
 
 Une famille `STRING <terminaison>` couvre les conventions de fin — `MSB`,
 `ASCIIZ`, `PASCAL` — et n'a qu'une raison d'être : apporter les vérifications
-que rasm n'offre pas. **La terminaison MSB est incompatible avec tout octet
+qu'aucun des assembleurs du corpus n'offre. **La terminaison MSB est incompatible avec tout octet
 ≥ 0x80** : si un caractère a déjà son bit 7 à 1, la chaîne se termine en son
 milieu, silencieusement. Un assembleur peut le refuser, et c'est le seul gain de
 correction — non de confort — de toute cette famille.
@@ -132,7 +132,7 @@ correction — non de confort — de toute cette famille.
 Le corpus compte 707 lignes de `DB` avec une chaîne sans terminateur, 111 en
 terminaison MSB (concentrées sur une source et son fork), 34 en `asciiz`, et
 aucun usage avéré du préfixe de longueur. La forme majoritaire fonctionne déjà.
-`STR`, le nom retenu par rasm, ne dit pas ce qu'il encode : il devient un alias
+`STR`, le nom en usage dans le corpus, ne dit pas ce qu'il encode : il devient un alias
 déprécié de `STRING MSB`, et son implémentation est différée.
 
 `PASCAL` figure dans la table par orthogonalité : il coûte une ligne au même

@@ -116,7 +116,7 @@ plutôt que l'inventer.
 
 **Rien qui change le sens ne se devine.** Aucune borne, aucun index, aucun
 moment de résolution ne doit dépendre d'une convention à mémoriser : la ligne
-doit le dire. C'est la forme générale du grief contre les accolades de rasm — une
+doit le dire. C'est la forme générale du grief contre les accolades — une
 syntaxe, deux rôles grammaticaux, et rien dans la ligne ne dit lequel s'applique.
 _`to` inclusif et `until` exclusif plutôt qu'un `to` dont il faut savoir le sens._
 

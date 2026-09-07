@@ -8,7 +8,7 @@ Une adresse peut être préfixée du numéro de la banque de 16 K où loger les 
 `org b4:0x4000`. Le préfixe désigne l'**emplacement de rangement**, le nombre qui
 suit reste l'**adresse logique** — celle que prennent les labels. L'offset dans la
 banque est `adresse & 0x3FFF`. La directive `BANK` n'est pas reprise ; elle est
-acceptée en compatibilité rasm avec un avertissement de dépréciation.
+acceptée avec un avertissement de dépréciation.
 
 ## Contexte
 
@@ -17,7 +17,8 @@ rangé et à quelle adresse le processeur le verra sont donc deux informations
 indépendantes, et seul le programmeur connaît la seconde à l'avance : elle dépend
 de la configuration du gate array au moment de l'exécution.
 
-rasm sépare ces deux informations sur deux lignes — `BANK n` puis `ORG adresse` —
+L'usage courant sépare ces deux informations sur deux lignes — `BANK n` puis
+`ORG adresse` —
 qui peuvent être distantes de plusieurs milliers de lignes. Le corpus le montre :
 dans `land3d`, les `bank`/`org` se suivent, mais les blocs qu'ils ouvrent font
 2000 lignes chacun, et rien à l'intérieur ne rappelle dans quelle banque on écrit.
@@ -68,16 +69,17 @@ l'exécution, sans diagnostic. Le listing porte banque et adresse pour chaque li
 ce qui rend l'héritage consultable. Le préprocesseur, lui, n'interprète pas
 `ORG` : la source déroulée ne peut pas porter cette garantie.
 
-Le second paramètre d'`ORG` conserve sa sémantique rasm — délier complètement
+Le second paramètre d'`ORG` conserve sa sémantique usuelle — délier complètement
 rangement et adresse logique, comme `org 0x2000,0x3000`. Il est **implémenté**, et
-sa sémantique a été mesurée contre rasm plutôt que devinée : le **premier**
+sa sémantique a été mesurée contre l'assembleur de référence plutôt que devinée :
+le **premier**
 paramètre est l'adresse **logique**, celle que prennent les labels et pour laquelle
 le code est assemblé ; le **second** est l'adresse de **rangement**, où les octets
 sont réellement écrits. Un bloc `org #A600,#100` est donc du code stocké en `#100`
 et destiné à tourner en `#A600` — c'est exactement ce que fait la seule source du
 corpus qui l'utilise : elle recopie le bloc avant de l'appeler.
 
-Trois conséquences sont alignées sur rasm, mesure à l'appui :
+Trois conséquences sont alignées sur l'assembleur de référence, mesure à l'appui :
 
 - **`RUN` prend l'adresse logique.** `run label` doit valoir ce que vaut `label`,
   sinon `run label` et `run #A600` donneraient deux `PC` différents pour la même
@@ -111,7 +113,7 @@ logique au milieu. Aucune source n'écrit `b<n>:` aujourd'hui, cette notation é
 une invention de fantams remplaçant `BANK` : placer le préfixe sur le second
 paramètre ne casse donc rien, c'est de la syntaxe neuve.
 
-L'ordre rasm est conservé. L'inverser — rangement d'abord — aurait mis le préfixe
+L'ordre usuel est conservé. L'inverser — rangement d'abord — aurait mis le préfixe
 sur le bon paramètre, mais aurait réinterprété la source existante à l'envers, en
 silence.
 
@@ -145,3 +147,17 @@ modèle plat y calcule `banque * 0x4000 + offset`, ce qui rend `C0:0x8000` et
 lectures coïncident tant que l'offset reste sous 0x4000 et divergent ensuite. Un
 débogueur n'a qu'un emplacement à désigner ; un assembleur doit porter deux
 informations, et leur somme les perd.
+
+## Portée, depuis l'étude de la chaîne d'outils
+
+Cet ADR décrit ce que le code fait, et continue de le décrire. Il ne contraint
+pas pour autant le modèle du linker : `docs/spec-chaine-outils.md` remplace, à
+son étage C1, le fait de **nommer un emplacement de rangement dans la source** par
+la délégation du placement à une section. La question que cet ADR tranchait —
+comment écrire cet emplacement, avec ce qu'elle traîne de masquage, de rémanence
+et de choix du paramètre porteur — disparaît alors, faute d'objet : le source ne
+nomme plus qu'une section, et la fenêtre vient de la configuration qui l'accueille.
+
+Le vocabulaire de cette étude ne reprend donc rien de la notation `Bn:` et n'a
+pas à rester compatible avec elle. C'est à l'arrivée de l'étage C1 que le statut
+de cet ADR sera à revoir, pas avant.

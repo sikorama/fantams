@@ -319,7 +319,7 @@ private:
     SourceLine cur_;
     bool evalOk_ = true;
     // dernier label "global" (non local) rencontré : contexte de qualification des
-    // labels locaux ".nom" (comme rasm : ".nom" == "<global>.nom" — cf. defineLabel/qualify).
+    // labels locaux ".nom" (comme l'assembleur de référence : ".nom" == "<global>.nom" — cf. defineLabel/qualify).
     std::string currentGlobal_;
 
     void push(const std::string &msg) { errors_.push_back({cur_.file, cur_.line, msg}); }
@@ -329,7 +329,7 @@ private:
     void structErr(const std::string &msg) { if (pass_ == 1) push(msg); }
 
     // Un label local ".nom" est qualifié par le dernier label global rencontré
-    // (comme rasm : deux ".loop" sous deux labels globaux différents ne collisionnent pas).
+    // (comme l'assembleur de référence : deux ".loop" sous deux labels globaux différents ne collisionnent pas).
     std::string qualify(const std::string &n) const {
         return (!n.empty() && n[0] == '.') ? currentGlobal_ + n : n;
     }
@@ -377,7 +377,7 @@ private:
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
             if (it != symbols_.end()) { o = it->second; return true; }
-            // repli insensible à la casse (rasm ne distingue pas la casse des symboles) : on
+            // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse des symboles) : on
             // avertit plutôt que d'échouer silencieusement sur une simple différence de casse.
             auto cit = ciIndex_.find(upper(qn));
             if (cit != ciIndex_.end()) {
@@ -461,7 +461,7 @@ private:
             emit((uint8_t)(evalExpr(std::to_string((unsigned char)c) + " " + tail) & 0xFF));
     }
     // Une virgule finale ("db 1,2,") est tolérée : elle est courante dans les
-    // tables de données générées, et rasm l'accepte. Seul le DERNIER élément vide
+    // tables de données générées, et l'assembleur de référence l'accepte. Seul le DERNIER élément vide
     // est retiré — "db 1,,2" reste une erreur.
     static void dropTrailingEmpty(std::vector<std::string> &parts) {
         if (parts.size() > 1 && parts.back().empty()) parts.pop_back();
@@ -499,7 +499,7 @@ private:
         return true;
     }
 
-    // ORG prend un ou DEUX parametres, a la semantique rasm (ADR 0005) :
+    // ORG prend un ou DEUX parametres, a la semantique usuelle (ADR 0005) :
     //
     //     org <logique>[,<rangement>]
     //
@@ -516,7 +516,7 @@ private:
     // rangement serait decrit de part et d'autre de l'adresse logique.
     //
     // Le deplacement N'EST PAS REMANENT : un ORG sans second parametre le remet a
-    // zero. C'est le comportement de rasm, et c'est le comportement SUR — la
+    // zero. C'est le comportement de l'assembleur de référence, et c'est le comportement SUR — la
     // remise a zero remet le bloc la ou son ORG le dit. La banque, elle, reste
     // remanente et AVERTIT : c'est l'heritage silencieux qui est risque, pas la
     // remise a zero, d'ou l'asymetrie entre les deux.
@@ -624,12 +624,12 @@ private:
         std::string after0 = restAfterFirst(rest);
         std::string W1 = upper(firstToken(after0));
 
-        // contrôle du listing : aucun effet sur le code généré (no-op, comme chez rasm)
+        // contrôle du listing : aucun effet sur le code généré (no-op, comme chez l'assembleur de référence)
         if (W0 == "NOLIST" || W0 == "LIST") { if (!label.empty()) defineLabel(label); return; }
 
-        // BUILDSNA / BANKSET : en-tête rasm de génération de snapshot. fantams produit
+        // BUILDSNA / BANKSET : en-tête d'export de snapshot. fantams produit
         // toujours un .sna à plat (pas de multi-bank) -> no-op, pour accepter les sources
-        // écrites pour rasm sans réécrire leur en-tête. (ORG/RUN sur la même ligne,
+        // existantes sans réécrire leur en-tête. (ORG/RUN sur la même ligne,
         // séparés par ':', sont déjà traités normalement comme des directives à part.)
         if (W0 == "BUILDSNA" || W0 == "BANKSET") { if (!label.empty()) defineLabel(label); return; }
 

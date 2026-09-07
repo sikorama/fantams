@@ -3,8 +3,9 @@
 #
 # Produit un module ES6 isomorphe (Node + navigateur) : factory
 # `export default createFantams`, `callMain` + `FS` exposés, pas d'exécution
-# auto — le même contrat que les modules emscripten de rasm/sjasmplus, de sorte
-# qu'un hôte puisse les traiter de façon interchangeable.
+# auto : un hôte instancie le module, appelle `callMain` et lit ses artefacts
+# dans `FS`. C'est le contrat le plus simple qui laisse l'hôte maître du moment
+# et du nombre d'invocations.
 #
 # emcc n'étant pas requis en local, on passe par l'image officielle
 # emscripten/emsdk sous podman (ou docker). Override : CONTAINER=docker.

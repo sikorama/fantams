@@ -9,9 +9,9 @@
 // de macro). Une référence à un label temps-assemblage est une erreur.
 //
 // Scope « auto-local » : dans un corps de macro (ou une itération de REPEAT), un
-// label PRÉFIXÉ PAR '@' est rendu unique par expansion — convention rasm, cf.
+// label PRÉFIXÉ PAR '@' est rendu unique par expansion — convention héritée, cf.
 // `collectLabels(..., onlyAtPrefixed)`. Un label ordinaire réutilisé entre deux
-// expansions reste une vraie collision (« duplicate symbol »), comme chez rasm.
+// expansions reste une vraie collision (« duplicate symbol »), comme chez l'assembleur de référence.
 // MODULE, lui, renomme tout. @@export sort du renommage.
 #pragma once
 

@@ -187,14 +187,15 @@ bool encodeAlu(IAsmContext &ctx, int idx, const Operand &src) {
 // Rotation/décalage sur r8/(HL)/(IX+d) : préfixe CB (ordre spécial si indexé)
 bool encodeRot(IAsmContext &ctx, int idx, const Operand &tgt) {
     Emitter e{ctx};
-    // « rlc hl », « rr de » : rasm les accepte et les déplie en deux à QUATRE
+    // « rlc hl », « rr de » : l'assembleur de référence les accepte et les déplie en deux à QUATRE
     // opérations `cb`. Refusées (ADR 0020) : ce ne sont pas des orthographes mais
     // des ROUTINES. Le lecteur ne peut lire ni leur taille ni l'ordre dans lequel
     // les drapeaux sont touchés, et une routine mérite le nom que son auteur lui
     // a choisi — donc une macro.
     if (tgt.kind == Operand::Kind::Reg && is16bit(tgt.reg)) {
-        ctx.error("there is no 16-bit rotate/shift on the Z80 — rasm synthesizes it from 2 to 4 "
-                  "'cb' operations, whose flag effects the line does not show; write a macro");
+        ctx.error("there is no 16-bit rotate/shift on the Z80 — it is elsewhere synthesized "
+                  "from 2 to 4 'cb' operations, whose flag effects the line does not show; "
+                  "write a macro");
         return false;
     }
     R8 t = asR8(tgt);
@@ -295,14 +296,15 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         else { e.op(0xED); e.op((uint8_t)(0x43 + rr * 16)); }
         e.imm16(ctx.eval(A.expr)); return true;
     }
-    // « ld hl,sp » : rasm l'accepte et produit « ld hl,0 : add hl,sp ». Refusée
+    // « ld hl,sp » : l'assembleur de référence l'accepte et produit « ld hl,0 : add hl,sp ». Refusée
     // (ADR 0020) parce qu'elle n'est pas un réarrangement d'un transfert mais une
     // ARITHMÉTIQUE inventée : quatre octets, et le carry est écrasé. Toutes les
     // autres facilités de la table rendent exactement ce que l'auteur aurait tapé.
     if (A.kind == Operand::Kind::Reg && B.kind == Operand::Kind::Reg && B.reg == Reg::SP &&
         (A.reg == Reg::HL || A.reg == Reg::IX || A.reg == Reg::IY)) {
-        ctx.error("LD: there is no 16-bit load from SP — rasm writes it 'ld hl,0 : add hl,sp', "
-                  "which costs 4 bytes and clobbers the carry; write those two lines yourself");
+        ctx.error("LD: there is no 16-bit load from SP — it is elsewhere written "
+                  "'ld hl,0 : add hl,sp', which costs 4 bytes and clobbers the carry; "
+                  "write those two lines yourself");
         return false;
     }
     ctx.error("unrecognized LD form");
@@ -314,7 +316,7 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
 // ---------------------------------------------------------------------------
 bool encodeIncDec(IAsmContext &ctx, Mnemo m, const Operand &A, const Operand &B) {
     Emitter e{ctx};
-    // « inc hl,de » : rasm en fait deux instructions, fantams le refuse (ADR 0020).
+    // « inc hl,de » : l'assembleur de référence en fait deux instructions, fantams le refuse (ADR 0020).
     // Le refus est explicite parce que le silence était pire : le second opérande
     // était simplement ignoré, et la ligne rendait UN octet sans rien dire.
     //
@@ -471,15 +473,15 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
         }
 
         case Mnemo::RST: {
-            // « rst z,#38 » : rasm rend DEUX octets, 28 FF, où le FF est à la fois le
+            // « rst z,#38 » : l'assembleur de référence rend DEUX octets, 28 FF, où le FF est à la fois le
             // déplacement du `jr z` et l'opcode `rst #38` sur lequel ce `jr` retombe.
             // Refusée (ADR 0020) : les deux instructions PARTAGENT un octet, donc
             // aucune paire de lignes Z80 canoniques ne la reproduit, et `-E` ne
             // saurait l'écrire sans mentir sur le programme.
             if (A.kind == Operand::Kind::Cond) {
-                ctx.error("there is no conditional RST — rasm encodes it as a 2-byte overlap "
-                          "(the 'jr' displacement is itself the 'rst' opcode), which no pair of "
-                          "canonical Z80 lines can express; write the 'jr' and the 'rst'");
+                ctx.error("there is no conditional RST — it is elsewhere encoded as a 2-byte "
+                          "overlap (the 'jr' displacement is itself the 'rst' opcode), which no pair "
+                          "of canonical Z80 lines can express; write the 'jr' and the 'rst'");
                 return false;
             }
             if (A.kind != Operand::Kind::Imm) { ctx.error("RST: expected vector"); return false; }

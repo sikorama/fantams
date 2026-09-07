@@ -117,6 +117,6 @@ classique — le plus interne l'emporte — est ici un bug muet, le corps se lis
 comme si `x` était le paramètre. C'est une erreur.
 
 Enfin, la syntaxe de déclaration et d'appel des macros — forme parenthésée
-`macro m(a,b)`, sort du `(void)` de rasm — n'est pas tranchée ici. Elle ne touche
+`macro m(a,b)`, sort du `(void)` en usage — n'est pas tranchée ici. Elle ne touche
 pas la substitution d'un paramètre dans un corps, et relève d'une décision
 distincte.

@@ -4,7 +4,7 @@ LET COUNT = 4
         org 0x8000
         run start
 
-; macro avec label local (auto-local -> unique par appel). Convention rasm : seul un
+; macro avec label local (auto-local -> unique par appel). Convention héritée : seul un
 ; label préfixé par '@' est rendu unique par expansion ; un label ordinaire (sans '@')
 ; réutilisé entre deux appels resterait une vraie collision ("symbole déjà défini").
 MACRO WAIT n

@@ -1,6 +1,6 @@
 // sna.cpp - Export snapshot CPC (.sna) — voir sna.h
 //
-// Disposition de l'en-tête (offsets vérifiés sur la struct s_snapshot de rasm) :
+// Disposition de l'en-tête (offsets vérifiés sur la struct s_snapshot de l'assembleur de référence) :
 //   0x00 "MV - SNA"      0x10 version
 //   0x11 F A C B E D L H (registres)   0x19 R  0x1A I  0x1B IFF0 0x1C IFF1
 //   0x1D IXl IXh IYl IYh 0x21 SPl SPh  0x23 PCl PCh    0x25 IM

@@ -65,7 +65,7 @@ int main() {
     chkErr("symbole inconnu", "nope");
     chkErr("division par zéro", "1/0");
 
-    // --- rondage "half up" final (comme rasm : db 7/2 -> 4, db -7/2 -> -3) ---
+    // --- rondage "half up" final (comme l'assembleur de référence : db 7/2 -> 4, db -7/2 -> -3) ---
     chk("division exacte", "6/2", 3);
     chk("arrondi positif .5 -> +1", "7/2", 4);
     chk("arrondi négatif .5 -> vers 0", "-7/2", -3);

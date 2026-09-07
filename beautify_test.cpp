@@ -237,7 +237,7 @@ int main() {
     keep("commentaire seul indenté", "    ; aligné à la main\n");
     keep("ligne vide", "\n");
     keep("commentaire '//' seul", "// commentaire C\n");
-    chk("directive rasm refusée : indentée quand même",
+    chk("directive hors périmètre refusée : indentée quand même",
         "snaset CRTC_TYPE,1\n", "    snaset CRTC_TYPE,1\n");
 
     // Un ';' dans une chaîne n'ouvre pas un commentaire : la ligne reste du code.
@@ -283,7 +283,7 @@ int main() {
     keep("« ld pc,hl » n'est pas de la mise en forme : le beautify n'y touche pas",
          "    ld pc,hl\n");
 
-    // --- Le sucre de rasm n'est pas de la mise en forme non plus (ADR 0020) --
+    // --- Le sucre syntaxique hérité n'est pas de la mise en forme non plus (ADR 0020) --
     //
     // Le beautify ne connaît que deux règles — le deux-points d'un label et
     // l'indentation d'une instruction en colonne 1. Tendre vers le canon est le

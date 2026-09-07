@@ -2,22 +2,23 @@
 status: accepted
 ---
 
-# Le sucre de rasm : ce qu'on adopte, ce qu'on refuse
+# Le sucre syntaxique hérité : ce qu'on adopte, ce qu'on refuse
 
 L'ADR 0017 a posé le **critère** — un-vers-plusieurs au préprocesseur, un-pour-un
 à l'assembleur. Cet ADR-ci enregistre ce que ce critère décide quand on
-l'applique au catalogue complet de rasm, et les deux lignes que le critère ne
+l'applique au catalogue complet des facilités d'écriture en usage, et les deux
+lignes que le critère ne
 couvrait pas : la répétition est du **déroulage**, et on avertit quand le texte
 **ment**.
 
 ## Contexte
 
-Le catalogue a été relevé sur pièces, pas de mémoire : rasm 3.2.5 compilé depuis
-`rasm.c`, et chaque forme soumise aux deux assembleurs avec comparaison des
-octets. C'est ce qui a permis d'écarter trois croyances qui auraient orienté la
+Le catalogue a été relevé sur pièces, pas de mémoire : l'assembleur de référence
+compilé depuis ses sources, et chaque forme soumise aux deux outils avec
+comparaison des octets. C'est ce qui a permis d'écarter trois croyances qui auraient orienté la
 décision de travers.
 
-D'abord, la répétition n'est **pas** une règle générale chez rasm. Elle est
+D'abord, la répétition n'y est **pas** une règle générale. Elle est
 écrite à la main dans dix gestionnaires d'opcode — `NOP`, `HALT`, `LDI`, `LDD`,
 `INI`, `IND`, `OUTI`, `OUTD`, `RLCA`, `RRCA` — et `ldir 2`, `cpi 4`, `exx 2`,
 `di 2` sont des erreurs. Elle ne vit pas non plus dans son préprocesseur : elle
@@ -32,7 +33,7 @@ fait refuser.
 
 La comparaison a aussi trouvé un bug qui n'attendait personne : `inc hl,de`
 rendait **un** octet, le second opérande étant silencieusement jeté. Ni le sens
-de rasm, ni une erreur.
+attendu, ni une erreur.
 
 ## Ce qui est adopté
 
@@ -43,14 +44,15 @@ de rasm, ni une erreur.
 | `ld de,hl` — toute paire parmi BC/DE/HL/IX/IY | `ld d,h` · `ld e,l` |
 | `ld hl,(ix+d)` · `ld (ix+d),hl` | deux lignes indexées, la moitié haute en `d+1` |
 
-L'ordre est haut puis bas, comme rasm. Aucun recouvrement n'est possible : les
+L'ordre est haut puis bas, comme l'assembleur de référence. Aucun recouvrement
+n'est possible : les
 deux paires étant disjointes, la moitié haute écrite n'est jamais la moitié
 basse encore à lire.
 
 `ld hl,ix` n'existe pas, et c'est une contrainte de la **machine** : le préfixe
 DD fait de `h` la moitié de IX, si bien qu'aucune instruction ne nomme H et IXH
-à la fois. Deux paires d'index s'excluent pour la même raison. rasm les refuse
-aussi.
+à la fois. Deux paires d'index s'excluent pour la même raison, et l'assembleur de
+référence les refuse aussi.
 
 Le décalage de la moitié haute — l'octet bas est à l'adresse basse — est
 précisément ce qui rend `ld hl,(ix+d)` utile : c'est le détail qu'on écrit à
@@ -93,7 +95,8 @@ par répétition. Donc :
   `repeat n` dont cette écriture est le raccourci. Une variable convient, une
   expression aussi, une expression touchant un label **jamais** (CONTEXT.md).
 
-Ce dernier point est une divergence assumée avec rasm, qui accepte
+Ce dernier point est une divergence assumée avec l'assembleur de référence, qui
+accepte
 `nop fin-debut` sur des labels arrière puisque sa répétition vit dans
 l'assembleur. Elle est **forcée** : dès lors que la répétition est du déroulage,
 le compteur est une valeur de préprocesseur, et l'alternative serait de la
@@ -103,8 +106,8 @@ cette place » plutôt que « exécuter tant de non-opérations ». Le diagnosti
 nomme — sans promettre qu'il marche vers l'**avant**, `ds` déplaçant lui-même
 l'adresse qu'on lui demande de calculer.
 
-La règle porte sur **tout** mnémonique sans opérande, plus large que les dix de
-rasm. Elle admet donc `ldir 3` et `di 3`. C'est accepté sans liste noire : une
+La règle porte sur **tout** mnémonique sans opérande, plus large que les dix
+formes câblées ailleurs. Elle admet donc `ldir 3` et `di 3`. C'est accepté sans liste noire : une
 règle à exceptions coûte plus cher à retenir qu'elle ne fait gagner (l'argument
 de l'ADR 0015 sur `END`), et « pourquoi `ldi 4` et pas `cpi 4` ? » n'a pas de
 réponse sinon « parce que ». `ldir 3` n'est d'ailleurs pas *faux* : ce sont trois
@@ -132,14 +135,16 @@ jamais `ex af,af` à travers la chaîne complète.
 
 ## Ce qui est refusé, et pourquoi
 
-**`ld hl,sp`.** rasm le rend en `ld hl,0 : add hl,sp` — quatre octets, et le
+**`ld hl,sp`.** L'assembleur de référence le rend en `ld hl,0 : add hl,sp` —
+quatre octets, et le
 **carry est écrasé**. Toutes les autres facilités de la table rendent exactement
 ce que l'auteur aurait tapé ; celle-ci invente une arithmétique. `--strict` ne
 peut pas protéger quelqu'un d'un drapeau qu'il ignore avoir perdu.
 
-**`rst cc,n`.** rasm rend deux octets, `28 FF`, où le `FF` est **à la fois** le
+**`rst cc,n`.** L'assembleur de référence rend deux octets, `28 FF`, où le `FF`
+est **à la fois** le
 déplacement du `jr z` et l'opcode `rst #38` sur lequel ce `jr` retombe. C'est
-ingénieux, et ça ne marche que pour `#38` (`rst z,#20` est une erreur chez rasm).
+ingénieux, et ça ne marche que pour `#38` (`rst z,#20` y est une erreur).
 Mais les deux instructions **partagent un octet** : aucune paire de lignes Z80
 canoniques ne la reproduit. Or la table de canonisation est contrainte à ne
 produire que du Z80 canonique (ADR 0017) — un sucre que `-E` ne saurait écrire
@@ -163,7 +168,8 @@ c'est lui qui corrige le bug du silence.
 ## Ce qui ne bouge pas
 
 **`add a,b` contre `add b`.** fantams accepte déjà les deux — et même
-`and a,b`, `or a,b`, `xor a,b`, que rasm **refuse**. Aucun canon n'est élu :
+`and a,b`, `or a,b`, `xor a,b`, que l'assembleur de référence **refuse**. Aucun
+canon n'est élu :
 l'ADR 0017 dit que le canon est une structure — un opcode par ligne, une
 orthographe standard — et les deux formes le sont. Trancher ici serait la
 première fois que le projet légifère sur un **goût**, et aucun bug n'est à
@@ -194,5 +200,5 @@ compteur nul émet le label quand même — `fin: nop 0` nomme une adresse.
 Les trois propriétés de l'ADR 0017 restent vérifiées sur le sucre nouveau :
 idempotence de `--normalize`, préservation du nombre de lignes par le beautify,
 et égalité des octets assemblés. S'y ajoute une propriété propre à ce travail,
-vérifiée sur 89 formes : **les octets rendus sont ceux de rasm**, pour toute
-forme que les deux acceptent.
+vérifiée sur 89 formes : **les octets rendus sont ceux de l'assembleur de
+référence**, pour toute forme que les deux acceptent.

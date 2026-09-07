@@ -18,7 +18,7 @@ lecteur attend par réflexe.
 
 **Les alias textuels des opérateurs bit à bit** — `and` `or` `xor` `not` `mod`
 `shl` `shr`, en regard de `&` `|` `^` `~` `%` `<<` `>>` qui existent tous déjà.
-Ils sont exigés par la compatibilité rasm et mesurés dans le corpus.
+Ils sont attestés par le corpus, où ils sont mesurés.
 
 Il n'y a **pas d'alias textuel pour `&&`, `||` et `!`**. Les opérateurs textuels
 désignent les formes bit à bit ; donner à `and` un sens dépendant de ses opérandes
@@ -50,7 +50,8 @@ les blocs conditionnels existent déjà au temps préprocesseur.
 
 L'opérateur `/` reste une division flottante. Le faire basculer en entier
 changerait silencieusement la sortie de sources qui compilent aujourd'hui —
-84 correspondent à rasm octet pour octet — ce qui est le pire type de régression :
+84 correspondent à l'assembleur de référence octet pour octet — ce qui est le pire
+type de régression :
 invisible à la relecture.
 
 ## Mélange flottant et opérateurs entiers

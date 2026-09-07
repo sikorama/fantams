@@ -7,7 +7,7 @@ status: accepted
 Nous abandonnons le modèle « PP strict », qui réservait le contrôle de flux du
 préprocesseur aux seules variables déclarées par `LET`. Une constante `EQU` ou
 une variable `=` devient lisible au temps préprocesseur dès lors que son
-expression y est résoluble, et `=` devient réaffectable comme chez rasm. `LET`
+expression y est résoluble, et `=` devient réaffectable. `LET`
 conserve, et devient le seul porteur de, la sémantique stricte : une valeur non
 résoluble au temps préprocesseur y est une erreur et non un report.
 
@@ -21,7 +21,8 @@ par `LET`, et arguments de macro — et `pp.cpp` ne parse jamais `EQU` ni
 `nom = expr`. Cette détection n'existe que dans `asm.cpp`, soit après
 l'échec du préprocesseur.
 
-La mesure sur le corpus a tranché. Sur 121 sources rasm qui n'assemblent pas,
+La mesure sur le corpus a tranché. Sur 121 sources du corpus qui n'assemblent
+pas,
 41 échouent sur ce seul motif, dont le cas canonique répété 13 fois :
 
 ```asm
@@ -30,7 +31,8 @@ if wantloop        ; L84   -> unknown symbol 'wantloop'
 ```
 
 Neuf autres échouent en `duplicate symbol` sur la non-réaffectabilité de `=`,
-alors que `angle = i - 1` dans un `repeat 256,i` est idiomatique chez rasm. Ces
+alors que `angle = i - 1` dans un `repeat 256,i` est idiomatique dans le corpus.
+Ces
 deux symptômes sont une seule et même décision — un espace de noms à phases
 étanches contre un espace unique à évaluation paresseuse — et pèsent ensemble
 50 sources sur 121.
@@ -39,7 +41,8 @@ L'argument décisif n'est cependant pas ce décompte, mais un renversement du
 raisonnement. Le risque de l'évaluation paresseuse est l'ambiguïté : savoir
 quelle valeur a réellement été vue, et à quel moment. Or c'est précisément ce
 qu'un préprocesseur permet de lever, en produisant une **source déroulée**
-inspectable — capacité que rasm n'offre pas. L'ambiguïté n'est donc pas un
+inspectable — capacité que les assembleurs du corpus n'offrent pas. L'ambiguïté
+n'est donc pas un
 argument contre l'assouplissement : elle est la raison d'être de l'outil qui la
 rend vérifiable. Nous relâchons la contrainte et nous appuyons sur la source
 déroulée, complétée d'avertissements, plutôt que sur un refus en amont.
@@ -61,7 +64,7 @@ propre le disant explicitement, plutôt que par un `unknown symbol` trompeur.
 ## Conséquences
 
 Deux niveaux coexistent désormais, et le glossaire les nomme : la **variable**
-(`=`, paresseuse, réaffectable, compatible rasm) et la **variable de
+(`=`, paresseuse, réaffectable) et la **variable de
 préprocesseur** (`LET`, stricte, résolution exigée). `LET` cesse d'être le seul
 moyen de piloter le préprocesseur pour devenir le moyen d'exiger une garantie.
 Une source qui veut l'ancienne rigueur l'obtient en écrivant `LET`.
@@ -74,7 +77,7 @@ premier plan, pas un artefact de débogage — et appelle des avertissements aux
 points d'ambiguïté réelle : variable lue au temps préprocesseur puis réaffectée
 plus loin, ou nom résolu à une valeur différente selon la phase.
 
-Enfin, cette décision ne referme pas à elle seule l'écart avec rasm : elle
+Enfin, cette décision ne referme pas à elle seule l'écart avec le corpus : elle
 adresse 41 % des échecs mesurés. Les directives absentes (`BANK`, `SNASET`,
 `ASSERT`, `PRINT`) et les préfixes `{hex}`/`{sizeof}` constituent le reste, et
 relèvent d'arbitrages distincts — certains touchant à des fonctionnalités dont

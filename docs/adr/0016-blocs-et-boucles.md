@@ -7,7 +7,7 @@ status: accepted
 `end` ferme le bloc ouvert le plus interne, quel qu'il soit. Chaque bloc a en
 outre une fermeture explicite — `endmacro`, `endmodule`, `endrepeat`,
 `endwhile`, `endstruct`, `endfor`, `endif` — et la correspondance est
-**vérifiée**. Les formes courtes héritées de rasm restent tolérées en silence.
+**vérifiée**. Les formes courtes héritées restent tolérées en silence.
 L'index de `repeat` vaut 0 à la première itération, et une nouvelle boucle `for`
 porte des bornes écrites.
 
@@ -37,7 +37,7 @@ qu'il fallait la lever par le seul mot ; dès qu'on sait quel bloc est ouvert,
 silence, comme `mend`, `ends`, `rend` et `wend`.
 
 Déprécier ces formes courtes aurait produit un avertissement sur presque toute
-source rasm existante, pour des mots — `rend`, `wend` — qui ne sont ambigus avec
+source existante, pour des mots — `rend`, `wend` — qui ne sont ambigus avec
 rien. Un diagnostic qui parle de code correct est un diagnostic qu'on désactive.
 La table complète est donc : un mot canonique par bloc, plus `end`, plus les
 formes courtes tolérées sans un mot.
@@ -56,7 +56,7 @@ en forme chaque ligne indépendamment, y compris dans un source déséquilibré.
 
 ## L'index de `repeat` passe à 0
 
-`repeat count[,var]` était 1-based, délibérément, par compatibilité rasm. Il
+`repeat count[,var]` était 1-based, délibérément, par mimétisme. Il
 passe à 0.
 
 Cette divergence est la seule du projet qui **ne peut pas** être détectée. Un
@@ -71,11 +71,11 @@ signalement ne repose donc pas sur une détection impossible, mais sur le fait q
 la construction elle-même est ce qu'on déprécie — aucun faux positif n'est
 possible, et aucune source importée ne peut produire de données décalées sans
 qu'un avertissement l'ait dit. L'avertissement nomme le remède disponible : une
-source écrite pour rasm doit lire `i+1`, et la forme recommandée est `for`.
+source existante doit lire `i+1`, et la forme recommandée est `for`.
 
 ## `for`, où les bornes sont écrites
 
-Le grief contre le 1-based de rasm n'est pas « 1 plutôt que 0 », c'est qu'il faut
+Le grief contre le 1-based n'est pas « 1 plutôt que 0 », c'est qu'il faut
 le **savoir** au lieu de le lire. Une nouvelle construction ne doit donc pas
 reproduire la faute en la déplaçant.
 

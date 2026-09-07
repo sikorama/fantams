@@ -29,9 +29,10 @@ porter une ligne de code spécifique au CPC.
 
 ## 2. Ce qui n'appartient pas à l'assembleur
 
-Le contre-exemple est rasm, qui n'est pas un assembleur mais une chaîne
-complète — assembleur, linker, générateur d'images de support et moteur
-d'encodage — pilotée depuis le source. Les directives à écarter, par famille :
+Il existe des chaînes complètes — assembleur, linker, générateur d'images de
+support et moteur d'encodage — entièrement pilotées depuis le source. Les
+directives qui les caractérisent sont nommables, et ce sont elles qui montrent où
+passe la frontière. Les familles à écarter :
 
 **Conteneurs et métadonnées de machine hôte.** `BUILDCPR`, `BUILDTAPE`,
 `BUILDSNA`, `BUILDZX`, `BUILDROM`. Elles forcent l'assembleur à connaître la
@@ -121,7 +122,7 @@ linkage, et :
 
 Les espaces physiques d'un CPC qu'il doit savoir décrire :
 
-- **RAM de base** — 64 K, quatre pages de 16 K.
+- **RAM de base** — 64 K, quatre banques de 16 K.
 - **RAM étendue** — jusqu'à 4 Mo, par tranches commutables de 16 K.
 - **ROM basse** — `&0000`–`&3FFF`.
 - **ROM haute** — `&C000`–`&FFFF` sur CPC standard.
@@ -170,6 +171,12 @@ connaisse :
 | `"ro"`     | code exécutable et constantes          | oui             |
 | `"rw"`     | données initialisées modifiables       | oui             |
 | `"uninit"` | emplacement réservé, non initialisé    | non             |
+
+Les trois types décrivent la **nature du contenu**. Ce qu'ils ne décrivent pas,
+c'est une relation entre deux sections : « ce `rw` est initialisé depuis ce
+`ro` ». C'est un besoin réel — le couple `_INITIALIZED` / `_INITIALIZER` de SDCC,
+et tout code qui vit en ROM et tourne en RAM — et il se dit par `INIT_FROM`,
+sans quatrième type (§13.4).
 
 **La taille maximale est déclarative et vérifiée à l'assemblage.** On peut
 vouloir limiter une section audio à `0x2000` parce qu'on destine le reste d'une
@@ -238,12 +245,23 @@ copier en RAM centrale avant de l'exécuter. Les deux adresses diffèrent :
 
 ### 4.6 Le fichier objet
 
-Trois blocs :
+Quatre blocs :
 
 1. **Le flux d'octets** — code et données bruts, par section.
 2. **La table des sections** — nom, type, taille, taille maximale déclarée.
 3. **La table des symboles et des relocalisations** — pour chaque symbole : sa
    section, son offset, sa portée (`PUBLIC`, `EXTERN`, local).
+4. **La table des accès à adresse littérale** — chaque `ld (nn),a`, `in a,(n)`,
+   `out (n),a` dont l'adresse est écrite en clair, avec son offset et son sens.
+   L'assembleur ne l'interprète pas : il ne connaît aucune machine (§1), il
+   **consigne**. C'est le linker, qui connaît le profil, qui y lit une écriture
+   dans une plage commutant par accident ou une lecture d'un port en écriture
+   seule (§13.1). Même partage des rôles que la relocalisation : l'assembleur
+   note, le linker tranche.
+
+Un `ld (hl),a` dont `HL` est calculé n'y figure pas et ne sera **jamais**
+attrapé. C'est la limite du contrôle, et elle est à écrire plutôt qu'à
+découvrir.
 
 ## 5. Contraintes de placement : `BOUNDARY`
 
@@ -272,8 +290,8 @@ my_table:
 L'assembleur mesure le bloc lui-même (ici 5 octets), regarde l'adresse courante,
 et applique une règle unique :
 
-> Émettre à la suite si le bloc tient entièrement dans la page courante ; sinon
-> sauter au début de la page suivante.
+> Émettre à la suite si le bloc tient entièrement dans la page de 256 octets
+> courante ; sinon sauter au début de la suivante.
 
 À `&2FFE`, les 5 octets ne tiennent pas dans les deux octets restants : le bloc
 part en `&3000`. À `&2F00`, il est émis sur place, sans aucun saut.
@@ -293,101 +311,164 @@ mémoriser.
 Toute la configuration d'architecture qui truffait le source — `BUILDSNA`,
 `BANK 5`, `SETCRTC` — est extraite dans le linker.
 
-Le vocabulaire employé ici (`PAL_PAGE`, `RMR_BIT`, `PORT`) est **l'instance
-CPC** d'un modèle plus général : le §13 en donne la forme génerique, celle qui
-doit aussi décrire un ZX 128 ou un MSX.
+Le vocabulaire employé ici est le vocabulaire générique du §13.1 —
+`WINDOW`, `BANK`, `CONFIG`, `SELECT` —, le même sur les trois machines. Ce qui
+est CPC dans ce qui suit, ce sont les **noms** et les **nombres** ; ils viennent
+du profil de cible, jamais du code du linker.
+
+Trois règles que les blocs ci-dessous appliquent, et que le §13.1 justifie :
+
+- **la taille d'une banque est déclarée**, jamais déduite de la fenêtre où elle
+  apparaît ;
+- **le placement se dit dans une configuration**, pas dans une fenêtre : c'est
+  la configuration qui sait quelle banque apparaît où — parce que sur la plupart
+  des machines les fenêtres ne se choisissent pas indépendamment ;
+- **les attributs se portent là où le matériel les porte** : la contention et la
+  visibilité vidéo sont des propriétés de banque, pas de fenêtre.
+
+Et une frontière qu'il faut tracer avant d'écrire une ligne : le **profil de
+cible** décrit la machine, et il est intégré au binaire (§9) ; le **script de
+linkage** ne dit que ce que le profil ne peut pas savoir — quelle section va où.
+Les deux blocs qui suivent ne s'écrivent ni au même moment, ni par la même
+personne, et c'est le premier qui contient la quasi-totalité du matériel.
+
+Le profil, tel qu'un `--target cpc6128+ram128` l'apporte :
 
 ```
-// CPC 6128 + extension RAM 128 K + ROMs
+// --- Les fenêtres : une grille de quatre, de 16 K -----------------------
+WINDOW w0 [0x0000..0x3FFF]
+WINDOW w1 [0x4000..0x7FFF]
+WINDOW w2 [0x8000..0xBFFF]
+WINDOW w3 [0xC000..0xFFFF]
+
+// --- Les banques : taille déclarée, attributs portés ici ----------------
+BANK base0..base3  SIZE 0x4000  rw  VIDEO   // les seules que le CRTC sait lire
+BANK ext0..ext3    SIZE 0x4000  rw          // page étendue : pas de VIDEO
+BANK rom_lo        SIZE 0x4000  ro
+BANK rom_hi<n>     SIZE 0x4000  ro          // n : numéro de ROM haute
+
+// --- Les configurations : ce que le matériel sait réellement faire ------
+CONFIG SET ram {
+    linear     [CODE %000] { w0 base0  w1 base1   w2 base2  w3 base3 }
+    ext_high   [CODE %001] { w0 base0  w1 base1   w2 base2  w3 ext3  }
+    all_ext    [CODE %010] { w0 ext0   w1 ext1    w2 ext2   w3 ext3  }
+    shifted    [CODE %011] { w0 base0  w1 base3   w2 base2  w3 ext3  }
+    ext_w1<b>  [CODE %1bb] { w0 base0  w1 ext<b>  w2 base2  w3 base3 }
+}
+SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE
+SELECT ram.all_ext  STACK OUTSIDE [0x0000..0xFFFF]   // les quatre basculent
+
+// --- Les ROMs : deux axes indépendants, qui recouvrent en LECTURE -------
+CONFIG SET rom_lower OVER ram { off { }  on { w0 rom_lo    } }
+CONFIG SET rom_upper OVER ram { off { }  on { w3 rom_hi<n> } }
+
+// Polarité écrite ici, et ici seulement : 0 active, 1 inhibe (§7, §12.3)
+SELECT rom_lower = OUT 0x7F00, RMR.BIT2 = (on ? 0 : 1)
+SELECT rom_upper = OUT 0x7F00, RMR.BIT3 = (on ? 0 : 1)
+                   OUT 0xDF00, n
+```
+
+Le script, tel que l'auteur l'écrit — et le §12.2 montre qu'il tient en dix
+lignes pour un programme banqué réel :
+
+```
+TARGET cpc6128 + RAM128
+
 MEMORY_MAP {
-
-    // RAM principale, 64 K en quatre pages de 16 K
-    REGION RAM_BASE [0x0000..0xFFFF] {
-        PAGE 0: [0x0000..0x3FFF]
-        PAGE 1: [0x4000..0x7FFF]
-        PAGE 2: [0x8000..0xBFFF]
-        PAGE 3: [0xC000..0xFFFF]
+    CONFIG linear {
+        w1 { SECTION main     }
+        w2 { SECTION sysbank  }
+        w3 { SECTION unpacked }
     }
+    CONFIG ext_w1<1> { w1 { SECTION audio } }
 
-    // RAM étendue : page de 64 K n° 1, pilotée par le PAL (11pppccc)
-    REGION RAM_EXP1 [PAL_PAGE 1] {
-        PAGE_EXT 0: [0x4000..0x7FFF]    // config %100
-        PAGE_EXT 1: [0x4000..0x7FFF]    // config %101
-        PAGE_EXT 2: [0x4000..0x7FFF]    // config %110
-        PAGE_EXT 3: [0x4000..0x7FFF]    // config %111
-    }
-
-    REGION ROM_LOWER [ADDRESS 0x0000, RMR_BIT 2]
-
-    // ROM de 16 K découpée en deux blocs de 8 K
-    REGION ROM_UPPER [ADDRESS 0xC000, RMR_BIT 3, PORT 0xDF00, SIZE 0x4000] {
-        ROM_SLOT 15 {
-            BLOCK Audio_Block [OFFSET 0x0000, SIZE 0x2000] {
-                SECTION Audio_Code
-            }
-            BLOCK Data_Block  [OFFSET 0x2000, SIZE 0x2000] {
-                SECTION Graphics_Data
-                SECTION Menu_Text
-            }
-        }
+    // Une ROM de 16 K découpée en deux blocs de 8 K : c'est un découpage de
+    // placement à l'intérieur d'une banque, pas une banque de 8 K (§13.1).
+    CONFIG rom_upper.on, ROM 15 {
+        w3 [OFFSET 0x0000, SIZE 0x2000] { SECTION audio_rom     }
+        w3 [OFFSET 0x2000, SIZE 0x2000] { SECTION graphics_data
+                                          SECTION menu_text     }
     }
 }
 
 OUTPUT_FORMAT {
     TARGET      = "SNA_V2"
-    ENTRY_POINT = 0x8000
-    STACK       = 0x3FFF
+    ENTRY_POINT = 0x8000                 // le `run` du source, s'il n'est pas ici
+    STACK       = [0x3F00..0x3FFF]       // une plage, pas une adresse
+    INT_VECTOR  = 0x0038                 // déclaré, jamais déduit
     // ou, pour une ROM :
     // TARGET = "CRO"  ;  CRO_ROM_NUMBER = 15
 }
 ```
 
-Le linker peut alors signaler `2048 bytes unused in Audio_Block`, ou y loger une
-section marquée comme déplaçable.
+Trois valeurs qui ne sont pas du décor : le §13.3 en fait dépendre un contrôle
+de correction.
 
-## 7. La carte mémoire du CPC, pour le linker
+**`ENTRY_POINT`** est ce que `run` écrit dans le source. `run` reste licite —
+le §12.1 est un engagement de compatibilité, et une source d'un `org` et d'un
+`run` ne doit pas gagner un fichier de script — mais il devient une **donnée
+transmise** au builder, non une directive de format : il n'échappe pas au §2, il
+en relève. Le script l'emporte s'il la nomme aussi.
 
-C'est la connaissance que le linker doit porter, et que l'assembleur doit
-ignorer.
+**`STACK` est une plage**, parce que `SP` bouge et qu'une adresse unique ne dit
+rien de vrai d'un programme qui empile. Elle est déclarée dans le script et non
+dans le profil : la pile est posée par le programme, pas par la machine. Un
+contrôle qui reposerait sur une valeur que le linker ne peut pas voir est un
+contrôle qui ne se déclenche jamais.
 
-### ROMs, par le Gate Array
+**`INT_VECTOR` est déclaré, jamais déduit.** En mode 2 il dépend du registre `I`
+et d'une table construite à l'exécution : hors de portée d'une analyse statique.
 
-Le registre `RMR` du Gate Array détermine quelles ROM sont visibles dans l'espace
-adressable :
+Le linker peut alors signaler `2048 bytes unused at 0xE000 in rom_hi15`, ou y
+loger une section marquée comme déplaçable.
 
-```
-RMR = 100vRrmm
-        │││└┴── mm : mode écran
-        ││└──── r  : 1 = ROM basse activée
-        │└───── R  : 1 = ROM haute activée
-        └────── v  : 1 = remise à 0 du compteur vsync (toujours 0 ici)
-```
+Trois choses que ni le profil ni le script **n'écrivent**, et c'est le test du
+modèle. Aucun des deux ne déclare que commuter `ext_w1<1>` fait disparaître
+`main` : cela se **calcule** en comparant `linear` et `ext_w1<1>` sur `w1`
+(§13.1). Aucun ne déclare que `w0` est en lecture seule quand `rom_lower` est
+sur `on` : c'est la banque qui est `ro`, la configuration dit seulement qu'elle
+est là. Et aucun n'écrit la valeur `%11000101` que le source sortira sur le
+port : elle se calcule, et devient le symbole `__cfg_audio` (§12.3).
 
-Sur CPC standard, le **numéro** de ROM haute est choisi par le port `&DF00`. Sur
-CPC Plus, `RMR2` étend le mécanisme et permet de mapper des ROMs sur
-`&4000`–`&7FFF` et `&8000`–`&BFFF`.
+## 7. Ce que le linker doit savoir du matériel
 
-### RAM étendue, par le PAL
+Ce paragraphe ne porte **aucune valeur**. Il énumère les *natures*
+d'information qu'un profil de cible doit savoir dire ; les chiffres vivent à
+deux endroits, et deux seulement :
 
-La RAM est pilotée par un PAL, à la même adresse d'entrée-sortie que le Gate
-Array :
+- `docs/recherche/*.md` — les valeurs vérifiées sur sources primaires, citées et
+  arbitrées, avec les contradictions restées ouvertes signalées comme telles ;
+- les profils de cible eux-mêmes — les valeurs *exécutables*, celles que le
+  linker lit.
 
-```
-11pppccc
-  │││└┴┴── ccc : configuration
-  └┴┴───── ppp : numéro de page de 64 K additionnelle, 0 à 7
-```
+C'est une décision, et elle vient d'une erreur. La version précédente de ce
+paragraphe recopiait la carte du CPC dans la spec, et c'est précisément là que
+deux fautes se sont installées : la polarité des bits de ROM du registre `RMR`
+était inversée — 0 active, 1 inhibe, sept sources concordantes — et `ccc = 000`
+y était décrit comme « aucune RAM étendue connectée » alors que c'est la
+disposition **linéaire par défaut**, indépendamment de la présence d'une
+extension. Le §12.3 soutient qu'une valeur matérielle doit être vérifiée en un
+seul endroit ; ce paragraphe l'a démontré à ses dépens. **Une valeur écrite deux
+fois est une valeur fausse une fois.**
 
-| `ccc` | effet dans l'espace adressable du Z80A                                        |
-|-------|-------------------------------------------------------------------------------|
-| `000` | aucune RAM étendue connectée                                                  |
-| `001` | 4ᵉ page de la RAM étendue (page `ppp`) en `&C000`                             |
-| `010` | les 64 K entiers de la page étendue basculent dans l'espace adressable        |
-| `011` | les 16 K habituellement en `&C000` passent en `&4000`, et la 4ᵉ page étendue en `&C000` |
-| `100` | 1ʳᵉ page du bloc de 64 K additionnel en `&4000`–`&7FFF`                       |
-| `101` | idem avec la 2ᵉ page                                                          |
-| `110` | idem avec la 3ᵉ page                                                          |
-| `111` | idem avec la 4ᵉ page                                                          |
+| nature de l'information | porteur (§13.1) | exemple de ce que ça vaut sur une machine |
+|---|---|---|
+| grilles de fenêtres, et leurs bornes | `WINDOW` | quatre de 16 K sur CPC et ZX ; sur MSX, quatre de 16 K **et** quatre de 8 K superposées |
+| inventaire des banques, et la **taille** de chacune | `BANK` | 16 K de RAM sur CPC ; 8 K pour une mega-ROM Konami |
+| lecture seule matérielle | `BANK` | une ROM |
+| accès ralenti par la vidéo | `BANK` | ZX : certaines banques RAM, et non certaines adresses |
+| visibilité par le contrôleur vidéo | `BANK` | CPC : la RAM étendue n'est **jamais** lue par le CRTC — un refus de placement |
+| états de carte réellement atteignables | `CONFIG` | CPC : huit ; +2A/+3 en mode spécial : quatre |
+| ce que masque une commutation | *calculé* depuis les `CONFIG` | le piège du §12.2 |
+| mécanisme de sélection, et ses champs de bits | `SELECT` | `OUT` sur un port ; écriture mémoire sur un mapper |
+| dépendance du port au numéro de banque | `SELECT` | CPC au-delà de 512 K : une partie du numéro est dans l'adresse du port |
+| préconditions et séquences | `SELECT` | un registre subordonné à un bit d'un autre ; un déverrouillage préalable |
+| contraintes de commutation vérifiables | `SELECT` | fenêtre d'exécution interdite, interruptions, pile, plage commutant par accident |
+| irréversibilité | pagination entière | ZX : un verrou qui bloque *tous* les ports de pagination jusqu'au reset |
+| où sont la pile et le vecteur d'interruption | **script** (`STACK`, `INT_VECTOR`) | ce qui rend calculable le contrôle du §13.3 — et ce n'est pas dans le profil, parce que c'est le programme qui les pose, pas la machine |
+
+Aucune de ces lignes n'est propre au CPC : c'est la liste que le §13.2 remplit
+trois fois.
 
 ## 8. Données compressées
 
@@ -428,9 +509,11 @@ précisément ce que seul un linker sait exprimer — le découpage résout le p
 au lieu de le créer.
 
 Et la règle de sûreté qui va avec : **l'assembleur n'itère jamais ; le linker
-peut itérer, mais il refuse bruyamment la non-convergence.** C'est ce que rasm ne
-fait pas avec ses segments compressés, et c'est pourquoi il peut produire du code
-*apparemment* correct.
+peut itérer, mais il refuse bruyamment la non-convergence.** Un outil qui itère
+vers un point fixe sans exiger d'y arriver ne signale rien quand il n'y arrive
+pas : il rend un binaire *apparemment* correct, et la faute se découvre à
+l'exécution. Une itération sans critère d'arrêt prouvé n'est pas une commodité,
+c'est une faute silencieuse de plus.
 
 ## 9. Un binaire, trois modes
 
@@ -488,23 +571,50 @@ phrase ne suffit pas, c'est le découpage qui est mauvais.
 
 ### Interopérabilité avec SDCC
 
-Le gain est réel, mais dans un sens précis : c'est **le linker de fantams qui
-doit lire les objets de SDCC**, non l'inverse. SDCC/Z80 produit des `.rel` au
-format ASxxxx — des *areas* avec attributs, une table de symboles, des
-enregistrements de relocalisation — et les lie avec `sdld`, dont la gestion du
-banking CPC est le point faible. Un linker qui connaît `RMR`, `&DF00` et
-`11pppccc` est exactement ce qui manque à cette chaîne. Émettre du `.rel` pour se
-faire lier par `sdld` nous soumettrait au contraire à ses limites.
+**Statut : objectif documenté, non engagé.** Ce qui suit est vérifié (sources
+dans `docs/recherche/sdcc-objets-rel.md`) et sert à une seule chose : ne pas
+prendre aujourd'hui, dans le modèle d'objet, une décision qu'il faudrait défaire
+le jour où on s'y engagerait. L'étage correspondant vient **après l'étage C2**
+(§10), et rien n'oblige à le franchir.
 
-Conséquence de conception : le modèle d'objet doit rester *alignable* sur le
-modèle ASxxxx — une section ≈ une *area*, et les types `"ro"` / `"rw"` /
-`"uninit"` se projettent sur les conventions `_CODE` / `_DATA` / `_BSS` de SDCC.
-Ne pas inventer un modèle plus riche que ce que `.rel` sait exprimer, sous peine
-de ne pouvoir traduire que dans un sens.
+Le sens est fixé : c'est **le linker de fantams qui lirait les objets de SDCC**,
+non l'inverse. Émettre du `.rel` pour se faire lier par `sdld` nous soumettrait
+à ses limites — format V3 seul, trois bits d'attribut d'area, aucun alignement,
+et l'ordre des areas déterminé par l'ordre d'apparition dans les objets.
 
-> **À vérifier avant de s'engager.** Les détails du format `.rel` et des
-> conventions d'appel de SDCC énoncés ici sont restitués de mémoire, non
-> vérifiés sur la documentation ASxxxx ni sur le manuel SDCC.
+Et le manque côté SDCC n'est pas un « point faible » : **il n'y a rien**. La
+directive `.bank` est commentée dans `sdasz80`, `newbank()` n'est appelé de
+nulle part, l'aide de `sdldz80` n'offre aucune option de bank, et le seul
+banking implémenté est câblé pour la Game Boy sous garde `TARGET_IS_GB`. Un
+linker qui connaît la pagination d'une machine Z80 réelle est donc exactement ce
+qui manque à cette chaîne.
+
+**Le prix, chiffré.** Lire le dialecte `sdas` du format ASxxxx **V3** — pas « le
+format ASxxxx » ; valider la ligne de format `[XDQ][HL][234]` au lieu de
+supposer `XL4`, la largeur d'adresse étant passée de 24 à 32 bits dans une
+version *mineure* (4.4.1) ; tolérer le champ `addr` de la ligne `A` et
+l'enregistrement `O` (`.optsdcc`) ; implémenter l'échappement `0xfX` ;
+**fabriquer les symboles `s_<area>` / `l_<area>`**, sans quoi `crt0.rel` ne se
+lie pas ; lire l'ABI dans `.optsdcc` pour refuser un mélange `sdcccall(0)` /
+`sdcccall(1)` ; et accepter que les noms d'areas soient insensibles à la casse
+quand les symboles y sont sensibles.
+
+**Ce qui est acquis en échange.** Le banking SDCC est déjà exprimable **sans
+extension du format** : le nom d'area (`_CODE_<n>`) et le symbole absolu
+`b_<fonction>` portent l'information « quelle area dans quelle banque ».
+
+**Les deux conséquences pour le modèle d'objet, à ne pas rater maintenant.**
+
+1. Une section ≈ une *area*, et le modèle **peut** être plus riche que `.rel` :
+   la contrainte de pauvreté ne vaudrait que pour l'émission, qui n'est pas au
+   programme.
+2. La projection des types n'est pas celle qu'on croit. `_BSS` n'existe pas
+   côté SDCC/Z80 — area vestigiale déclarée dans `crt0.s`, jamais alimentée par
+   le compilateur. La correspondance réelle est : `ro` → `_CODE` (`_HOME`,
+   `_CABS`) ; `uninit` → `_DATA`, mis à zéro par `crt0` ; et un `rw` **initialisé**
+   → le couple `_INITIALIZED` (destination RAM) / `_INITIALIZER` (image ROM),
+   que ni `ro` ni `rw` ne décrit seul. C'est ce couple qui motive la relation
+   `INIT_FROM` du §13.4 — et elle ne coûte rien à poser tout de suite.
 
 ## 10. Migration du code actuel
 
@@ -552,13 +662,22 @@ devient une relocalisation dont le linker vérifie la portée.
 Ne sont pas concernés : `z80.cpp`, `keywords.cpp`, `parser.cpp`, `beautify.cpp`,
 et `pp.cpp` — le préprocesseur n'a rien à savoir des sections.
 
-### Les trois étages
+### Les étages
 
 | étage | ce qu'on gagne | relocalisation |
 |-------|----------------|----------------|
 | **A.** `SECTION` interne, placement toujours absolu (`org` à l'intérieur) | plafond de taille, détection d'écriture en `"ro"`, section dans la table des symboles | non |
 | **B.** fichier objet et expressions relocalisables | compilation séparée, `PUBLIC` / `EXTERN`, tailles résolues au linkage (§8) | oui — le gros morceau |
-| **C.** le linker : régions, banques, ROMs, chevauchements inter-sections | le maillon 2 du §3.2 | — |
+| **C1.** le linker qui **place et calcule** : fenêtres, banques, configurations, `ORG` déduit, symboles de commutation, chevauchements inter-sections, compression | le maillon 2 du §3.2 : un programme banqué devient constructible | — |
+| **C2.** le linker qui **vérifie** : continuité et ses trois pointeurs (§13.3), sections miroir, `CLOBBERS`, `INIT_FROM` | un programme banqué **faux** devient refusable | — |
+| **D.** *(non engagé)* lecture des objets `.rel` de SDCC | interopérabilité C, au prix chiffré au §9 | — |
+
+C1 et C2 sont deux étages et non un, pour la raison qui fait de l'étage A un
+investissement autonome : C1 produit un binaire, C2 refuse un binaire faux, et
+les mêler garantit qu'on livrera C1 en promettant C2. C2 attrape en outre des
+fautes que rien d'autre n'attrape — la faute de continuité est indétectable à
+l'exécution, la machine ne plantant pas au basculement mais trois instructions
+plus loin.
 
 Les étages A et B sont indépendants. **L'étage A est un investissement autonome,
 pas une demi-mesure** : le plafond de section et le refus d'écriture en ROM sont
@@ -575,8 +694,8 @@ section, bloc qui ne peut pas tenir dans sa frontière : l'assembleur refuse san
 qu'on ait lancé le linker.
 
 **Le matériel est explicite.** `RMR`, `RMR2`, `11pppccc`, `&DF00` sont écrits
-dans le script de linkage, non masqués derrière une macro opaque comme
-`{PAGESET}`.
+dans le profil de cible — un seul endroit, vérifiable (§7) — et non masqués
+derrière une macro opaque comme `{PAGESET}`.
 
 **Le linker optimise ce que l'assembleur ne voit pas.** Concaténer les sections
 `"ro"` de dix fichiers pour remplir au plus juste une ROM de 16 K est un enfer à
@@ -618,27 +737,36 @@ la RAM étendue, un bloc de données compressé ailleurs, dépacké en `&C000`.
 
 #### Le plan mémoire, et le piège qu'il contient
 
-| section | type | emplacement | fenêtre Z80 |
-|---------|------|-------------|-------------|
-| `main` | `"ro"` | RAM de base, page 1 | `&4000`-`&7FFF` |
-| `sysbank` | `"ro"` | RAM de base, page 2 | `&8000`-`&BFFF` |
-| `audio` | `"ro"` | extension, banque 5 | `&4000`-`&7FFF`, config `%101` |
-| `music_lz` | `"ro"`, compressée | extension, banque 4 | `&4000`-`&7FFF`, config `%100` |
-| `unpacked` | `"uninit"` | RAM de base, page 3 | `&C000`-`&FFFF` |
+| section | type | banque | fenêtre | configuration |
+|---------|------|--------|---------|---------------|
+| `main` | `"ro"` | `base1` | `&4000`-`&7FFF` | `linear` |
+| `sysbank` | `"ro"` | `base2` | `&8000`-`&BFFF` | toutes |
+| `audio` | `"ro"` | `ext1` | `&4000`-`&7FFF` | `ext_w1<1>` |
+| `music_lz` | `"ro"`, compressée | `ext0` | `&4000`-`&7FFF` | `ext_w1<0>` |
+| `unpacked` | `"uninit"` | `base3` | `&C000`-`&FFFF` | `linear` |
 
-Le piège est dans la dernière colonne : les configurations `%100` à `%111`
-paginent la banque étendue **à la place** de la page 1 de la RAM de base. Or
-`main` est justement là. Commuter `audio` fait donc disparaître `main` sous ses
+Le piège est dans les deux dernières colonnes : les configurations `ext_w1<b>`
+donnent `w1` à une banque étendue **à la place** de `base1`. Or `main` est
+justement dans `base1`. Commuter `audio` fait donc disparaître `main` sous ses
 propres pieds.
 
+Ce n'est pas une déclaration du profil : le linker le **calcule** en comparant
+`linear` et `ext_w1<1>` sur `w1` (§13.1). Aucun `SHADOWS` n'a été écrit, et il
+n'y avait donc aucune occasion de l'écrire faux.
+
 C'est pour cela que `sysbank` existe : la commutation, l'appel au player et le
-dépacking vivent en page 2, qu'aucune de ces configurations ne recouvre. **Cette
-contrainte, l'assembleur ne peut pas la connaître — elle est dans la carte
-mémoire de la machine. Le linker, si.** Il refuse un appel depuis `main` vers
-`audio`, en nommant les deux sections et la fenêtre qu'elles partagent, plutôt
-que de laisser produire un programme qui se sabote à la première commutation.
-Le §13.3 donne la règle générale dont ce refus n'est qu'un cas, et la seconde
-façon de le satisfaire quand aucune fenêtre ne reste résidente.
+dépacking vivent dans `base2`, qu'aucune de ces configurations ne recouvre.
+**Cette contrainte, l'assembleur ne peut pas la connaître — elle est dans les
+configurations de la machine. Le linker, si.** Il refuse un appel depuis `main`
+vers `audio`, en nommant les deux sections et la fenêtre qu'elles partagent,
+plutôt que de laisser produire un programme qui se sabote à la première
+commutation. Le §13.3 donne la règle générale dont ce refus n'est qu'un cas, et
+la seconde façon de le satisfaire quand aucune fenêtre ne reste résidente.
+
+Deux configurations de plus mériteraient un mot, et le profil les porte sans que
+l'exemple les emploie : `all_ext` bascule les quatre fenêtres d'un coup — donc
+aussi la pile —, et aucune banque `ext<n>` ne porte l'attribut `VIDEO`, ce qui
+interdit d'y placer une section écran (§13.1).
 
 #### Les sources : une seule suffit
 
@@ -657,21 +785,21 @@ loop:   call   sysbank_audio_play
 ;--- résident : jamais recouvert par une commutation ----------------------
         SECTION sysbank, "ro"
 sysbank_audio_init:
-        ld     bc, &7F00 + __cfg_audio
+        ld     bc, __port_ram_audio + __val_ram_audio   ; port ET valeur : §12.3
         out    (c), c
         call   audio_init          ; vaut &4000 + offset : le linker le sait
-        ld     bc, &7F00 + __cfg_none
+        ld     bc, __port_ram_linear + __val_ram_linear
         out    (c), c
         ret
 
 sysbank_unpack:
-        ld     bc, &7F00 + __cfg_music_lz
+        ld     bc, __port_ram_music_lz + __val_ram_music_lz
         out    (c), c
         ld     hl, music_lz        ; &4000 + offset dans la fenêtre
         ld     de, unpacked        ; &C000
         ld     bc, __size_music_lz ; taille COMPRESSÉE, connue au linkage
         call   depack
-        ld     bc, &7F00 + __cfg_none
+        ld     bc, __port_ram_linear + __val_ram_linear
         out    (c), c
         ret
 
@@ -704,65 +832,149 @@ les fichiers objets, qui ne servent qu'à ce moment-là.
 TARGET cpc6128 + RAM128
 
 MEMORY_MAP {
-    REGION RAM_BASE {
-        PAGE 1 { SECTION main     }
-        PAGE 2 { SECTION sysbank  }
-        PAGE 3 { SECTION unpacked }
+    CONFIG linear {
+        w1 { SECTION main     }
+        w2 { SECTION sysbank  }
+        w3 { SECTION unpacked }
     }
-    REGION RAM_EXP1 [PAL_PAGE 0] {
-        PAGE_EXT 0 { SECTION music_lz  COMPRESS "lz48" }
-        PAGE_EXT 1 { SECTION audio }
-    }
+    CONFIG ext_w1<0> { w1 { SECTION music_lz  COMPRESS "lz48" } }
+    CONFIG ext_w1<1> { w1 { SECTION audio } }
 }
 ```
 
+Le placement se dit **dans une configuration**, et la fenêtre en découle : c'est
+elle qui donnera son `ORG` à la section. Écrire `w1 { SECTION audio }` sous
+`ext_w1<1>` dit d'un seul geste « dans la banque `ext1` » et « vue en `&4000` »,
+sans que la source ait à le savoir.
+
 `COMPRESS` est écrit **là où le placement est écrit**, jamais dans la source :
 c'est une transformation qui change la taille (§8). Et `music_lz` est placée
-**seule dans sa page**, donc l'adresse d'aucune autre section ne dépend de sa
-taille compressée : rien à itérer.
+**seule dans sa configuration**, donc l'adresse d'aucune autre section ne dépend
+de sa taille compressée : rien à itérer.
 
 #### Ce que le source n'écrit plus
 
-Aujourd'hui, la même chose s'écrit avec `org b4:&4000` (`syntax.md`, §7) : la
-source énonce elle-même la fenêtre, et « rien n'est déduit — une banque n'a pas
-de créneau naturel ». Avec les sections, la fenêtre vient de la région, et c'est
-le linker qui déduit : `audio_init` vaut `&4000 + offset` parce que la région dit
-que cette page apparaît en `&4000`. Déplacer le player dans une autre page ne
-touche pas une ligne de source.
+Aujourd'hui, la même chose s'écrit en nommant le rangement dans la source, banque
+par banque, et « rien n'est déduit — une banque n'a pas de créneau naturel »
+(`syntax.md`, §7, et l'ADR 0005). Avec les sections, la fenêtre vient de la
+configuration, et c'est le linker qui déduit : `audio_init` vaut `&4000 + offset`
+parce que la configuration dit que `ext1` y apparaît. Déplacer le player dans une
+autre banque ne touche pas une ligne de source.
 
-### 12.3 À quoi sert concrètement la carte du §7
+C'est le renversement complet de la question que l'ADR 0005 tranchait : il y
+avait à choisir *comment le source nomme un emplacement de rangement*, avec tout
+ce que cela traînait — le masquage, la rémanence, sur quel paramètre d'`ORG` le
+préfixe se porte. Au niveau du linker, cette question ne se pose plus, parce que
+le source ne nomme plus d'emplacement du tout : il nomme une section. Le
+vocabulaire du §13.1 ne reprend donc rien de cette notation, et n'a pas à rester
+compatible avec elle.
 
-La carte mémoire n'est pas de la documentation : c'est la table à partir de
-laquelle le linker **calcule**. Trois usages.
+L'ADR 0005 continue de décrire ce que le code fait aujourd'hui ; c'est l'étage C1
+(§10) qui le remplacera, et c'est à ce moment-là que son statut sera à revoir.
 
-**1. La fenêtre donne l'`ORG`.** Une section placée dans une page dont la fenêtre
-est `&4000`-`&7FFF` voit ses labels basés en `&4000`. Le `org` disparaît du
-source parce que le matériel le dicte.
+### 12.3 À quoi sert concrètement le profil de cible
+
+Le profil n'est pas de la documentation : c'est la table à partir de laquelle le
+linker **calcule**. Trois usages.
+
+**1. La fenêtre donne l'`ORG`.** Une section placée dans une configuration voit
+ses labels basés à l'adresse de la fenêtre où cette configuration fait apparaître
+sa banque — `&4000` pour `audio`. Le `org` disparaît du source parce que le
+matériel le dicte.
 
 **2. Les valeurs de commutation deviennent des symboles.** Le linker connaît la
-page `ppp` et la configuration `ccc` de chaque section, donc l'octet `11pppccc`
-à sortir sur le port du PAL. Il l'expose :
+page `ppp` et la configuration de chaque section, donc l'octet `11pppccc` à
+sortir sur le port du PAL. Mais **un symbole ne peut pas être « l'octet »** : sur
+ZX, le port `&7FFD` porte quatre axes à la fois — banque, écran affiché, numéro
+de ROM, verrou — et y sortir la seule valeur de l'axe de pagination écraserait
+les trois autres, silencieusement, qui est précisément la faute que ce paragraphe
+combat. Et sur CPC au-delà de 512 K, ce n'est même plus la valeur qui varie mais
+l'**adresse du port**.
 
-| symbole | valeur, pour l'exemple du §12.2 | d'où elle vient |
-|---------|--------------------------------|-----------------|
-| `__cfg_audio` | `%11000101` = `&C5` | `ppp`=0, `ccc`=`%101` : page étendue 1 en `&4000` |
-| `__cfg_music_lz` | `%11000100` = `&C4` | `ppp`=0, `ccc`=`%100` : page étendue 0 en `&4000` |
-| `__cfg_none` | `%11000000` = `&C0` | `ccc`=`%000`, aucune extension connectée |
+Le linker expose donc un **triplet par axe**, jamais un octet global :
+
+| symbole | ce que c'est | valeur, pour l'exemple du §12.2 |
+|---------|--------------|---------------------------------|
+| `__port_<axe>_<config>` | l'adresse d'écriture — port pour un `OUT`, adresse mémoire pour un `POKE`. Indexée par la configuration parce qu'elle peut en dépendre. | `__port_ram_audio` = `&7F00` |
+| `__val_<axe>_<config>` | la valeur à écrire, **bornée aux bits de l'axe** | `__val_ram_audio` = `%11000101` = `&C5` ; `__val_ram_music_lz` = `&C4` ; `__val_ram_linear` = `&C0` |
+| `__mask_<axe>` | les bits du port qui appartiennent à l'axe, pour que le source écrive `(état & ~__mask) \| __val` sans toucher aux autres | sans objet sur l'axe `ram` du CPC, indispensable sur `&7FFD` |
+
+S'y ajoutent les symboles qui ne relèvent d'aucun axe :
+
+| symbole | valeur | d'où elle vient |
+|---------|--------|-----------------|
 | `__size_music_lz` | la taille **compressée** | connue après la compression, au linkage |
-| `__rom_myrom` | `15` | numéro de slot, pour le port `&DF00` |
-| `__rmr_myrom` | l'octet `RMR` activant la ROM haute | assemblé depuis le profil de cible |
+| `__romnum_myrom` | `15` | numéro de ROM haute : la **seconde** écriture d'un `SELECT` qui en compte deux (`&DF00`) |
+| `__off_<section>` | l'offset dans sa banque | pour un loader, ou une recopie |
 
-Le source écrit `ld bc, &7F00 + __cfg_audio`, jamais `&C5`. Le gain n'est pas
-cosmétique : déplacer une section change la valeur, et une valeur écrite en dur
-serait devenue fausse **en silence**. Les noms préfixés de `__` appartiennent au
-linker, et sont réservés au même titre que les mots de la machine.
+Le source écrit `ld bc, __port_ram_audio + __val_ram_audio`, jamais `&7F00 +
+&C5`. Le gain n'est pas cosmétique : déplacer une section change la valeur, et
+une valeur écrite en dur serait devenue fausse **en silence**. Les noms préfixés
+de `__` appartiennent au linker, et sont réservés au même titre que les mots de
+la machine.
 
-**3. Le profil est l'endroit unique où la polarité des bits est vérifiée.** Le
-détail du décodage de `RMR` — quel bit **active** et quel bit **inhibe** la ROM
-basse ou haute — est précisément le genre d'information sur laquelle les sources
-de documentation se contredisent. Écrite dans le profil de cible, elle est
-vérifiée **une fois**, sur machine ou sur émulateur, et tout le monde en hérite.
-Recopiée dans chaque source, elle est vérifiée à chaque fois, ou jamais.
+Ce que le linker ne fournit **pas** : la copie de l'état. Un port en écriture
+seule oblige le source à tenir en RAM la dernière valeur écrite — c'est de la
+RAM, donc du ressort de l'auteur, au même titre que le loader du §12.4. Le
+linker donne `__mask_<axe>` pour que cette copie se mette à jour sans écraser
+les axes voisins ; il ne l'alloue pas.
+
+Le symbole `__val_ram_linear` mérite son nom : la version précédente de ce
+document l'appelait `__cfg_none` et le glosait « aucune extension connectée ».
+C'est faux — `ccc = 000` est la disposition linéaire par défaut, extension
+présente ou pas — et l'erreur venait de la carte recopiée dans la spec. C'est
+exactement l'argument de l'usage 3.
+
+**3. Le profil est l'endroit unique où une valeur matérielle est vérifiée.** Une
+partie de ce que le linker doit savoir est *contredite par la littérature*, y
+compris entre une source constructeur et le silicium. Écrite dans le profil, une
+telle valeur est vérifiée **une fois**, sur machine ou sur émulateur, et tout le
+monde en hérite. Recopiée dans chaque source, elle est vérifiée à chaque fois, ou
+jamais.
+
+Trois contradictions réelles, relevées et non levées dans
+`docs/recherche/cpc-gate-array-rmr.md` :
+
+- **l'effet du bit 4 de `RMR`** : le manuel Amstrad (SOFT968) dit qu'écrire 1
+  efface *le bit de poids fort* du diviseur par 52 ; Grimware, Cpctech et Logon
+  disent qu'il remet *le compteur entier* à zéro. Les deux ne peuvent pas être
+  vraies, et ici la source de niveau 1 est la moins fiable — l'effet observé
+  « l'interruption arrive 52 lignes plus loin » n'est explicable que par la
+  seconde lecture.
+- **le décodage du port du PAL** : A15 = 0 seul, ou A15 = 0 **et** A14 = 1 selon
+  les sources, l'une d'elles se contredisant d'une page à l'autre. Sans
+  conséquence si l'on écrit sur `&7F00` — et c'est justement le genre de « sans
+  conséquence si » qu'un profil doit fixer une fois.
+- **le nombre de bits de page réellement décodés** : 2 bits (256 K), 3 bits
+  (512 K), ou zéro sur un 6128 nu.
+
+Ce que ce paragraphe affirmait auparavant — que la polarité des bits de ROM
+serait « précisément le genre d'information sur laquelle les sources se
+contredisent » — était faux : sept sources indépendantes disent toutes que 0
+active et 1 inhibe, sans exception. Le piège y est de **nommage**, non de valeur :
+un registre intitulé « ROM *enable* register » dont les bits s'appellent « ROM
+*disable* ». L'argument tenait, l'exemple non.
+
+#### Qui vérifie, et comment on le prouve
+
+« Vérifiée une fois, sur machine ou sur émulateur » est l'argument central de ce
+paragraphe, et **rien ne l'incarne encore** : les valeurs des dossiers de
+`docs/recherche/` sont vérifiées sur *documentation*, ce qui est un cran en
+dessous, et les trois contradictions ci-dessus y sont explicitement laissées
+ouvertes.
+
+D'où un troisième genre d'artefact, à côté du cas de référence : une **source de
+vérification**, versionnée, minuscule et autonome, une par valeur litigieuse.
+Elle ne se compare pas à des octets attendus — son juge est la machine. Elle rend
+un résultat observable (un octet à l'écran, un compteur, une durée), et son
+verdict remonte dans le dossier de recherche avec sa date et le modèle exact
+employé.
+
+Ce n'est pas un raffinement : c'est ce qui transforme « non tranché par mesure
+dans le cadre de cette recherche » — phrase qui revient trois fois dans les
+dossiers — en dette nommée plutôt qu'en note de bas de page. Et un profil de
+cible peut alors distinguer, par valeur, ce qui est *attesté par la
+documentation* de ce qui est *mesuré ici, sur telle machine, à telle date*.
 
 ### 12.4 Combien de fichiers en sortie ? Combien de passes ?
 
@@ -795,9 +1007,16 @@ B05_4000.BIN   audio
 `unpacked` ne produit rien : son type est `"uninit"`. Et il faut alors un
 **loader** — commuter la bonne configuration avant de charger chaque fichier
 dans sa fenêtre, puis rendre la main. Ce loader est du code de l'auteur, dans une
-section résidente — ou miroir, si aucune fenêtre ne reste en place (§13.3) ; **le linker lui fournit les nombres exacts, il ne
-l'écrit pas.** Générer du code de chargement serait le premier pas vers la dérive
-que ce document combat.
+section résidente — ou miroir, si aucune fenêtre ne reste en place (§13.3) ; **le
+linker lui fournit les nombres exacts, il ne l'écrit pas.** Générer du code de
+chargement serait le premier pas vers la dérive que ce document combat.
+
+Ce n'est pas la même chose qu'un refus définitif : proposer plus tard un outil,
+une option ou un canevas de loader à recopier reste envisageable, et se décidera
+sur pièces. Ce qui est arrêté ici, c'est que **le linker n'en dépend pas** — ni
+pour placer, ni pour vérifier. Un générateur qui deviendrait la seule façon de
+produire un programme banqué aurait ramené dans la chaîne ce que le découpage en
+a sorti.
 
 **Les passes** — le mot recouvre deux choses.
 
@@ -826,102 +1045,366 @@ n'empêche d'en écrire un.** C'est même le seul test qui prouve que le découp
 a servi à quelque chose : si décrire un ZX ou un MSX demande de toucher au code
 du linker, alors le linker n'a pas de modèle, il a des cas particuliers CPC.
 
-Mais la réponse honnête est que **le vocabulaire du §6 ne suffit pas encore** :
-`PAL_PAGE` et `RMR_BIT` sont des mots CPC. Il faut les poser comme l'instance
-d'un modèle générique, sans quoi le premier profil ZX les détournera.
+C'est aussi ce qui a fixé le vocabulaire employé depuis le §6. Une première
+version de ce document écrivait `PAL_PAGE` et `RMR_BIT` dans le script de
+linkage : des mots CPC posés à l'endroit du modèle, que le premier profil ZX
+aurait détournés. Ce chapitre pose donc les notions d'abord, et les trois profils
+ensuite — c'est l'ordre inverse de celui où le document a été écrit, et le seul
+qui tienne.
 
 ### 13.1 Le vocabulaire générique
 
-Trois notions, et rien de plus :
+Quatre notions, et rien de plus.
 
 **`WINDOW`** — une plage de l'espace adressable du Z80 où quelque chose peut
-apparaître. C'est elle qui donne son `ORG` à une section (§12.3).
+apparaître. C'est elle qui donne son `ORG` à une section (§12.3). Un profil peut
+en déclarer **plusieurs grilles superposées** : sur MSX, les quatre pages de
+slot de 16 K couvrent `&0000`-`&FFFF` pendant que les fenêtres de mapper de 8 K
+découpent `&4000`-`&BFFF`, et les deux découpages sont actifs en même temps.
+
+Deux grilles qui se recouvrent posent une question qu'il faut trancher avant
+d'écrire un profil : **laquelle donne l'`ORG` ?** La réponse est qu'il n'y a
+jamais d'arbitrage — l'`ORG` vient de la fenêtre de **la grille à laquelle
+appartient la banque de la section**. Une section placée dans un segment de
+mapper de 8 K est basée par la fenêtre de mapper, pas par la page de slot qui la
+contient, même quand les deux commencent à la même adresse.
+
+Et le recouvrement devient un **refus calculé**, jamais déclaré, sur le modèle de
+`SHADOWS` : deux sections placées dans deux grilles différentes dont les fenêtres
+se recouvrent dans un même état sont un conflit que le linker nomme. C'est la
+mécanique du §12.2 appliquée à un axe de plus, et elle ne coûte pas un mot de
+vocabulaire.
 
 **`BANK`** — une unité de stockage physique susceptible d'apparaître dans une
-fenêtre. Attributs : taille, `ro` ou `rw`, et les fenêtres qui peuvent l'accueillir.
+fenêtre. **Sa taille est déclarée, jamais implicite** : 16 K de RAM sur CPC, 8 K
+pour une mega-ROM Konami ou ASCII8, 16 K pour ASCII16, 8 K pour une ROM
+Multiface. Un 16 K câblé dans le linker suffirait à rendre un MSX indescriptible
+— et « décrire une machine ne doit pas demander de toucher au code du linker »
+est le seul test qui prouve que ce découpage a servi.
 
-**`SELECT`** — comment on l'y fait apparaître : **une suite d'écritures**. C'est
-le point qui décide de la généralité du modèle, car ces écritures ne sont pas du
-même genre selon la machine :
+Découper une banque de 16 K en deux blocs de 8 K reste possible, mais c'est un
+**découpage de placement à l'intérieur d'une banque** (`OFFSET`, `SIZE`), et non
+une banque de 8 K : les deux moitiés apparaissent ensemble ou pas du tout.
+
+**`CONFIG`** — un état de carte nommé : pour les fenêtres qu'il concerne, quelle
+banque y apparaît. C'est la notion que la première version de ce chapitre n'avait
+pas, et son absence faisait écrire `SELECT <fenêtre>, <banque>`, qui suppose
+chaque fenêtre choisie indépendamment. Le matériel refuse cette hypothèse :
+
+- CPC, `ccc = 011` : le bloc 3 de la RAM de base passe en `&4000` **et** le bloc
+  3 de la page étendue en `&C000`, d'un seul geste ;
+- CPC, `ccc = 010` : les quatre fenêtres basculent ensemble ;
+- ZX +2A/+3, mode spécial : exactement quatre combinaisons figées — `(0,1,2,3)`,
+  `(4,5,6,7)`, `(4,5,6,3)`, `(4,7,6,3)`.
+
+Aucune n'est décomposable en choix par fenêtre. À l'inverse, le PPI du MSX
+*est* authentiquement indépendant : deux bits par page, produit cartésien
+complet. Le modèle traite donc l'indépendance comme le **cas particulier** — un
+produit que le profil décrit paramétriquement et n'écrit pas à la main — et non
+comme la règle.
+
+Un profil déclare un ou plusieurs **axes** de configuration (`CONFIG SET`).
+L'état de la machine est le produit des axes ; chaque axe porte son propre
+`SELECT`. Un axe peut en recouvrir un autre — sur CPC une ROM cache la RAM
+**en lecture** seulement, l'écriture continuant d'atteindre la banque RAM — et
+c'est le profil qui déclare cette priorité (`OVER`), parce que la lire à
+l'envers ferait déclarer conforme un octet écrit dans le vide.
+
+#### Sur quels états le linker raisonne
+
+Le produit des axes est immense — sur CPC, huit configurations × huit pages ×
+deux axes de ROM × 256 numéros de ROM — et le linker ne connaît **aucune
+séquence d'exécution** : il ne sait pas sous quel état une routine tourne. Le
+refus du §12.2 doit donc se formuler sans trace d'exécution :
+
+> Un accès de la section `X` vers la section `Y` est licite s'il existe au moins
+> un état où les banques de `X` et de `Y` sont simultanément visibles.
+
+Cet énoncé ne s'évalue pas en énumérant les états : il se décide **axe par
+axe** — deux banques sont co-visibles si aucun axe ne les met dans la même
+fenêtre. Coût constant, même verdict, et aucune dépendance à ce que l'auteur a
+pris la peine d'écrire dans son script : un script qui ne nomme rien vérifierait
+sinon quelque chose de vide.
+
+**`SELECT`** — comment on atteint une configuration. Deux choses, pas une :
+**les nombres**, et **les contraintes vérifiables**.
+
+Les nombres ne sont pas toujours une suite d'écritures constantes :
 
 ```
-SELECT <fenêtre>, <banque>  =  OUT  <port>, <valeur>      // CPC, ZX
-SELECT <fenêtre>, <banque>  =  POKE <adresse>, <valeur>   // mappers MSX
+SELECT <axe> = OUT  <port>, <valeur>      // CPC, ZX
+SELECT <axe> = POKE <adresse>, <valeur>   // mappers de mega-ROM MSX
 ```
 
 Un modèle qui ne connaîtrait que `OUT` — le réflexe qu'on prend en ne regardant
-que le CPC — ne pourrait pas décrire un MSX, où la commutation d'une mega-ROM
-est une **écriture mémoire**. C'est la contrainte à intégrer dès maintenant,
-parce qu'elle est structurante et qu'elle ne coûte rien tant que rien n'est
-écrit.
+que le CPC — ne saurait pas décrire un MSX, où la commutation d'une mega-ROM est
+une **écriture mémoire**. Et le contraste se produit *au sein d'une même
+machine* : le memory mapper RAM du MSX, lui, commute bien par port.
 
-S'y ajoutent des **attributs** de fenêtre ou de banque, qui sont exactement ce
-que le linker sait vérifier et que l'assembleur ne peut pas connaître :
+Deux formes de plus, que « une suite d'écritures » ne couvre pas :
 
-| attribut | sens | machine qui l'impose |
-|----------|------|----------------------|
-| `SHADOWS <fenêtre>` | commuter ici fait disparaître ce qui y était | CPC : la fenêtre `&4000` recouvre la page 1 de la RAM de base |
-| `ALWAYS <banque>` | fenêtre fixe, jamais commutée | ZX 128 : `&4000` est toujours la banque 5 |
-| `CONTENDED` | accès ralenti par la vidéo — le placement change le timing | ZX : `&4000`-`&7FFF` |
-| `READONLY` | une écriture ici est une faute (§4.2) | toutes |
-| `LOCKS` | la commutation est irréversible jusqu'au reset | ZX : bit 5 du port `&7FFD` |
+- **le port peut être fonction de la banque.** Au-delà de 512 K de RAM CPC, une
+  partie du numéro de banque est dans l'**adresse** du port (`&7Fxx`, `&7Exx`, …,
+  bits A10-A8, généralement inversés) : ce n'est plus une constante.
+- **un registre peut être subordonné.** `RMR2` du CPC Plus n'a d'effet que si un
+  bit d'un autre registre est à 0, et exige au préalable une séquence de
+  déverrouillage ASIC non documentée.
+
+Et les contraintes, que le linker sait **vérifier** sans jamais écrire une
+instruction de commutation :
+
+| contrainte déclarée | ce qu'elle interdit | machine qui l'impose |
+|---|---|---|
+| fenêtre d'exécution interdite | commuter depuis un code qui vit dans une fenêtre que la commutation change (§13.3) | CPC, MSX |
+| interruptions coupées | commuter les interruptions actives, le vecteur pouvant partir avec la banque | toutes |
+| pile hors d'une plage | commuter alors que `SP` pointe dans ce qui va changer | CPC `ccc = 010`, modes *all-RAM* du +3 |
+| plage commutant par accident | y placer une donnée : l'écrire commute | MSX Konami4, où **toute** écriture entre `&6000` et `&BFFF` commute |
+| séquence imposée | commuter un sous-slot MSX en page 1 sans le faire passer par la page 3, depuis un code hors de `&C000`-`&FFFF`, pile comprise | MSX |
+
+C'est le prolongement direct du §13.3 : « le linker vérifie l'identité et
+l'accord structurel, il ne fait que consigner l'équivalence » se généralise en
+**« le linker vérifie les contraintes de commutation ; il n'écrit jamais la
+commutation. »** Embarquer un stub de commutation canonique par machine
+reviendrait à générer du code de chargement, précisément la dérive que ce
+document combat (§12.4).
+
+#### Qui attrape une contrainte, et à quelle couche
+
+Ces contraintes posent un problème de couches, non de détail. Le §1 pose que
+l'assembleur ne connaît aucune machine : il ne peut donc refuser ni
+`in a,(&7FFD)` sur un port en écriture seule, ni `ld (&7000),a` dans une plage
+`CLOBBERS`. Et le linker, qui connaît le profil, ne voit plus que des octets — il
+a perdu l'instruction. Sur Konami4, où `CLOBBERS` couvre 24 K sans une seule zone
+de données sûre, un contrôle qui tomberait dans cet interstice ne vaudrait rien.
+
+Le partage se fait donc en deux moitiés, et la seconde est ce qui rend le
+contrôle réel plutôt que décoratif :
+
+1. **Le placement** — aucune section de données dans une plage `CLOBBERS`.
+   Décidable, immédiat, et déjà utile seul.
+2. **Les accès à adresse littérale** — l'assembleur les consigne dans le
+   quatrième bloc du fichier objet (§4.6) sans les interpréter ; le linker les
+   confronte au profil. C'est le motif de la relocalisation, appliqué à autre
+   chose : l'assembleur note, le linker tranche, et le §1 reste intact.
+
+Ce que cela n'attrapera jamais : un `ld (hl),a` dont `HL` est calculé. La limite
+est écrite ici pour être connue, non découverte.
+
+#### Où s'accrochent les attributs
+
+La première version de ce chapitre les mettait tous sur la fenêtre ou la banque,
+indistinctement. Les faits imposent **trois porteurs** :
+
+| attribut | porteur | pourquoi pas la fenêtre |
+|---|---|---|
+| `CONTENDED` | **banque** | ZX : la contention frappe certaines banques RAM (1,3,5,7 sur 128/+2 ; 4,5,6,7 sur +2A/+3). `&C000`-`&FFFF` est donc lent ou non **selon ce qui y est paginé** ; un attribut de fenêtre ne peut pas l'exprimer. |
+| `ro` / `rw` matériel | **banque** | une ROM est en lecture seule où qu'elle apparaisse. |
+| `VIDEO` | **banque** | CPC : la RAM étendue n'est jamais lue par le CRTC. Aucune section écran ne peut y vivre — un refus de placement que seul le linker peut prononcer. |
+| lecture seule *effective* d'une fenêtre | **configuration** | +2A/+3 en mode spécial : `&0000`-`&3FFF` porte de la RAM. « La fenêtre ROM est `READONLY` » y est faux. Cela se **déduit** de la banque présente dans la configuration. |
+| `LOCKS` | **pagination entière** | ZX : le bit 5 de `&7FFD` verrouille aussi `&1FFD`. Ce n'est pas l'attribut d'un port. |
+
+Et un attribut disparaît : **`SHADOWS` ne se déclare plus, il se calcule.** Deux
+configurations d'un même axe qui n'accordent pas la même banque à une fenêtre
+disent, par leur seule existence, que passer de l'une à l'autre fait disparaître
+ce qui était là. C'était la principale source d'erreur de saisie d'un profil, et
+le piège du §12.2 devient une conséquence au lieu d'une déclaration. `ALWAYS`
+suit le même sort : une fenêtre à laquelle toutes les configurations donnent la
+même banque est fixe, et le linker le sait sans qu'on le lui dise.
 
 ### 13.2 Les trois profils, dans le même vocabulaire
 
-**CPC 6128** — c'est le §6 et le §7, réécrits avec les mots ci-dessus : quatre
-fenêtres de 16 K, huit banques par page de 64 K, un `SELECT` en `OUT` sur le port
-du PAL avec la valeur `11pppccc`, et le `SHADOWS` qui porte le piège du §12.2.
+Les valeurs citées ici sont celles de `docs/recherche/` — vérifiées sur sources
+primaires, et signalées quand elles ne le sont pas. Les blocs restent des
+esquisses de *forme* : c'est le vocabulaire qu'ils exposent au jugement, pas une
+syntaxe arrêtée.
 
-**ZX Spectrum 128** — la structure est étonnamment proche du CPC : une fenêtre
-commutable, huit banques candidates, un port avec un champ de bits.
+**Un seul profil est écrit : le CPC.** Le risque a changé de camp. Avant, le
+vocabulaire était CPC et n'aurait pas survécu au deuxième profil ; maintenant, ce
+chapitre en contient trois alors que la cible est le CPC seul, et le danger est
+de payer la conception de trois machines pour n'en livrer aucune. Les blocs ZX et
+MSX ci-dessous ne sont donc **pas une feuille de route** : leur fonction est de
+tester le vocabulaire, et elle est déjà remplie — ce sont eux qui ont fait tomber
+`SELECT <fenêtre>, <banque>`, `SHADOWS`, le 16 K câblé et le `CONTENDED` porté
+par la fenêtre. Les sortir du document les rendrait décoratifs ; les prendre pour
+un plan de travail coûterait deux machines que personne ne cible.
+
+**CPC 6128 + extension** — c'est le bloc du §6 : quatre fenêtres de 16 K, huit
+banques de 16 K par page de 64 K, huit configurations énumérées, un `SELECT` en
+`OUT` sur le port du PAL avec la valeur `11pppccc`, et l'attribut `VIDEO` sur les
+seules banques de base.
+
+**ZX Spectrum 128 / +2** — la structure est proche du CPC, avec une nuance que la
+première version de ce chapitre manquait : la contention est portée par les
+banques.
 
 ```
 TARGET zx128
 
-WINDOW rom    [&0000..&3FFF]  READONLY
-WINDOW low    [&4000..&7FFF]  ALWAYS bank5   CONTENDED   // porte aussi l'écran
-WINDOW mid    [&8000..&BFFF]  ALWAYS bank2
-WINDOW high   [&C000..&FFFF]  HOSTS bank0..bank7
+WINDOW w0 [&0000..&3FFF]
+WINDOW w1 [&4000..&7FFF]
+WINDOW w2 [&8000..&BFFF]
+WINDOW w3 [&C000..&FFFF]
 
-SELECT high, bank<n> = OUT &7FFD, __base | <n>   // bits 0-2 : banque
-                                                 // bit 3 : écran normal/shadow
-                                                 // bit 4 : ROM 128/48K
-                                                 // bit 5 : verrou (LOCKS)
+BANK ram0..ram7  SIZE &4000  rw
+BANK ram1, ram3, ram5, ram7   CONTENDED      // attribut de banque, pas de fenêtre
+BANK ram5, ram7  VIDEO                       // écran normal / shadow
+BANK rom0, rom1  SIZE &4000  ro
+
+CONFIG SET pager {
+    high<n> [CODE n] { w1 ram5  w2 ram2  w3 ram<n> }   // n = 0..7
+}
+SELECT pager = OUT &7FFD, __state | CODE     // bits 0-2 : banque en w3
+                                             // bit 3 : écran affiché
+                                             // bit 4 : numéro de ROM
+                                             // bit 5 : verrou
+PAGING LOCKS ON &7FFD BIT 5                  // porte sur la pagination entière
+PAGING WRITE_ONLY                            // et une lecture n'est pas neutre
 ```
 
-Deux différences qui comptent, et que seul le profil peut porter : le port est
-en **écriture seule**, sans relecture possible — c'est au source de tenir une
-copie de l'état, et le profil doit le dire plutôt que de le laisser découvrir ;
-et `&4000` est *contended*, donc une section de code au timing critique n'a rien
-à y faire.
+Trois choses que seul le profil peut porter. Le port est en **écriture seule** :
+au source de tenir une copie de l'état — d'où le `__state` — et sur 128/+2 gris
+précoces une lecture n'est pas neutre du tout, le décodage ne distinguant pas
+lecture et écriture, ce qui plante typiquement la machine. `w1` est toujours la
+banque 5, qui est contended : une section au timing critique n'a rien à y faire —
+environ 25 % de débit en moins, mais **parce que la banque l'est**, pas la
+fenêtre. Et le verrou, une fois posé, bloque toute la pagination jusqu'au reset.
 
-**MSX** — quatre pages de 16 K dont chacune choisit indépendamment quel *slot*
-est visible, la sélection passant par le PPI ; et par-dessus, des mappers de
-mega-ROM ou de RAM qui commutent, eux, par écriture mémoire ou par un autre port.
+**Un profil `zx128` ne décrit pas un +3.** Ce sont deux cibles distinctes : le
++2A/+3 ajoute le port `&1FFD`, déplace la contention sur les banques 4 à 7,
+compose un numéro de ROM sur deux bits pris dans deux ports, et surtout ouvre un
+mode spécial de quatre configurations *all-RAM* où `&0000` porte de la RAM. C'est
+l'exemple type de ce que `CONFIG` sait dire et qu'un modèle par fenêtre ne sait
+pas :
 
 ```
-TARGET msx-konami
+TARGET zx3
 
+CONFIG SET pager {
+    normal<n>  { w0 rom<r>  w1 ram5  w2 ram2  w3 ram<n> }
+    special0   { w0 ram0    w1 ram1  w2 ram2  w3 ram3 }
+    special1   { w0 ram4    w1 ram5  w2 ram6  w3 ram7 }
+    special2   { w0 ram4    w1 ram5  w2 ram6  w3 ram3 }
+    special3   { w0 ram4    w1 ram7  w2 ram6  w3 ram3 }
+}
+```
+
+En `special0`, rien n'est contended ; en `special1`, tout l'est. Aucune
+déclaration `CONTENDED` supplémentaire n'a été nécessaire pour le dire.
+
+**MSX** — c'est ici que les deux exigences du §13.1 se paient : plusieurs grilles
+de fenêtres, et des banques dont la taille n'est pas 16 K.
+
+```
+TARGET msx-konami4                    // « Konami sans SCC » : le SCC est une
+                                      //   autre cible, ses registres diffèrent
+
+// Grille 1 : les pages de slot, 16 K, tout l'espace adressable
 WINDOW page0 [&0000..&3FFF]
 WINDOW page1 [&4000..&7FFF]
 WINDOW page2 [&8000..&BFFF]
 WINDOW page3 [&C000..&FFFF]
 
-SELECT page<p>, slot<s>       = OUT  &A8, ...        // 2 bits par page
-SELECT page2,   rombank<n>    = POKE &8000, <n>      // mapper : écriture MÉMOIRE
+// Grille 2 : les fenêtres du mapper, 8 K, superposées aux pages 1 et 2
+WINDOW m0 [&4000..&5FFF]
+WINDOW m1 [&6000..&7FFF]
+WINDOW m2 [&8000..&9FFF]
+WINDOW m3 [&A000..&BFFF]
+
+BANK seg<n>  SIZE &2000  ro           // 8 K, et non 16 K
+
+// Quatre axes authentiquement indépendants : deux bits par page
+CONFIG SET slot<p> FOR page<p> { s0  s1  s2  s3 }        // p = 0..3
+SELECT slot0..slot3 = OUT &A8, slot3<<6 | slot2<<4 | slot1<<2 | slot0
+
+// Le mapper : trois fenêtres commutables, une figée
+CONFIG SET mapper1 { seg<n> } SELECT = POKE &6000, n
+CONFIG SET mapper2 { seg<n> } SELECT = POKE &8000, n
+CONFIG SET mapper3 { seg<n> } SELECT = POKE &A000, n
+CONFIG SET mapper0 { seg0 }                    // &4000-&5FFF : figée au segment 0
+
+SELECT mapper1..mapper3 CLOBBERS [&6000..&BFFF]   // toute écriture y commute
 ```
 
-C'est ce profil qui justifie `POKE`, et il en tire un piège propre : puisque la
-commutation est une écriture, **écrire une donnée dans la plage d'un mapper
-commute par accident**. Le linker peut le signaler ; l'assembleur n'en saura
-jamais rien.
+Quatre faits que ce bloc porte et que la version précédente ratait. Les banques
+font **8 K** — quatre fenêtres de mapper, pas deux de 16 K —, et leur grille ne
+coïncide pas avec les pages de slot : deux découpages simultanément actifs.
+`&4000`-`&5FFF` n'a **pas** de registre sur Konami4, elle est figée. Le mapper ne
+couvre ni `page0` ni `page3`. Et le piège de l'écriture est bien plus large que
+« l'adresse canonique » : **toute** écriture entre `&6000` et `&BFFF` commute,
+soit 24 K sans une seule zone de données sûre — d'où `CLOBBERS`, qui est
+exactement ce que le linker sait vérifier et que l'assembleur ne saura jamais.
+L'étendue varie d'un mapper à l'autre (`&6000`-`&7FFF` seulement pour ASCII8,
+deux plages de 2 K pour ASCII16, les 2 K bas de chaque bloc pour Konami5) : c'est
+une plage **par registre**, pas un attribut global.
 
-> **À vérifier avant d'écrire ces profils.** Les valeurs citées ici — champs de
-> bits du port `&7FFD`, port PPI `&A8`, adresses de commutation des mappers MSX,
-> et jusqu'aux modèles concernés — sont restituées de mémoire. Elles illustrent
-> la *forme* du modèle, pas des chiffres à recopier : chacune doit être vérifiée
-> sur la documentation de la machine, et le §12.3 dit pourquoi c'est justement
-> l'intérêt de les écrire dans un profil unique.
+Un `SELECT` de slot MSX complet est par ailleurs une suite d'écritures de
+natures différentes : le port `&A8` ne suffit pas pour un slot **étendu**, il
+faut aussi écrire dans le registre mappé en `&FFFF` — celui du slot primaire
+sélectionné en page 3, qui se relit **complémenté**. D'où les contraintes de
+séquence du §13.1 plutôt qu'une liste d'écritures.
+
+> **Ce qui reste non confirmé sur source primaire**, et qu'un profil doit citer
+> comme tel : le décodage du port `&7FFD` sur +2A/+3 ; l'association port ↔ page
+> du memory mapper RAM MSX ; et l'ensemble des mappers de mega-ROM, dont aucun
+> n'a de spécification constructeur — leurs valeurs viennent d'openMSX et de
+> reverse engineering concordants.
+
+#### Les tests d'acceptation du modèle
+
+« Décrire une machine ne doit pas demander de toucher au code du linker » est la
+seule affirmation de ce chapitre qui puisse se vérifier. Trois formes, à
+échelonner — et la première s'écrit avant d'avoir un linker, ce qui est
+précisément l'intérêt :
+
+**1. Aujourd'hui, par revue.** Le tableau du §7 se relit comme une liste de
+contrôle : pour chaque nature d'information, le vocabulaire a-t-il un mot qui la
+dise ? Le profil ZX 128 est le sujet de l'exercice, parce que ses valeurs sont
+déjà vérifiées sur sources primaires : il ne coûte donc qu'une relecture, et il
+échoue de façon visible — un mot manque, ou une valeur n'a pas de porteur.
+
+| nature (§7) | le mot qui la porte | pour le ZX 128 |
+|---|---|---|
+| grille de fenêtres | `WINDOW` | quatre de 16 K |
+| banques et leur taille | `BANK … SIZE` | huit de 16 K, plus les ROM |
+| lecture seule matérielle | `BANK … ro` | `rom0`, `rom1` |
+| accès ralenti | `BANK … CONTENDED` | banques 1, 3, 5, 7 |
+| visibilité vidéo | `BANK … VIDEO` | banques 5 et 7 |
+| états atteignables | `CONFIG SET` | huit, un par banque en `w3` |
+| mécanisme de sélection | `SELECT … OUT` | `&7FFD` |
+| port fonction de la banque | *non employé ici* | sans objet |
+| préconditions, séquences | *non employé ici* | sans objet |
+| contraintes vérifiables | `PAGING WRITE_ONLY` | et une lecture n'est pas neutre |
+| irréversibilité | `PAGING LOCKS` | bit 5 |
+| pile, vecteur | `STACK`, `INT_VECTOR` (script) | déclarés par le programme |
+
+Deux lignes « sans objet » ne sont pas un échec : elles disent que le CPC exige
+du vocabulaire que le ZX n'emploie pas, ce qui est la situation normale d'un
+modèle générique. Un échec serait une ligne sans mot.
+
+**2. À C1, en données.** Le profil ZX 128 versionné comme fichier de données que
+la CI lit, sur le modèle des six exécutables de test existants : un
+`profile_test` qui charge chaque profil livré et vérifie qu'il se lit — sans
+qu'aucun code de linker connaisse son nom.
+
+**3. À C1, mécaniquement.** Un invariant qui s'exprime en une commande :
+**aucun nom de machine dans le code du linker.** `grep -ril
+'cpc\|zx\|msx\|amstrad\|spectrum'` sur les sources du linker doit ne rien
+rendre. Il est inscrit maintenant, et non après, parce qu'un invariant écrit
+après le code est un invariant qu'on affaiblit pour le faire passer.
+
+#### Le cas du ZX Next
+
+Le Next n'est pas un ZX 128 : il a sa propre MMU, par tranches plus fines, **en
+plus** d'une émulation de la pagination du 128 — donc deux axes de pagination
+coexistants, ce que le modèle d'axes prévoit mais que rien n'a encore confronté.
+Aucune de ses valeurs n'est vérifiée dans ce dépôt, et `docs/recherche/` ne le
+couvre pas : **aucune n'entre dans un profil avant son propre dossier de
+recherche**, par la règle du §7.
+
+Une prédiction, consignée comme telle et non comme un acquis : si le modèle est
+bon, un profil Next s'écrit en deux `CONFIG SET` — pagination héritée, MMU — sans
+une ligne de code de linker. S'il faut davantage, c'est le modèle d'axes qui est
+à revoir, et il vaut mieux l'apprendre sur une machine qu'on a sous la main.
 
 ### 13.3 La continuité à travers une commutation
 
@@ -934,7 +1417,7 @@ réfugier, et la solution universelle est de **répliquer le stub de commutation
 même offset dans toutes les banques**. Le PC continue alors sur les mêmes octets.
 C'est la pratique standard sur toute architecture à cartouche.
 
-Le CPC a le luxe d'une page toujours résidente ; prendre ce luxe pour une loi
+Le CPC a le luxe d'une fenêtre toujours résidente ; prendre ce luxe pour une loi
 donne une règle qu'il faudrait trouer dès le deuxième profil.
 
 #### L'invariant, et ses trois pointeurs
@@ -972,6 +1455,26 @@ rendre l'écart impossible. Une **section miroir** est placée par le linker au
 même offset dans N banques, et il en émet N copies. Écrite une fois dans le
 source, dupliquée par le placement — ce n'est pas un attribut de section mais un
 **troisième genre de placement**, d'où sa place au linker, comme la compression.
+
+Étant un placement, elle s'écrit dans le script et non dans la source, et c'est
+la seule forme qui nomme plusieurs banques d'un coup :
+
+```
+CONFIG SET ram {
+    MIRROR [ext0..ext3] AT OFFSET 0x0000 { SECTION switch_stub }
+}
+```
+
+Le chiffrage que la sous-section « deux conséquences pratiques » exige est émis
+d'office, sans qu'on le demande : `miroir : 20 octets × 4 banques = 80 octets`.
+
+Une conséquence à ne pas rater, parce qu'elle touche le glossaire : le miroir est
+le **seul** placement où un site d'émission produit N emplacements de rangement.
+La *provenance* — l'attribution d'un octet écrit à une ligne de source déroulée —
+doit donc supporter qu'une même ligne réponde de plusieurs octets à des
+emplacements distincts. Le chevauchement, qui nomme aujourd'hui deux lignes en
+conflit, doit savoir dire « ces deux octets viennent de la même ligne, dans deux
+banques » sans le prendre pour une faute.
 
 La règle devient alors vérifiable sans jugement :
 
@@ -1021,7 +1524,7 @@ CPC s'installer dans le vocabulaire.
 
 ### 13.4 Ce qui ne change pas : les sections
 
-Le point important de la réponse est ce qu'il n'y a **rien** à faire.
+Le point important de la réponse est ce qu'il n'y a presque **rien** à faire.
 
 Les sections ne changent pas d'une machine à l'autre. Les trois types — `"ro"`,
 `"rw"`, `"uninit"` — sont universels : ils décrivent la nature du contenu, pas la
@@ -1035,6 +1538,32 @@ Ce n'est pas un effet secondaire heureux : c'est la couture de portabilité, et
 elle est visible dans l'exemple. `sysbank` existait pour contourner un
 recouvrement CPC ; il se trouve qu'il est aussi, exactement, le seul fichier à
 porter d'une machine à l'autre.
+
+#### Le seul ajout : une relation, `INIT_FROM`
+
+Il manque néanmoins une chose, et ce n'est pas un quatrième type :
+
+```
+SECTION vars,     "rw"     INIT_FROM vars_image
+SECTION vars_image, "ro"
+```
+
+« Cette section RAM est initialisée depuis cette section ROM. » Deux besoins
+distincts s'y rejoignent : le couple `_INITIALIZED` / `_INITIALIZER` que `crt0`
+recopie chez SDCC (§9), sans lequel la traduction d'un objet C perdrait
+l'information ; et tout code CPC qui vit en ROM et tourne en RAM, que
+`PHASE` / `DEPHASE` traite aujourd'hui à la main.
+
+Une **relation** plutôt qu'un type, pour une raison mécanique : les trois types
+décrivent la nature du contenu, la relation décrit le placement — et une
+relation, contrairement à un type, est ce que le linker sait déjà vérifier. Deux
+sections, même taille, l'une `"ro"` et l'autre `"rw"` ou `"uninit"` : le contrôle
+s'écrit en une ligne, et il attrape la faute qui compte, celle où l'image et sa
+destination ont divergé de taille après une modification.
+
+La recopie, elle, reste du code de l'auteur (ou de son `crt0`). Le linker
+fournit les nombres — adresse source, adresse destination, taille — et ne les
+écrit pas, pour la même raison qu'au §12.4.
 
 ## Références
 

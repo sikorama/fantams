@@ -60,7 +60,8 @@ seconde position dépendante d'un équilibrage de parenthèses.
 
 ## La forme nue reste licite, et avertie
 
-La rompre casserait toute source rasm, ce que le projet ne fait pas sans l'écrire.
+La rompre casserait toute source existante, ce que le projet ne fait pas sans
+l'écrire.
 Mais elle porte le défaut que cet ADR existe pour corriger, d'où un avertissement.
 
 **Une fois par macro, pas par site.** Un appel dans un `REPEAT` est traversé à

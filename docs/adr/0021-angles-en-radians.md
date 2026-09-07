@@ -2,16 +2,18 @@
 status: accepted
 ---
 
-# `sin` et `cos` prennent des radians, divergence délibérée avec rasm
+# `sin` et `cos` prennent des radians
 
-`sin(x)` et `cos(x)` interprètent `x` en **radians**. rasm l'interprète en
+`sin(x)` et `cos(x)` interprètent `x` en **radians**. L'usage établi l'interprète
+en
 degrés, et fantams reproduisait ce comportement. C'est la seule divergence
-assumée avec la sortie de rasm en arithmétique : l'arrondi, lui, reste celui de
-rasm.
+assumée en arithmétique ; l'arrondi, lui, reste celui de l'assembleur de
+référence.
 
 ## Contexte
 
-`expr.cpp` calculait `std::sin(a * M_PI / 180.0)`, choix aligné sur rasm et
+`expr.cpp` calculait `std::sin(a * M_PI / 180.0)`, choix aligné sur l'assembleur
+de référence et
 vérifié empiriquement contre lui. Le degré est pourtant une unité de saisie
 humaine, pas l'unité des fonctions trigonométriques : partout ailleurs — en
 mathématiques, dans la libc, dans tous les langages qui exposent un `sin` — le
@@ -39,10 +41,10 @@ sin(angle*3.14159265/180)
 
 ## Conséquences
 
-Toute source rasm utilisant `SIN`/`COS` produit désormais des octets
+Toute source existante utilisant `SIN`/`COS` produit désormais des octets
 **différents**. Le corpus de non-régression comptait 6 sources sur 84
 utilisant `SIN`/`COS` : elles ne peuvent plus servir de comparaison
-bit-à-bit avec rasm et doivent être re-baselinées sur fantams. La divergence est
+bit-à-bit et doivent être re-baselinées sur fantams. La divergence est
 silencieuse — aucun diagnostic ne la signale, parce qu'aucune expression n'est
 en soi suspecte.
 

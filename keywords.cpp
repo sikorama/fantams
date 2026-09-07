@@ -32,7 +32,7 @@ const std::set<std::string> &instructionWords() {
     static const std::set<std::string> kws = {
         "ORG", "RUN", "ALIGN", "DB", "DEFB", "DM", "DEFM", "DW", "DEFW",
         "DS", "DEFS", "RMB", "EQU",
-        // directives rasm reconnues mais non implémentées (hors périmètre) :
+        // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.
         "BUILDSNA", "BANKSET", "NOLIST", "LIST",
@@ -140,7 +140,7 @@ std::string canonicalJump(const std::string &stmt) {
     if (peelBinary(stmt, "LD", head, mnemoTok, A, B) && A == "PC" &&
         (B == "HL" || B == "IX" || B == "IY"))
         return head + casedAs(mnemoTok, "JP (" + B + ")");
-    // « jp hl » : la forme de rasm, sans les parenthèses. Un pour un lui aussi,
+    // « jp hl » : la forme de l'assembleur de référence, sans les parenthèses. Un pour un lui aussi,
     // et le canon reste `jp (hl)` pour la raison dite dans l'en-tête.
     {
         std::string label, rest;

@@ -112,7 +112,7 @@ int main() {
     // passe-plat + suppression commentaires/vides
     chk("passthrough", "  ld a,1  ; commentaire\n\n  ret\n", "ld a,1\nret\n");
 
-    // commentaires bloc /* ... */ (comme rasm), y compris multi-lignes et sur une ligne de code
+    // commentaires bloc /* ... */ (comme l'assembleur de référence), y compris multi-lignes et sur une ligne de code
     chk("commentaire bloc simple", "/* commentaire */\n  ld a,1\n", "ld a,1\n");
     chk("commentaire bloc multi-lignes", "/* ligne1\nligne2\nligne3 */\n  ld a,1\n", "ld a,1\n");
     chk("commentaire bloc + code sur la même ligne", "/* c */ ld a,1\n", "ld a,1\n");
@@ -121,12 +121,12 @@ int main() {
     chk("LET + subst", "LET N = 3\n  ld a,{N}\n", "ld a,3\n");
     chk("subst expr", "LET N = 3\n  ld a,{=N*2+1}\n", "ld a,7\n");
 
-    // REPEAT avec index (1-based, comme rasm : {i} vaut 1 à la 1re itération)
+    // REPEAT avec index (1-based, comme l'assembleur de référence : {i} vaut 1 à la 1re itération)
     chk("REPEAT", "REPEAT 3, k\n  ld a,{k}\nREND\n", "ld a,0\nld a,1\nld a,2\n");
     chkErr("registre en index de boucle", "REPEAT 3, i\n  ld a,{i}\nREND\n");
     chk("REPEAT expr count", "LET n=2\nREPEAT n\n  nop\nREND\n", "nop\nnop\n");
 
-    // Variables PP / compteurs de boucle écrits en clair (sans {}) : rasm les
+    // Variables PP / compteurs de boucle écrits en clair (sans {}) : l'assembleur de référence les
     // expose comme des symboles ordinaires, fantams les substitue textuellement.
     chk("compteur REPEAT en clair", "REPEAT 3, k\n  db k*2\nREND\n", "db 0*2\ndb 1*2\ndb 2*2\n");
     chk("LET en clair", "LET v=7\n db v+1\n", "db 7+1\n");
@@ -248,10 +248,10 @@ int main() {
     chkStrict("strict refuse l'orthographe", " ld pc,hl\n", false);
     chkStrict("strict accepte la forme canonique", " jp (hl)\n", true);
 
-    // --- ADR 0020 : le sucre de rasm ---------------------------------------
+    // --- ADR 0020 : le sucre syntaxique hérité ---------------------------------------
     //
     // (1) « ld rr,rr' » : un-vers-plusieurs, donc canonisation. Le HAUT d'abord,
-    // comme rasm — et aucun recouvrement n'est possible, les paires etant
+    // comme l'assembleur de référence — et aucun recouvrement n'est possible, les paires etant
     // disjointes.
     chk("ld de,hl", " ld de,hl\n", "ld d,h\n    ld e,l\n");
     chk("ld bc,de", " ld bc,de\n", "ld b,d\n    ld c,e\n");
@@ -260,7 +260,7 @@ int main() {
     chk("la casse du mnemonique est gardee", " LD DE,HL\n", "LD d,h\n    LD e,l\n");
     chk("un label devant est conserve", "cp16: ld de,hl\n", "cp16: ld d,h\n    ld e,l\n");
     // H et IXH ne se nomment pas dans la meme instruction : le prefixe DD fait de
-    // « h » la moitie de IX. Contrainte de la machine, pas choix — rasm refuse aussi.
+    // « h » la moitie de IX. Contrainte de la machine, pas choix — l'assembleur de référence refuse aussi.
     chk("ld hl,ix n'existe pas : laisse tel quel", " ld hl,ix\n", "ld hl,ix\n");
     chk("ld ix,iy non plus", " ld ix,iy\n", "ld ix,iy\n");
     chk("ld hl,sp n'est pas de cette famille", " ld hl,sp\n", "ld hl,sp\n");
@@ -296,9 +296,9 @@ int main() {
     chk("nop 3", " nop 3\n", "nop\n    nop\n    nop\n");
     chk("ldi 4", " ldi 4\n", "ldi\n    ldi\n    ldi\n    ldi\n");
     // La regle porte sur TOUT mnemonique sans operande, plus large que les dix que
-    // rasm code a la main : « pourquoi ldi 4 et pas cpi 4 ? » n'a pas de reponse.
-    chk("cpi 4, que rasm refuse", " cpi 4\n", "cpi\n    cpi\n    cpi\n    cpi\n");
-    chk("ldir 2, que rasm refuse", " ldir 2\n", "ldir\n    ldir\n");
+    // l'assembleur de référence code a la main : « pourquoi ldi 4 et pas cpi 4 ? » n'a pas de reponse.
+    chk("cpi 4, que l'assembleur de référence refuse", " cpi 4\n", "cpi\n    cpi\n    cpi\n    cpi\n");
+    chk("ldir 2, que l'assembleur de référence refuse", " ldir 2\n", "ldir\n    ldir\n");
     chk("nop 0 n'emet rien", " nop 0\n", "");
     chk("le compteur est une expression", "n equ 2\n nop n*2\n",
         "n equ 2\nnop\n    nop\n    nop\n    nop\n");
@@ -310,7 +310,7 @@ int main() {
     chkErr("compteur negatif", " nop -1\n");
     // Le compteur est une valeur de preprocesseur, comme celui de `repeat` dont
     // cette ecriture est le raccourci. Le refus en decoule au lieu d'etre un cas
-    // particulier — rasm, lui, l'accepte, sa repetition vivant dans l'assembleur.
+    // particulier — l'assembleur de référence, lui, l'accepte, sa repetition vivant dans l'assembleur.
     chkErr("un compteur mesure sur des labels est refuse", "l1: nop\nl2:\n nop l2-l1\n");
     chkStrict("strict refuse la repetition", " nop 3\n", false);
     chkStrict("strict refuse ld de,hl", " ld de,hl\n", false);
@@ -383,9 +383,9 @@ int main() {
         "ADDXY MACRO x,y\n  ld hl,{=x+y}\nENDM\n  ADDXY 10,20\n",
         "ld hl,30\n");
 
-    // auto-local : seul un label préfixé par '@' est unique par invocation (convention
-    // rasm) ; un label ordinaire n'est PAS renommé (une vraie collision, détectée par
-    // l'assembleur si réutilisé, reste possible — comme chez rasm).
+    // auto-local : seul un label préfixé par '@' est unique par invocation
+    // (convention héritée) ; un label ordinaire n'est PAS renommé (une vraie
+    // collision, détectée par l'assembleur si réutilisé, reste possible).
     chk("MACRO auto-local (@ préfixé)",
         "MACRO DELAY\n@loop: djnz @loop\nENDM\n  DELAY\n  DELAY\n",
         "@loop__1: djnz @loop__1\n@loop__2: djnz @loop__2\n");
@@ -424,7 +424,7 @@ int main() {
     chk("label + REPEAT",
         "start: REPEAT 2\n nop\nREND\n", "start:\nnop\nnop\n");
 
-    // MODULE : préfixe les labels définis avec '.' (PAS '_' comme rasm — délibérément
+    // MODULE : préfixe les labels définis avec '.' (PAS '_' comme l'assembleur de référence — délibérément
     // incompatible : '_' est un caractère d'identifiant ordinaire donc ambigu, alors que
     // '.' est déjà le séparateur des labels locaux ; ça permet de chaîner "module.label.local"
     // sans mécanisme séparé). Laisse les globaux non définis dans le module en fallback.
@@ -434,14 +434,14 @@ int main() {
     chk("MODULE fallback global",
         "MODULE m\nfoo: call ext\nENDMODULE\n",
         "m.foo: call ext\n");
-    // rasm ne cumule PAS les MODULE : "MODULE b" remplace "MODULE a" (pas de préfixe a.b.).
+    // l'assembleur de référence ne cumule PAS les MODULE : "MODULE b" remplace "MODULE a" (pas de préfixe a.b.).
     chk("MODULE switch (pas de nesting)",
         "MODULE a\nz: nop\nMODULE b\nx: nop\nENDMODULE\ny: jp x\n",
         "a.z: nop\nb.x: nop\ny: jp x\n"); // y est hors module -> x (non renommé) reste global
     chk("MODULE OFF",
         "MODULE a\nz: nop\nMODULE OFF\ny: nop\n",
         "a.z: nop\ny: nop\n");
-    // label sans ':' dans un MODULE (comme un vrai bout de source rasm réel)
+    // label sans ':' dans un MODULE (comme un vrai bout de source existante)
     chk("MODULE label sans ':'",
         "MODULE icons\ndisplay\n  ret\nMODULE OFF\n  call icons.display\n",
         "icons.display\nret\ncall icons.display\n");
@@ -483,7 +483,7 @@ int main() {
     chk("colon dans chaîne protégé", "  db \"a:b\" : nop\n", "db \"a:b\"\n    nop\n");
     chk("colon dans (ix+d)", "  ld a,(ix+0) : ret\n", "ld a,(ix+0)\n    ret\n");
 
-    // "mnémo:mnémo" collé (style non canonique, mais rasm le découpe quand même en 2
+    // "mnémo:mnémo" collé (style non canonique, mais l'assembleur de référence le découpe quand même en 2
     // instructions car "ei"/"ret" sont des mnémos connus, pas des labels) -> avertissement.
     chkWarn("mnémo:mnémo collé", "ei:ret\n", "ei\n    ret\n", true);
     chkWarn("mnémo: mnémo (espace après)", "ei: ret\n", "ei\n    ret\n", true);

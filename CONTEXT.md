@@ -80,7 +80,7 @@ _Éviter_ : define, symbole EQU
 Nom lié à une valeur par `=`, réaffectable, résolu paresseusement. Sa valeur
 au temps préprocesseur est celle de sa dernière affectation rencontrée dans
 l'ordre de lecture.
-_Éviter_ : variable rasm, assignation
+_Éviter_ : assignation, symbole mutable
 
 **Variable de préprocesseur** :
 Nom lié à une valeur par `LET`, réaffectable, dont la résolution au temps
@@ -126,14 +126,19 @@ seul nom — il ne concerne donc que les labels préfixés.
 _Éviter_ : scope local, renommage
 
 **Module** :
-Espace de noms de labels, dont la syntaxe est une divergence assumée vis-à-vis
-de rasm.
+Espace de noms de labels : un module actif préfixe les labels qui y sont définis
+(`gfx.plot`). Il se **commute**, il ne s'imbrique pas — `MODULE nom` remplace le
+module actif, `MODULE OFF` et `ENDMODULE` le désactivent.
+_Éviter_ : namespace, portée (qui désigne le scope auto-local)
 
 ### Mémoire
 
 **Adresse logique** :
-L'adresse pour laquelle le code est assemblé : celle que prennent les labels et que
-`$` rend. C'est elle qu'un désassembleur substitue.
+L'adresse 16 bits pour laquelle le code est assemblé : celle que prennent les
+labels et que `$` rend, celle à laquelle le Z80 verra l'octet à l'exécution, et
+celle qu'un désassembleur substitue. L'assembleur ne peut pas la déduire d'un
+emplacement de rangement : seul l'auteur sait comment la mémoire sera paginée —
+ou, quand le placement est délégué, la configuration qui l'a placée.
 _Éviter_ : adresse d'assemblage, adresse virtuelle
 
 **Adresse de rangement** :
@@ -143,20 +148,56 @@ adresse logique avant de tourner.
 _Éviter_ : adresse de sortie, adresse physique, offset (qui localise dans une banque)
 
 **Banque** :
-Bloc physique de 16 K de la mémoire de la machine, numéroté à partir de 0. Les
-banques 0 à 3 forment les 64 K de base, les suivantes l'extension du 6128.
-_Éviter_ : page, bloc, configuration
+Unité de stockage physique de la machine, numérotée à partir de 0, **dont la
+taille est déclarée** et non supposée : 16 K sur CPC, 8 K pour une mega-ROM
+Konami. Sur CPC, les banques 0 à 3 forment les 64 K de base, les suivantes
+l'extension du 6128. Une banque porte ses propres attributs — lecture seule,
+accès ralenti par la vidéo, visibilité par le contrôleur vidéo — parce que le
+matériel les y porte.
+_Éviter_ : page, bloc, slot, configuration
+
+**Fenêtre** :
+Une plage de l'espace adressable du Z80 où une banque peut être rendue visible —
+sur CPC les quatre de 16 K, `0x0000`, `0x4000`, `0x8000`, `0xC000`. Plusieurs
+grilles de fenêtres peuvent coexister sur une même machine : sur MSX, quatre de
+16 K et quatre de 8 K, simultanément actives.
+_Éviter_ : slot (réservé au sens machine), zone, page
 
 **Slot** :
-L'une des quatre fenêtres de 16 K de l'espace d'adressage du Z80 — 0x0000,
-0x4000, 0x8000, 0xC000 — dans laquelle une banque peut être rendue visible.
-_Éviter_ : fenêtre, zone
+Un objet de la machine, **jamais** une fenêtre : le slot MSX, qui est une unité
+de sélection de stockage, ou le numéro de ROM que le CPC choisit par le port
+`&DF00`. Le mot est celui du constructeur, donc non négociable dans ces deux
+sens, et à ce titre indisponible pour tout autre.
+_Éviter_ : de l'employer pour une fenêtre
 
-**Adresse logique** :
-L'adresse 16 bits à laquelle le Z80 verra un octet à l'exécution. C'est la
-valeur que prennent les labels. L'assembleur ne peut pas la déduire : seul le
-programmeur sait comment la mémoire sera paginée.
-_Éviter_ : adresse d'assemblage, adresse virtuelle
+**Configuration** :
+Un état de carte atteignable, nommé : pour les fenêtres qu'il concerne, quelle
+banque y apparaît. C'est une notion de première classe et non une commodité,
+parce que sur la plupart des machines les fenêtres ne se choisissent **pas**
+indépendamment — sur CPC, la configuration `%011` en déplace deux d'un seul
+geste. Le cas indépendant (le PPI du MSX) est le produit de plusieurs axes de
+configuration, non l'inverse.
+_Éviter_ : mode, banque (précisément la confusion à ne pas faire)
+
+**Axe de configuration** :
+Un ensemble de configurations mutuellement exclusives, atteintes par le même
+mécanisme de sélection. L'état de la machine est le **produit** des axes : sur
+CPC, la pagination RAM, la ROM basse et la ROM haute en sont trois, et chacun
+porte sa propre écriture. Deux banques sont co-visibles si aucun axe ne les met
+dans la même fenêtre — ce qui rend le contrôle décidable sans énumérer les états.
+_Éviter_ : dimension, registre (qui désigne le moyen, pas l'axe)
+
+**Section miroir** :
+Une section que le placement duplique au même offset dans plusieurs banques, pour
+que le flux d'instructions survive à une commutation. C'est un genre de
+placement, pas un attribut de section, et le seul où un site d'émission réponde
+de plusieurs emplacements de rangement.
+_Éviter_ : réplique, copie, stub (qui désigne son usage le plus courant, pas la
+notion)
+
+Le mot **page** n'est employé pour rien de tout cela. Il ne désigne que le
+groupe de 64 K du champ `ppp` de la pagination CPC — sauf dans les noms propres
+d'une machine, où « page » est le mot du constructeur pour une fenêtre (MSX).
 
 **Emplacement de rangement** :
 Le couple banque et offset où un octet est écrit dans l'image produite.
@@ -190,6 +231,9 @@ Elle ne répond pas à « où l'auteur a-t-il écrit ce **nom** ? » : cette que
 attend un fichier ouvrable dans un éditeur, et c'est l'**origine** qu'on lui donne.
 La désambiguïsation entre deux expansions y est portée par le nom manglé, pas par
 le numéro de ligne.
+Une **section miroir** est le seul cas où une même ligne répond de plusieurs
+octets à des emplacements de rangement distincts : c'est une duplication voulue,
+et non le chevauchement que la coverage signale.
 _Éviter_ : origine (qui désigne l'autre notion), numéro de ligne
 
 **Origine** :
@@ -200,16 +244,18 @@ d'une même macro donnent trois symboles et une seule origine.
 _Éviter_ : provenance (qui désigne l'attribution d'un octet)
 
 **Configuration RAM** :
-L'une des huit combinaisons de pagination du gate array, sélectionnée par
-`&7Fxx`. Sans rapport avec une banque, malgré la graphie `C0`–`C7` qui les
-désigne conventionnellement sur CPC.
+L'instance CPC de la **configuration** : l'une des huit combinaisons de
+pagination du PAL, sélectionnée par `&7Fxx`. Sans rapport avec une banque,
+malgré la graphie `C0`–`C7` qui les désigne conventionnellement. La
+configuration `%000` est la disposition **linéaire par défaut**, et non
+« aucune extension connectée ».
 _Éviter_ : banque (précisément la confusion à ne pas faire)
 
 ### Export
 
 **Découpage** :
 La règle qui partitionne l'image en morceaux : un par bloc `ORG`, un seul
-englobant tout, ou un par banque de 16 K ou de 64 K.
+englobant tout, ou un par banque de 16 K ou par groupe de 64 K.
 _Éviter_ : split, segmentation
 
 **Morceau** :
@@ -290,14 +336,16 @@ Producteur d'un format de sortie à partir de l'image mémoire assemblée (`sna`
 plus tard `dsk`). Sélectionné à la compilation, jamais chargé dynamiquement.
 _Éviter_ : plugin, exporter, writer
 
-### Compatibilité
+### Mesure
 
 **Corpus** :
-L'ensemble des sources réelles écrites pour rasm, conservé hors de fantams,
-servant à *mesurer* la compatibilité. Il contient des forks et des sources dont
-la correction n'est pas garantie : c'est un instrument de mesure, pas une
-référence de correction.
-_Éviter_ : base de test, suite de tests (qui désignent les tests unitaires)
+Un ensemble de sources Z80 réelles, conservé hors de fantams, servant à mesurer
+la **diversité syntaxique** rencontrée dans la nature — et donc le travail
+d'implémentation restant. Il contient des sources dont la correction n'est pas
+garantie : c'est un instrument de mesure, jamais une référence de correction, et
+la compatibilité avec un autre assembleur n'est pas un objectif du projet.
+_Éviter_ : base de test, suite de tests (qui désignent les tests unitaires),
+corpus de compatibilité
 
 **Texte distinct** :
 Une source du corpus après regroupement des copies de même contenu. C'est
@@ -313,5 +361,6 @@ autorité : c'est ce qui *défend* la compatibilité contre les régressions.
 _Éviter_ : fixture, exemple, échantillon
 
 **Portage** :
-Le travail d'édition nécessaire pour qu'une source écrite pour rasm assemble
-sous fantams. Se mesure en lignes éditées, pas en réussite ou échec.
+Le travail d'édition nécessaire pour qu'une source Z80 existante assemble sous
+fantams. Se mesure en lignes éditées, pas en réussite ou échec — et son coût est
+une information, pas une dette : fantams définit son langage.

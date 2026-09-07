@@ -1,7 +1,7 @@
 // sym.h - Table des symboles exportable (ADR 0019)
 //
 // Rend l'`asmb::Output` d'un assemblage en un CSV d'une ligne par symbole,
-// destine a un desassembleur ou a un emulateur — l'equivalent de ce que rasm
+// destine a un desassembleur ou a un emulateur — l'equivalent de ce que l'assembleur de référence
 // ecrit avec son `.sym`, plus le type et la PROVENANCE.
 //
 // Pas un LISTING : un listing donne banque, adresse et octets ligne de source par

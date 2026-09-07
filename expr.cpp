@@ -1,6 +1,6 @@
 // expr.cpp - Évaluateur d'expressions entières (voir expr.h)
 //
-// Calcul interne en double (comme rasm) : permet les littéraux flottants et les
+// Calcul interne en double (comme l'assembleur de référence) : permet les littéraux flottants et les
 // fonctions (sin/cos/abs/hi/lo) sans perte de précision intermédiaire — seule la
 // valeur FINALE est convertie en entier (arrondi "half up", cf. toInt()). Les
 // opérateurs bit à bit (| ^ & << >> ~ %) convertissent chaque opérande en entier
@@ -20,9 +20,9 @@ namespace {
 
 struct EvalError { std::string msg; };
 
-// Arrondi "half up" (comme rasm : 3.5 -> 4, -3.5 -> -3 — cf. arrondi vers +infini,
+// Arrondi "half up" (comme l'assembleur de référence : 3.5 -> 4, -3.5 -> -3 — cf. arrondi vers +infini,
 // pas arrondi au plus proche pair ni troncature vers zéro). Vérifié empiriquement
-// contre rasm (db 7/2 -> 4, db -7/2 -> -3).
+// contre l'assembleur de référence (db 7/2 -> 4, db -7/2 -> -3).
 int64_t toInt(double v) { return (int64_t)std::floor(v + 0.5); }
 
 struct Parser {
@@ -176,7 +176,7 @@ struct Parser {
     }
     // Un littéral en EXPRESSION doit valoir un nombre, et seul un littéral d'un
     // octet en a un. « ld hl,'ab' » n'est pas un cas à tolérer : aucune
-    // convention d'endianness n'est écrite dans le source, et rasm y répond par
+    // convention d'endianness n'est écrite dans le source, et l'assembleur de référence y répond par
     // un zéro silencieux — reproduire ça, c'est émettre du faux sans le dire.
     // Le contexte qui accepte une SUITE d'octets, lui, c'est « db » : là le
     // littéral n'est pas un opérande, et la chaîne décalée s'en charge.
@@ -223,8 +223,8 @@ struct Parser {
         }
         return (double)v;
     }
-    // Fonctions rasm reconnues, à une divergence près : les angles de sin/cos sont
-    // en RADIANS, pas en degrés comme rasm (ADR 0021).
+    // Fonctions usuelles reconnues, à une divergence près : les angles de sin/cos sont
+    // en RADIANS, pas en degrés comme l'assembleur de référence (ADR 0021).
     // hi()/lo() opèrent sur la valeur convertie en entier (extraction d'octet).
     bool callBuiltin(const std::string &upperName, double &out) {
         static const std::set<std::string> unary1 = {

@@ -186,7 +186,7 @@ Result parseLine(const std::string &line) {
     bool condOp1 = false;
     if ((m == z80::Mnemo::JP || m == z80::Mnemo::CALL || m == z80::Mnemo::JR) && ops.size() == 2)
         condOp1 = true;
-    // `RST` n'a pas de forme conditionnelle — mais rasm en a une, et la lire comme
+    // `RST` n'a pas de forme conditionnelle — mais l'assembleur de référence en a une, et la lire comme
     // une condition est ce qui permet à l'encodeur de la refuser en la nommant
     // (ADR 0020). Sans ça le `z` devient une expression et le diagnostic parle
     // d'un symbole inconnu.
