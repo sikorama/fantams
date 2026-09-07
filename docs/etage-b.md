@@ -35,7 +35,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B3 | La couture du linker | B2 | **faite** |
 | B4 | La table des symboles produite par le linker | B3 | **faite** |
 | B5 | La relocalisation de bout en bout | B1, B3 | **faite** |
-| B6 | `PUBLIC` et `EXTERN` | B5 | à faire |
+| B6 | `PUBLIC` et `EXTERN` | B5 | **faite** |
 | B7 | Le fichier objet, aller-retour | B6 | à faire |
 | B8 | Le multi-objet et l'exemple d'acceptation | B7 | à faire |
 | B9 | Les accès à adresse littérale dans l'objet | B3 | à faire |
@@ -233,6 +233,11 @@ Quatre décisions prises en cours de route, à relire en B10 :
   le dernier octet absolu. C'est trivial et assumé : c'est ce calcul-là que C1
   remplacera, sans toucher au reste.
 
+L'avertissement du premier point est **volontairement descriptif et non
+dissuasif** : laisser le linker placer n'est pas l'usage courant aujourd'hui,
+mais rien ne dit que ce ne deviendra pas la norme. Il dit ce qui se passe, il ne
+recommande pas d'y renoncer.
+
 ## B6 — `PUBLIC` et `EXTERN`
 
 **Ce qu'il livre.** Les deux directives du §4.4, et la portée par défaut qui les
@@ -244,12 +249,31 @@ Un nom ni défini ni déclaré `EXTERN` reste une **erreur d'assemblage**. Un
 résolue, signalée deux maillons plus loin, alors qu'aujourd'hui l'assembleur la
 dit à la bonne ligne.
 
-- [ ] Un symbole est local à son objet par défaut
-- [ ] `PUBLIC` l'exporte, `EXTERN` le déclare défini ailleurs
-- [ ] Un nom inconnu et non déclaré `EXTERN` est une erreur d'assemblage, à sa ligne
-- [ ] La mise en forme connaît `public`, `extern`, `high` et `low` — un mot réservé l'est à toutes les phases (ADR 0015)
-- [ ] Un de ces mots seul en colonne 1 ne reçoit pas de deux-points (la faute d'A4, qui détruisait le source)
-- [ ] L'idempotence et l'invariant d'octets de la mise en forme tiennent sur une source qui les porte
+- [x] Un symbole est local à son objet par défaut
+- [x] `PUBLIC` l'exporte, `EXTERN` le déclare défini ailleurs
+- [x] Un nom inconnu et non déclaré `EXTERN` est une erreur d'assemblage, à sa ligne
+- [x] La mise en forme connaît `public`, `extern`, `high` et `low` — un mot réservé l'est à toutes les phases (ADR 0015)
+- [x] Un de ces mots seul en colonne 1 ne reçoit pas de deux-points (la faute d'A4, qui détruisait le source)
+- [x] L'idempotence et l'invariant d'octets de la mise en forme tiennent sur une source qui les porte
+
+Ce qui a été fait au-delà de la lettre de l'étape, à relire en B10 :
+
+- **Le linker refuse déjà un `EXTERN` que personne n'exporte**, une fois par
+  symbole, en le nommant. C'est une case de B8, mais la laisser ouverte aurait
+  livré un `EXTERN` accepté qui écrit des zéros — « accepté et sans effet », le
+  seul état que l'étage A a refusé trois fois. B8 y ajoutera le nom de l'objet
+  qui le demande, et la double définition.
+- **Un `EXTERN` partage l'espace d'identifiants des sections.** Un nom déclaré
+  ailleurs vaut une valeur relocalisable exactement comme un label d'une section
+  relocalisable — même mécanique, même arithmétique affine, à ceci près que ce
+  qui manque est l'adresse d'un SYMBOLE et non la base d'une section. La
+  relocalisation porte donc l'un ou l'autre, jamais les deux.
+- **Trois refus de portée**, chacun à sa ligne : exporter ce que rien ne
+  définit, exporter un nom déclaré `EXTERN`, et déclarer `EXTERN` un nom que cet
+  objet définit — dans les deux ordres, puisque c'est la même faute.
+- **`high` et `low` deviennent des mots réservés, `hi` et `lo` non.** Les deux
+  premiers sont nouveaux, donc rien ne peut casser ; réserver les deux autres
+  interdirait un label `hi` qu'un source d'aujourd'hui peut porter.
 
 ## B7 — le fichier objet, aller-retour
 

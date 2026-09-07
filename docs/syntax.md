@@ -145,6 +145,31 @@ same section is measured while assembling, and refused there if it leaves
 there. No guard byte is ever emitted without its relocation, so an out-of-range
 jump is never silent.
 
+### Scope between objects
+
+| Directive | Effect |
+|---|---|
+| `public name[, name…]` | exports the name, so another object can refer to it |
+| `extern name[, name…]` | declares the name defined in another object |
+
+A symbol is **local to its object by default**, so two files can use the same
+internal label name without colliding. `include` is a *preprocessor* thing, so a
+multi-file source of today still assembles as **one** object and sees no
+difference.
+
+A name that is **neither defined nor declared `extern`** stays an assembly
+error, at its own line. An implicit `extern` would turn a typo into an
+unresolved relocation reported two links further along, when the assembler can
+say it where you wrote it.
+
+Refused, each at its line: exporting a name nothing defines, exporting a name
+declared `extern`, and declaring `extern` a name this object also defines — in
+either order, since it is the same mistake both ways.
+
+`public`, `extern`, `high` and `low` are **reserved at every phase** (ADR 0015):
+they cannot name a label or a symbol, and formatting knows them — a `public` at
+the start of a line is a directive, never a label to be given a colon.
+
 **An `org` above a section does not place it.** It applies to the bytes outside
 any section; the section itself still has no `org` of its own, so the linker
 places it — and says so, once per section. To place a section yourself, write

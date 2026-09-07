@@ -41,6 +41,15 @@ const std::set<std::string> &instructionWords() {
         // §4.1 : « section nom, "type" » — sans elle ici, « section » se lit
         // comme un label.
         "SECTION",
+        // §4.4 : la portee d'un symbole entre objets. Un mot reserve l'est a
+        // TOUTES les phases (ADR 0015) : sans eux ici, « public start » se lirait
+        // comme un label « public », et la mise en forme lui collerait un
+        // deux-points — la faute de l'etape A4, qui detruisait le source.
+        "PUBLIC", "EXTERN",
+        // §4.4 : les deux fonctions qui prelevent un octet d'une adresse qu'on
+        // ne connait pas encore. Reservees pour la meme raison, et parce qu'un
+        // label nomme « high » rendrait « high(x) » indechiffrable.
+        "HIGH", "LOW",
         // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.

@@ -893,6 +893,57 @@ int main() {
            "  db 2\n"
            "  END_BOUNDARY\n");
 
+    // --- PUBLIC / EXTERN : la portee entre objets (§4.4) ---------------------
+    printf("\n-- PUBLIC / EXTERN --\n");
+    {
+        // Un symbole est LOCAL par defaut ; `PUBLIC` l'exporte.
+        Built o = build("  public start\n  section code,\"ro\"\nstart:\n  nop\nother:\n  ret\n", "t.asm");
+        bool pub = false, loc = true;
+        for (const auto &s : o.obj.symbolTable) {
+            if (s.name == "start") pub = s.isPublic;
+            if (s.name == "other" && s.isPublic) loc = false;
+        }
+        okc("PUBLIC exporte le nom", o.ok && pub);
+        okc("et le defaut reste local", loc);
+    }
+    // `EXTERN` declare defini ailleurs : l'assemblage passe, c'est le LINKAGE qui
+    // reclame une definition — et un seul objet n'en a aucune a offrir.
+    {
+        Built o = build("  extern helper\n  section code,\"ro\"\n  call helper\n", "t.asm");
+        okc("un EXTERN assemble sans erreur d'assemblage", o.obj.ok);
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message.find("helper") != std::string::npos &&
+                     o.errors[0].message.find("EXTERN") != std::string::npos;
+        okc("mais le linkage refuse en nommant le symbole", !o.ok && named);
+        okc("et il ne le dit qu'une fois", o.errors.size() == 1);
+    }
+    // Le point de D10 : un nom ni defini ni EXTERN reste une erreur
+    // d'ASSEMBLAGE, a sa ligne — et non une relocalisation non resolue signalee
+    // deux maillons plus loin.
+    {
+        Built o = build("  section code,\"ro\"\n  call typo\n", "t.asm");
+        bool here = !o.errors.empty() && o.errors[0].line == 2 &&
+                    o.errors[0].message.find("typo") != std::string::npos;
+        okc("un nom inconnu est refuse a SA ligne", !o.ok && here);
+    }
+    chkErr("PUBLIC d'un nom inconnu", "  public nowhere\n  nop\n");
+    chkErr("PUBLIC d'un nom EXTERN", "  extern foo\n  public foo\n  nop\n");
+    chkErr("EXTERN et defini ici", "  extern foo\nfoo:\n  nop\n");
+    chkErr("l'ordre inverse est la meme faute", "foo:\n  nop\n  extern foo\n");
+    chkErr("PUBLIC sans nom", "  public\n  nop\n");
+    chkErr("EXTERN sans nom", "  extern\n  nop\n");
+    // ADR 0015 : un mot reserve ne peut pas nommer un symbole.
+    chkErr("un label ne peut pas s'appeler 'public'", "public:\n  nop\n");
+    chkErr("ni 'high'", "high:\n  nop\n");
+    chkErr("un EXTERN ne peut pas s'appeler comme un registre", "  extern a\n  nop\n");
+    {
+        // Deux EXTERN sur une ligne, et un `high()` sur l'un d'eux : le
+        // mecanisme existe, meme si rien ne l'exerce encore (c'est B8).
+        Built o = build("  extern alpha, beta\n  section c,\"ro\"\n  ld hl,alpha\n  ld d,high(beta)\n", "t.asm");
+        okc("deux EXTERN se declarent d'une ligne", o.obj.ok);
+        okc("chacun reclame sa definition", o.errors.size() == 2);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -384,6 +384,19 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
     sameBytes("octets inchangés : données et labels locaux",
               "  org #8000\ntable\n.a\ndb 1,2,3\n\tdw table\n");
 
+    // §4.4 : `public`, `extern`, `high` et `low` sont reserves a TOUTES les
+    // phases (ADR 0015). Sans cela, « public start » en colonne 1 se lirait
+    // comme un label « public » et la mise en forme lui collerait un
+    // deux-points — la faute de l'etape A4, qui detruisait le source.
+    sameBytes("octets inchanges : public en colonne 1",
+              "public start\nsection code,\"ro\"\nstart:\n    ld a,high(start)\n    ld b,low(start)\n");
+    sameBytes("octets inchanges : high / low",
+              "    org #8000\nstart:\n    ld a,high(start)\n    ld b,low(start)\n");
+    idem("idempotence : public / extern / high / low",
+         "public start\nextern helper\nsection code,\"ro\"\nstart:\nld a,high(helper)\ncall helper\n");
+    noWarn("avertissements eteints : label sans ':' sous un public",
+           "public start\nsection code,\"ro\"\nstart\n  nop\n");
+
     idem("idempotence : source mal formée", "start\nnop\n\tld a,1\ndb 1\n");
     idem("idempotence : source déjà en forme", "start:\n    ld a,1\n");
     idem("idempotence : préprocesseur", "let n = 3\nrepeat n\nnop\nrend\n",

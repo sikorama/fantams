@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <map>
+#include <set>
 
 namespace link {
 namespace {
@@ -46,6 +47,10 @@ struct Linker {
     // resolvent.
     std::map<int, int> relocBase_;
     std::vector<std::map<int, int>> bases_;
+    // Les symboles que les objets EXPORTENT, par nom : c'est contre elle que les
+    // `EXTERN` se resolvent.
+    std::map<std::string, int64_t> exported_;
+    std::set<std::string> unresolved_;   // deja signales, pour ne le dire qu'une fois
     int baseOf(int section) const {
         if (section < 0) return 0;
         auto it = relocBase_.find(section);
@@ -56,6 +61,16 @@ struct Linker {
         if (id == 0 || id == kUnknownSite || id > sites_.size()) return "site inconnu";
         const asmb::Site &s = sites_[id - 1];
         return s.file + ":" + std::to_string(s.line);
+    }
+
+    // Un diagnostic attribue a la LIGNE qui a ecrit l'octet vise : c'est la
+    // seule que son auteur peut corriger, et la provenance voyage justement
+    // avec les octets pour cela.
+    void diagAt(const asmb::Object &obj, const asmb::Fragment &f, int offset, const std::string &msg) {
+        const uint16_t site = offset >= 0 && (size_t)offset < f.prov.size() ? f.prov[(size_t)offset] : 0;
+        const bool known = site != 0 && site != kUnknownSite && site <= obj.sites.size();
+        out.errors.push_back({known ? obj.sites[site - 1].file : std::string(),
+                              known ? obj.sites[site - 1].line : 0, msg});
     }
 
     void flushOverlap() {
@@ -137,7 +152,23 @@ struct Linker {
         for (const asmb::Reloc &r : obj.relocs) {
             if (r.frag < 0 || (size_t)r.frag >= frags.size()) continue;
             asmb::Fragment &f = frags[(size_t)r.frag];
-            const int64_t target = baseOf(r.section) + r.addend;
+            int64_t target = baseOf(r.section) + r.addend;
+            // Un nom declare EXTERN : c'est un autre objet qui doit le definir,
+            // et un `PUBLIC` qui manque doit se dire ici plutot que de laisser
+            // des zeros passer pour une adresse.
+            if (!r.symbol.empty()) {
+                auto it = exported_.find(r.symbol);
+                if (it == exported_.end()) {
+                    // Une fois par symbole : un nom de bibliotheque manquant est
+                    // employe cinquante fois, et cinquante lignes identiques
+                    // noieraient les autres diagnostics.
+                    if (unresolved_.insert(r.symbol).second)
+                        diagAt(obj, f, r.offset,
+                               "unresolved EXTERN symbol '" + r.symbol + "': no object exports it");
+                    continue;
+                }
+                target = it->second + r.addend;
+            }
             auto put = [&](size_t k, uint8_t b) {
                 if (k < f.bytes.size()) f.bytes[k] = b;
             };
@@ -156,12 +187,9 @@ struct Linker {
                     const int64_t from = f.addr + baseOf(f.relocSection) + r.offset + 1;
                     const int64_t d = target - from;
                     if (d < -128 || d > 127) {
-                        const uint16_t site = r.offset < (int)f.prov.size() ? f.prov[(size_t)r.offset] : 0;
-                        const bool known = site != 0 && site != kUnknownSite && site <= obj.sites.size();
-                        out.errors.push_back({known ? obj.sites[site - 1].file : std::string(),
-                                              known ? obj.sites[site - 1].line : 0,
-                                              "relative jump out of range (-128..127): the target is "
-                                              "in another section, and the distance is only known here"});
+                        diagAt(obj, f, r.offset,
+                               "relative jump out of range (-128..127): the target is "
+                               "in another section, and the distance is only known here");
                         break;
                     }
                     put((size_t)r.offset, (uint8_t)(d & 0xFF));
@@ -169,6 +197,15 @@ struct Linker {
                 }
             }
         }
+    }
+
+    // L'adresse definitive d'un symbole. Elle n'existe qu'ICI : dans une section
+    // relocalisable, l'assembleur n'en connaissait que l'offset.
+    int64_t symbolAddress(const asmb::Object &obj, const asmb::Symbol &s) const {
+        if (s.isConst || s.frag < 0 || (size_t)s.frag >= obj.fragments.size()) return s.value;
+        const asmb::Fragment &f = obj.fragments[(size_t)s.frag];
+        if (f.relocSection < 0) return s.value;
+        return (f.logical + baseOf(f.relocSection) + s.offset) & 0xFFFF;
     }
 
     void place(const asmb::Object &obj, uint16_t siteBase) {
@@ -243,14 +280,26 @@ Image build(const std::vector<asmb::Object> &objects) {
     // Les objets se posent dans l'ordre où on les a donnés. Leurs tables de
     // sites se concatènent, et `prov` se décale d'autant : c'est ce qui laisse
     // un recouvrement nommer la bonne ligne du bon fichier.
-    for (const asmb::Object &obj : objects) {
+    // Trois temps, et l'ordre est force. D'abord : ou vont les sections que
+    // personne n'a placees.
+    for (const asmb::Object &obj : objects) lk.bases_.push_back(lk.placeRelocSections(obj));
+
+    // Ensuite : ce que les objets EXPORTENT. Il faut que TOUTES les bases soient
+    // decidees avant, sans quoi un `PUBLIC` d'une section relocalisable n'aurait
+    // pas encore d'adresse a offrir.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        lk.relocBase_ = lk.bases_[oi];
+        for (const asmb::Symbol &s : objects[oi].symbolTable)
+            if (s.isPublic) lk.exported_[s.name] = lk.symbolAddress(objects[oi], s);
+    }
+
+    // Enfin : ecrire dans les octets ce que ces decisions rendent calculable, et
+    // poser.
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const asmb::Object &obj = objects[oi];
         const uint16_t base = (uint16_t)lk.sites_.size();
         for (const asmb::Site &s : obj.sites) lk.sites_.push_back(s);
-        // Trois temps, et l'ordre est force : decider ou vont les sections que
-        // personne n'a placees, ecrire dans les octets ce que cette decision
-        // rend calculable, puis poser.
-        lk.relocBase_ = lk.placeRelocSections(obj);
-        lk.bases_.push_back(lk.relocBase_);
+        lk.relocBase_ = lk.bases_[oi];
         asmb::Object placed = obj;
         lk.resolve(placed.fragments, obj);
         lk.place(placed, base);
@@ -310,7 +359,7 @@ Image build(const std::vector<asmb::Object> &objects) {
                 // Dans une section relocalisable, la VALEUR aussi n'etait
                 // connue que d'ici : c'est tout l'objet de l'amendement a
                 // l'ADR 0019.
-                if (f.relocSection >= 0) out.value = (f.logical + lk.baseOf(f.relocSection) + s.offset) & 0xFFFF;
+                if (f.relocSection >= 0) out.value = lk.symbolAddress(obj, s);
             }
             lk.out.symbolTable.push_back(std::move(out));
         }

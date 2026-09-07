@@ -92,6 +92,8 @@ public:
         sections_.clear();
         sectionOrder_.clear();
         warnedReloc_.clear();
+        publicNames_.clear(); externId_.clear(); externName_.clear();
+        publicSites_.clear(); externSites_.clear(); nextId_ = 0;
         relocs_.clear();
         curSectionId_ = expr::NoSection;
         // AVANT les deux passes : la premiere ligne d'une section doit deja
@@ -121,6 +123,7 @@ public:
         for (auto &kv : sections_) kv.second.size = 0;   // les octets ne se comptent qu'en passe 2
         runPass(lines);
         checkSectionSizes();
+        checkScopes();
 
         Object o;
         // Output.symbols reste entier : c'est une table d'ADRESSES destinee aux
@@ -133,6 +136,7 @@ public:
             auto v = symbols_.find(kv.first);
             if (v == symbols_.end()) continue;   // nom refuse en cours de route
             Symbol sy = kv.second;
+            sy.isPublic = publicNames_.count(kv.first) != 0;
             sy.value = (int64_t)std::llround(v->second.real);
             o.symbolTable.push_back(sy);
         }
@@ -420,7 +424,9 @@ private:
         Reloc r;
         r.offset = (int)fragmentHere();
         r.frag = curFrag_;
-        r.section = v.section;
+        auto ex = externName_.find(v.section);
+        if (ex != externName_.end()) r.symbol = ex->second;
+        else r.section = v.section;
         r.addend = (int64_t)std::llround(v.real);
         switch (kind) {
             case z80::RelocKind::Abs16: r.kind = Reloc::Abs16; break;
@@ -457,6 +463,52 @@ private:
     // Une section SANS `org` est relocalisable : `pc_` y compte en offsets
     // depuis sa base, et c'est le linker qui decidera de cette base. Le contexte
     // — adresse, deplacement, banque — est mis de cote et rendu a la sortie.
+    // Exporter ce qui n'existe pas ne veut rien dire, et le silence en ferait
+    // une faute de frappe que le linkage signalerait deux maillons plus loin —
+    // exactement ce que le defaut LOCAL est cense eviter (D10).
+    void checkScopes() {
+        // Defini ICI et declare ailleurs : les deux ne peuvent pas etre vrais, et
+        // le controle se fait A LA FIN parce que l'ordre des deux lignes ne doit
+        // rien changer — `extern foo` puis `foo:` est la meme faute que l'inverse.
+        for (const auto &ex : externId_) {
+            // `definedP1_` porte les noms que CE fichier definit — l'ordre des
+            // deux lignes n'y change rien, et c'est le point.
+            if (!definedP1_.count(ex.first)) continue;
+            cur_ = externSites_.count(ex.first) ? externSites_[ex.first] : cur_;
+            push("'" + ex.first + "' is declared EXTERN and also defined in this object: "
+                 "a name is defined here, or elsewhere, not both");
+        }
+        for (const auto &ps : publicSites_) {
+            cur_ = ps.second;
+            if (externId_.count(ps.first)) {
+                push("PUBLIC '" + ps.first + "': this name is declared EXTERN — it is "
+                     "defined elsewhere, so this object has nothing to export");
+                continue;
+            }
+            if (!symbols_.count(ps.first))
+                push("PUBLIC '" + ps.first + "': unknown symbol — nothing in this object defines it");
+        }
+    }
+
+    // Un nom defini AILLEURS. Il vaut une valeur relocalisable dont la base est
+    // le symbole lui-meme : l'assembleur ne saura jamais ce qu'elle vaut, et
+    // c'est exactement ce que `EXTERN` dit.
+    void declareExtern(const std::string &n) {
+        const std::string qn = qualify(n);
+        auto it = externId_.find(qn);
+        if (it == externId_.end()) {
+            const int id = nextId_++;
+            externId_[qn] = id;
+            externName_[id] = n;
+            externSites_[qn] = cur_;
+            it = externId_.find(qn);
+        }
+        expr::Value v;
+        v.section = it->second;
+        v.coeff = 1;
+        setSymbol(qn, v);
+    }
+
     void enterSection(const std::string &name) {
         auto it = sections_.find(name);
         // Une section absolue : rien ne change, c'est son `org` qui decide. Une
@@ -591,6 +643,20 @@ private:
     };
     std::map<std::string, SectionInfo> sections_;   // nom -> ce qu'on en sait
     std::vector<std::string> sectionOrder_;         // les noms, dans l'ordre de declaration
+    // --- La portee d'un symbole entre objets (§4.4) -------------------------
+    // Un symbole est LOCAL a son objet par defaut : deux fichiers peuvent
+    // employer le meme nom de label interne sans se heurter. `PUBLIC` l'exporte,
+    // `EXTERN` le declare defini ailleurs.
+    //
+    // Un nom EXTERN vaut une valeur relocalisable comme un label d'une section
+    // relocalisable — meme mecanique, meme espace d'identifiants — a ceci pres
+    // que ce qui manque est l'adresse d'un SYMBOLE et non la base d'une section.
+    std::set<std::string> publicNames_;             // qualifies, tels que declares
+    std::map<std::string, int> externId_;           // nom EXTERN -> identifiant
+    std::map<int, std::string> externName_;         // et l'inverse, pour les relocalisations
+    std::vector<std::pair<std::string, SourceLine>> publicSites_;   // pour attribuer le refus
+    std::map<std::string, SourceLine> externSites_;
+    int nextId_ = 0;                                // sections puis EXTERN, un seul espace
     int curSectionId_ = expr::NoSection;            // la section courante SI elle est relocalisable
 
     // La valeur d'une adresse LOGIQUE `a` telle qu'on y est. Dans une section
@@ -629,7 +695,7 @@ private:
                 cur = parts.empty() ? std::string() : trim(parts[0]);
                 if (cur.empty()) continue;
                 SectionInfo &sec = sections_[cur];
-                if (sec.id < 0) { sec.id = (int)sectionOrder_.size(); sectionOrder_.push_back(cur); }
+                if (sec.id < 0) { sec.id = nextId_++; sectionOrder_.push_back(cur); }
             } else if (w0 == "ORG" && !cur.empty()) {
                 sections_[cur].hasOrg = true;
             }
@@ -1127,6 +1193,24 @@ private:
                 if (symbols_.count(qn)) entry_.name = qn;
             }
             if (!label.empty()) defineLabel(label);
+            return;
+        }
+        // §4.4 — la portee. `PUBLIC` exporte, `EXTERN` declare defini ailleurs.
+        if (W0 == "PUBLIC" || W0 == "EXTERN") {
+            if (!label.empty()) defineLabel(label);
+            auto parts = splitTopLevel(after0, ',');
+            dropTrailingEmpty(parts);
+            if (parts.empty()) { structErr(W0 + " without a name"); return; }
+            for (const std::string &raw : parts) {
+                const std::string n = trim(raw);
+                if (n.empty()) { structErr(W0 + ": empty name"); continue; }
+                if (!kw::isIdentifier(n)) { structErr(W0 + ": '" + n + "' is not a name"); continue; }
+                if (nameRefused(n, W0 == "PUBLIC" ? "a PUBLIC symbol" : "an EXTERN symbol")) continue;
+                if (W0 == "PUBLIC") {
+                    if (publicNames_.insert(qualify(n)).second) publicSites_.push_back({qualify(n), cur_});
+                }
+                else declareExtern(n);
+            }
             return;
         }
         if (W0 == "ALIGN") {

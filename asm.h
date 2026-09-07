@@ -45,6 +45,10 @@ struct Diagnostic {
 struct Symbol {
     std::string name;       // tel que l'assembleur le connait : QUALIFIE et MANGLE
     bool isConst = false;   // EQU ; sinon label
+    // Un symbole est LOCAL à son objet par défaut ; `PUBLIC` l'exporte (§4.4).
+    // Le défaut est local pour que deux fichiers puissent employer le même nom
+    // de label interne sans se heurter.
+    bool isPublic = false;
     int64_t value = 0;      // adresse logique, ou valeur de la constante
     int frag = -1;          // le fragment qui le porte, -1 pour une constante
     int offset = 0;         // son offset dans ce fragment
@@ -122,7 +126,10 @@ struct Reloc {
     int frag = -1;           // le fragment où elle s'applique
     int offset = 0;          // son offset dans ce fragment
     Kind kind = Abs16;
-    int section = -1;        // la section dont la base manque
+    // Ce qui manque : la base d'une SECTION de cet objet, ou l'adresse d'un
+    // SYMBOLE défini ailleurs. L'un des deux, jamais les deux.
+    int section = -1;
+    std::string symbol;      // un nom déclaré `EXTERN`, vide sinon
     int64_t addend = 0;      // ce qui s'ajoute à cette base
 };
 
