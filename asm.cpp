@@ -90,6 +90,13 @@ public:
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
         sections_.clear();
+        sectionOrder_.clear();
+        warnedReloc_.clear();
+        relocs_.clear();
+        curSectionId_ = expr::NoSection;
+        // AVANT les deux passes : la premiere ligne d'une section doit deja
+        // savoir si son `pc_` compte en adresses ou en offsets de section.
+        prescanSections(lines);
         runPass(lines);
 
         // Les labels sont fixés (adresses indépendantes des valeurs). On réévalue
@@ -98,15 +105,16 @@ public:
         for (int iter = 0; iter < 32; ++iter) {
             bool changed = false;
             for (const auto &d : equDefs_) {
-                double v = evalExprReal(d.second);
+                const expr::Value v = evalExprValue(d.second);
                 auto it = symbols_.find(d.first);
-                if (it == symbols_.end() || it->second != v) { setSymbol(d.first, v); changed = true; }
+                if (it == symbols_.end() || !sameValue(it->second, v)) { setSymbol(d.first, v); changed = true; }
             }
             if (!changed) break;
         }
 
         pass_ = 2; pc_ = 0; orgBank_ = -1; displacement_ = 0;
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
+        relocs_.clear(); curSectionId_ = expr::NoSection;
         currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
@@ -118,14 +126,14 @@ public:
         // Output.symbols reste entier : c'est une table d'ADRESSES destinee aux
         // outils et aux humains. La precision reelle n'a d'interet qu'a
         // l'interieur du calcul d'expressions.
-        for (const auto &kv : symbols_) o.symbols[kv.first] = (int64_t)std::llround(kv.second);
+        for (const auto &kv : symbols_) o.symbols[kv.first] = (int64_t)std::llround(kv.second.real);
         // La table exportable : la VALEUR vient de `symbols_`, pour qu'un EQU
         // resolu a point fixe porte sa valeur finale et non sa premiere lecture.
         for (const auto &kv : symInfo_) {
             auto v = symbols_.find(kv.first);
             if (v == symbols_.end()) continue;   // nom refuse en cours de route
             Symbol sy = kv.second;
-            sy.value = (int64_t)std::llround(v->second);
+            sy.value = (int64_t)std::llround(v->second.real);
             o.symbolTable.push_back(sy);
         }
         o.errors = errors_;
@@ -133,15 +141,27 @@ public:
         o.prints = prints_;
         o.ok = errors_.empty();
         o.fragments = std::move(frags_);
-        for (const auto &kv : sections_) {
+        // Dans l'ordre de DECLARATION, et non par nom : c'est celui-la que le
+        // linker suit pour poser les sections que personne n'a placees, et un
+        // auteur qui declare `code` puis `data` s'attend a les trouver dans cet
+        // ordre. Une section que le prescan n'a pas vue passe en queue.
+        std::vector<std::string> order = sectionOrder_;
+        for (const auto &kv : sections_)
+            if (kv.second.id < 0) order.push_back(kv.first);
+        for (const std::string &name : order) {
+            auto it = sections_.find(name);
+            if (it == sections_.end()) continue;
             Section sec;
-            sec.name = kv.first;
-            sec.kind = kv.second.kind;
-            sec.hasMax = kv.second.hasMax;
-            sec.max = kv.second.max;
-            sec.size = kv.second.size;
+            sec.name = name;
+            sec.id = it->second.id;
+            sec.relocatable = it->second.id >= 0 && !it->second.hasOrg;
+            sec.kind = it->second.kind;
+            sec.hasMax = it->second.hasMax;
+            sec.max = it->second.max;
+            sec.size = it->second.size;
             o.sections.push_back(std::move(sec));
         }
+        o.relocs = relocs_;
         o.sites = sites_;
         o.entry = entry_;
         return o;
@@ -289,8 +309,11 @@ public:
     // `align` et `boundary` n'y comptent pas : ils avancent `pc_` sans emettre ni
     // reserver, et a cet etage le remplissage n'existe pas. Ce sera a recompter a
     // l'etage C, ou c'est le linker qui aligne.
+    // Comptes aux DEUX passes : dans une section relocalisable, `pc_` repart de
+    // la taille deja accumulee a chaque reouverture, et la passe 1 en a besoin
+    // autant que la passe 2 pour placer ses labels.
     void countSectionBytes(int64_t n) {
-        if (pass_ == 2 && !measuring_ && !curSection_.empty()) sections_[curSection_].size += n;
+        if (!measuring_ && !curSection_.empty()) sections_[curSection_].size += n;
     }
 
     // Reserver, c'est avancer sans ecrire : `pc_` bouge, la coverage ne bouge pas
@@ -312,8 +335,8 @@ public:
         if (inUninit()) { refuseUninitEmission(); ++pc_; return; }
         // En mesure, seul `pc_` avance : aucun octet, aucune coverage, aucun
         // recouvrement — le bloc sera reellement assemble juste apres.
+        countSectionBytes(1);
         if (pass_ == 2 && !measuring_) {
-            countSectionBytes(1);
             // L'octet va dans (FRAGMENT courant, OFFSET courant) — plus dans une
             // banque derivee de son adresse. La banque, elle, se derive au
             // PLACEMENT, et c'est la seule chose qui ait besoin d'une adresse.
@@ -332,7 +355,44 @@ public:
     }
     uint16_t pc() const override { return (uint16_t)(pc_ & 0xFFFF); }
     void error(const std::string &msg) override { if (pass_ == 2) push(msg); }
-    int64_t eval(const std::string &e) override { return evalExpr(e); }
+
+    // `eval` est le chemin STRICT : il refuse une adresse qu'on ne connait pas
+    // encore. Tout ce qui n'a jamais d'adresse y passe — un numero de bit, un
+    // vecteur RST, un mode d'interruption, un deplacement indexe — et le refus
+    // est donc le comportement par defaut, sans avoir a les reprendre un par un.
+    int64_t eval(const std::string &e) override {
+        const int64_t v = evalExpr(e);
+        if (evalOk_ && lastValue_.relocatable()) {
+            // En passe 2 seulement, comme `error()` : la passe 1 le dirait une
+            // seconde fois et le meme fait ne se diagnostique qu'une.
+            if (pass_ == 2) push("this operand cannot be a relocatable address: "
+                                 "it is only known at link time");
+            return 0;
+        }
+        return v;
+    }
+    // Les deux chemins qui, eux, l'acceptent.
+    int64_t evalAddr(const std::string &e, bool &relocatable) override {
+        const int64_t v = evalExpr(e);
+        relocatable = evalOk_ && lastValue_.relocatable();
+        return v;
+    }
+    // La distance d'un saut relatif n'est connue ICI que si la cible et
+    // l'instruction habitent la meme section — et c'est justement la que
+    // l'encodeur doit refuser une portee hors bornes, parce que lui seul la
+    // connait. Sinon, c'est au linker de la calculer et de la refuser.
+    bool rel8(const std::string &e, int64_t pcNext, int64_t &disp) override {
+        const int64_t v = evalExpr(e);
+        if (!evalOk_) { disp = 0; return true; }   // l'erreur est deja dite
+        if (lastValue_.coeff == 0 && curSectionId_ == expr::NoSection) { disp = v - pcNext; return true; }
+        if (lastValue_.coeff == 1 && lastValue_.byte == expr::Byte::Whole &&
+            lastValue_.section == curSectionId_) { disp = v - pcNext; return true; }
+        return false;
+    }
+    void reloc(const std::string &e, z80::RelocKind kind) override {
+        (void)e;   // la valeur est celle qui vient d'etre evaluee
+        addReloc(kind, lastValue_);
+    }
 
 private:
     // --- Le FRAGMENT, unite ou vont les octets (etage B, D1) ---------------
@@ -351,9 +411,78 @@ private:
     // faits que B5 demandera pour decider qu'un fragment est relocalisable, et
     // les consigner ici est tout l'interet de faire B2 avant.
     std::vector<Fragment> frags_;
+    std::vector<Reloc> relocs_;
+
+    // Une relocalisation a l'adresse COURANTE : elle couvre les octets qui
+    // commencent au prochain `emit`, ce que `fragmentHere()` designe deja.
+    void addReloc(z80::RelocKind kind, const expr::Value &v) {
+        if (pass_ != 2 || measuring_) return;
+        Reloc r;
+        r.offset = (int)fragmentHere();
+        r.frag = curFrag_;
+        r.section = v.section;
+        r.addend = (int64_t)std::llround(v.real);
+        switch (kind) {
+            case z80::RelocKind::Abs16: r.kind = Reloc::Abs16; break;
+            case z80::RelocKind::Rel8:  r.kind = Reloc::Rel8;  break;
+            case z80::RelocKind::Byte:
+                // Une adresse ne tient pas dans un octet. `high()` et `low()`
+                // sont la reponse, et le refus les nomme (D3).
+                if (v.byte == expr::Byte::High) r.kind = Reloc::High8;
+                else if (v.byte == expr::Byte::Low) r.kind = Reloc::Low8;
+                else { push("a relocatable address does not fit in one byte: use high() or low()"); return; }
+                break;
+        }
+        relocs_.push_back(r);
+    }
+
+    // Emet une valeur de deux octets, en posant sa relocalisation s'il le faut.
+    // C'est le chemin de `dw` et de tout ce qui ecrit une adresse.
+    void emitAddr16(const std::string &e) {
+        const int64_t v = evalExpr(e);
+        if (evalOk_ && lastValue_.relocatable()) addReloc(z80::RelocKind::Abs16, lastValue_);
+        emit((uint8_t)(v & 0xFF));
+        emit((uint8_t)((v >> 8) & 0xFF));
+    }
+    // Idem sur un seul octet : c'est le chemin de `db`.
+    void emitByte(const std::string &e) {
+        const int64_t v = evalExpr(e);
+        if (evalOk_ && lastValue_.relocatable()) addReloc(z80::RelocKind::Byte, lastValue_);
+        emit((uint8_t)(v & 0xFF));
+    }
     int curFrag_ = -1;    // index dans `frags_`, -1 tant qu'aucun octet n'est ecrit
     int fragBase_ = 0;    // adresse de rangement de l'octet 0 du fragment courant
     bool sawOrg_ = false; // un `org` a-t-il decide de l'adresse ou l'on est ?
+
+    // Une section SANS `org` est relocalisable : `pc_` y compte en offsets
+    // depuis sa base, et c'est le linker qui decidera de cette base. Le contexte
+    // — adresse, deplacement, banque — est mis de cote et rendu a la sortie.
+    void enterSection(const std::string &name) {
+        auto it = sections_.find(name);
+        // Une section absolue : rien ne change, c'est son `org` qui decide. Une
+        // section que le prescan n'a pas vue non plus — il n'invente pas.
+        if (it == sections_.end() || it->second.hasOrg || it->second.id < 0) return;
+        // Un `org` rencontre AVANT la section ne la place pas : il ne vaut que
+        // pour les octets hors section. Le dire, plutot que de deplacer le bloc
+        // en silence — meme raison que l'avertissement sur une banque remanente
+        // (ADR 0005), et meme forme : la lecture est defendable, l'oubli aussi.
+        if (sawOrg_ && pass_ == 2 && !measuring_ && warnedReloc_.insert(name).second)
+            warn("section '" + name + "' has no 'org' of its own: the linker places it, and "
+                 "the 'org' above does not apply to it (write an 'org' inside the section "
+                 "to place it yourself)");
+        ambientPc_ = pc_; ambientDisp_ = displacement_; ambientBank_ = orgBank_;
+        curSectionId_ = it->second.id;
+        pc_ = (int)it->second.size;   // une reouverture reprend ou la section s'etait arretee
+        displacement_ = 0;
+        orgBank_ = -1;
+    }
+    void leaveRelocSection() {
+        if (curSectionId_ == expr::NoSection) return;
+        pc_ = ambientPc_; displacement_ = ambientDisp_; orgBank_ = ambientBank_;
+        curSectionId_ = expr::NoSection;
+    }
+    int ambientPc_ = 0, ambientDisp_ = 0, ambientBank_ = -1;
+    std::set<std::string> warnedReloc_;   // une fois par section, pas par reouverture
 
     // Un `org` ou un `section` FERME le fragment courant ; le suivant s'ouvrira
     // a la premiere ecriture, et pas avant — c'est ce qui evite de payer un
@@ -388,7 +517,10 @@ private:
         fragBase_ = pc_ + displacement_;
         Fragment f;
         f.section = curSection_;
-        f.placed = sawOrg_;
+        // Un fragment d'une section relocalisable n'a PAS d'adresse : `addr` y
+        // est son offset dans la section, et c'est le linker qui l'y ajoutera.
+        f.placed = curSectionId_ == expr::NoSection && sawOrg_;
+        f.relocSection = curSectionId_;
         f.addr = fragBase_;
         f.logical = pc_;
         f.bank = orgBank_;
@@ -423,11 +555,13 @@ private:
 
 
     std::vector<Diagnostic> prints_;
-    double lastReal_ = 0;
-    bool evalRealLast_ = false;
+    expr::Value lastValue_;   // la valeur de la derniere expression evaluee
     int instrStart_ = 0;
     bool inInstruction_ = false;
-    std::map<std::string, double> symbols_;   // exact ; arrondi seulement a la sortie
+    // Un symbole vaut une VALEUR, pas un nombre : dans une section relocalisable,
+    // un label vaut « la base de sa section, plus un offset » (D2). Le reel reste
+    // exact — l'arrondi n'a lieu qu'a la sortie (ADR 0008).
+    std::map<std::string, expr::Value> symbols_;
     std::map<std::string, std::string> ciIndex_; // MAJUSCULES(nom) -> nom exact, pour le repli insensible à la casse
     std::map<std::string, Symbol> symInfo_;      // type, rangement et provenance, pour la table exportable
     std::set<std::string> definedP1_;
@@ -446,6 +580,8 @@ private:
     // remplace se desynchronisaient a la moindre etourderie ; c'est aussi
     // l'objet dans lequel le fragment viendra se ranger.
     struct SectionInfo {
+        int id = -1;              // identite stable, celle que porte une expr::Value
+        bool hasOrg = false;      // un `org` s'y trouve : la section est ABSOLUE
         std::string kind;         // "RO" / "RW" / "UNINIT", fige a la premiere declaration
         bool hasMax = false;      // un plafond a-t-il ete declare ?
         int64_t max = 0;          // le plafond, fige a la premiere declaration
@@ -454,6 +590,51 @@ private:
         std::vector<int> frags;   // ses fragments, dans l'ordre, par index dans `frags_` (lu a partir de B5)
     };
     std::map<std::string, SectionInfo> sections_;   // nom -> ce qu'on en sait
+    std::vector<std::string> sectionOrder_;         // les noms, dans l'ordre de declaration
+    int curSectionId_ = expr::NoSection;            // la section courante SI elle est relocalisable
+
+    // La valeur d'une adresse LOGIQUE `a` telle qu'on y est. Dans une section
+    // relocalisable, c'est « la base de cette section, plus l'offset » — et
+    // `pc_` y compte justement en offsets de section. Ailleurs, c'est un nombre,
+    // exactement comme avant.
+    expr::Value here(int a) const {
+        expr::Value v;
+        if (curSectionId_ != expr::NoSection) { v.real = a; v.section = curSectionId_; v.coeff = 1; }
+        else v.real = a & 0xFFFF;
+        return v;
+    }
+
+    // Quelles sections portent un `org`, et donc lesquelles sont ABSOLUES.
+    //
+    // Un PRESCAN textuel, avant les deux passes, parce que la question se pose
+    // avant d'avoir lu la section entiere : la premiere ligne d'une section doit
+    // deja savoir si son `pc_` compte en adresses ou en offsets. Les macros, les
+    // includes et les conditionnelles sont deja deroules quand l'assembleur voit
+    // ces lignes (ADR 0003), donc ce que le texte montre est ce qui sera
+    // assemble — le prescan est exact, pas heuristique.
+    void prescanSections(const std::vector<SourceLine> &lines) {
+        std::string cur;
+        for (const SourceLine &sl : lines) {
+            const std::string t = trim(stripComment(sl.text));
+            if (t.empty()) continue;
+            std::string w0 = upper(firstToken(t));
+            std::string rest = trim(t.substr(firstToken(t).size()));
+            // Un label en tete ne change rien a la directive qui suit.
+            if (w0 != "SECTION" && w0 != "ORG" && !rest.empty()) {
+                std::string w1 = upper(firstToken(rest));
+                if (w1 == "SECTION" || w1 == "ORG") { w0 = w1; rest = trim(rest.substr(firstToken(rest).size())); }
+            }
+            if (w0 == "SECTION") {
+                auto parts = splitTopLevel(rest, ',');
+                cur = parts.empty() ? std::string() : trim(parts[0]);
+                if (cur.empty()) continue;
+                SectionInfo &sec = sections_[cur];
+                if (sec.id < 0) { sec.id = (int)sectionOrder_.size(); sectionOrder_.push_back(cur); }
+            } else if (w0 == "ORG" && !cur.empty()) {
+                sections_[cur].hasOrg = true;
+            }
+        }
+    }
 
     // La section nommee, ou nullptr si elle n'a jamais ete declaree. `const`
     // pour que la lecture ne cree pas d'entree la ou `find` protegeait.
@@ -497,7 +678,11 @@ private:
     std::string qualify(const std::string &n) const {
         return (!n.empty() && n[0] == '.') ? currentGlobal_ + n : n;
     }
-    void setSymbol(const std::string &n, double v) { symbols_[n] = v; ciIndex_[upper(n)] = n; }
+    static bool sameValue(const expr::Value &a, const expr::Value &b) {
+        return a.real == b.real && a.section == b.section && a.coeff == b.coeff && a.byte == b.byte;
+    }
+    void setSymbol(const std::string &n, const expr::Value &v) { symbols_[n] = v; ciIndex_[upper(n)] = n; }
+    void setSymbol(const std::string &n, double v) { expr::Value w; w.real = v; setSymbol(n, w); }
 
     // Note ce que la table exportable a besoin de savoir et que `symbols_` ne
     // porte pas (ADR 0019) : le type, le rangement et la PROVENANCE — fichier et
@@ -545,7 +730,9 @@ private:
     // `evalExprReal` pour DÉFINIR un symbole. Stocker l'arrondi ferait perdre
     // l'information avant tout usage — « v = 2.4 » puis « db v*2 » donnait 4 au
     // lieu de 5, l'écrasement ayant lieu au stockage, pas au calcul.
-    double evalExprReal(const std::string &text) { evalRealLast_ = true; int64_t v = evalExpr(text); (void)v; return lastReal_; }
+    double evalExprReal(const std::string &text) { return evalExprValue(text).real; }
+    // La valeur COMPLETE : c'est elle qui dit si une base de section s'ajoute.
+    expr::Value evalExprValue(const std::string &text) { evalExpr(text); return lastValue_; }
     int64_t evalExpr(const std::string &text) {
         evalOk_ = true;
         // A cet etage l'assembleur rend une valeur ABSOLUE partout : les sections
@@ -556,23 +743,26 @@ private:
             // courante : pendant l'encodage, les octets d'opcode sont déjà émis
             // et pc_ a avancé (de 1, ou de 2 pour un préfixe DD/FD). Hors
             // instruction (db/dw/equ), pc_ EST la bonne réponse.
-            if (n == "$") { o.real = (double)((inInstruction_ ? instrStart_ : pc_) & 0xFFFF); return true; }
+            // `$` se comporte comme un LABEL de la section courante : dans une
+            // section relocalisable, il vaut sa base plus l'offset courant, et
+            // tous les idiomes qui s'en servent traversent la relocalisation.
+            if (n == "$") { o = here(inInstruction_ ? instrStart_ : pc_); return true; }
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
-            if (it != symbols_.end()) { o.real = it->second; return true; }
+            if (it != symbols_.end()) { o = it->second; return true; }
             // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse des symboles) : on
             // avertit plutôt que d'échouer silencieusement sur une simple différence de casse.
             auto cit = ciIndex_.find(upper(qn));
             if (cit != ciIndex_.end()) {
                 warn("symbol '" + qn + "' not found exactly, using '" + cit->second +
                      "' (case mismatch — best practice: match case exactly)");
-                o.real = symbols_[cit->second];
+                o = symbols_[cit->second];
                 return true;
             }
             return false;
         });
         if (!r.ok) { evalOk_ = false; if (pass_ == 2) push(r.error); return 0; }
-        lastReal_ = r.real;
+        lastValue_ = r;
         return r.value;
     }
 
@@ -602,13 +792,13 @@ private:
         if (!sizeAsserts_.empty() && sizeAsserts_.back().name.empty()) sizeAsserts_.back().name = n;
         std::string qn = qualify(n);
         if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
-        setSymbol(qn, (double)(pc_ & 0xFFFF));
+        setSymbol(qn, here(pc_));
         noteSymbol(qn, /*isConst=*/false);
     }
     // `reassignable` : une VARIABLE ('=') peut être redéfinie, une CONSTANTE
     // ('EQU') non. Cf. ADR 0003 — "angle = i - 1" dans un "repeat 256,i" est
     // idiomatique, et l'interdire rejetait 9 sources du corpus.
-    void defineSymbol(const std::string &n, double v, bool reassignable = false) {
+    void defineSymbol(const std::string &n, const expr::Value &v, bool reassignable = false) {
         if (measuring_) return;
         if (nameRefused(n, "a symbol")) return;
         std::string qn = qualify(n);
@@ -631,7 +821,7 @@ private:
     // n'y a pas de valeur. Ce refus vit donc en un seul endroit.
     void emitByteOrStr(const std::string &p) {
         const kw::Literal lit = kw::readLiteral(p, 0);
-        if (!lit.present) { emit((uint8_t)(evalExpr(p) & 0xFF)); return; }
+        if (!lit.present) { emitByte(p); return; }
         if (!lit.error.empty()) { structErr(lit.error + ": " + p); return; }
 
         const std::string tail = trim(p.substr(lit.end));
@@ -666,7 +856,7 @@ private:
     }
     void emitDW(const std::string &ops) {
         auto parts = splitTopLevel(ops, ','); dropTrailingEmpty(parts);
-        for (auto &p : parts) { int64_t v = evalExpr(p); emit((uint8_t)(v & 0xFF)); emit((uint8_t)((v >> 8) & 0xFF)); }
+        for (auto &p : parts) emitAddr16(p);
     }
     // « org [b<n>:]adresse » (ADR 0005). Le prefixe designe l'emplacement de
     // RANGEMENT, le nombre qui suit reste l'adresse LOGIQUE — celle que prennent
@@ -965,6 +1155,10 @@ private:
                           " (the three types are \"ro\", \"rw\" and \"uninit\")");
                 return;
             }
+            // Quitter une section relocalisable rend son curseur au contexte :
+            // `pc_` y comptait en OFFSETS de section, et le rendre tel quel a
+            // une section absolue n'aurait aucun sens.
+            leaveRelocSection();
             curSection_ = trim(parts[0]);
             if (!measuring_) closeFragment();   // les octets qui suivent appartiennent a une autre section
             // Une section se ROUVRE — c'est ainsi qu'on alterne code et donnees —
@@ -981,6 +1175,7 @@ private:
             // Le plafond est traite en passe 1 seulement : sa valeur s'y fixe, et
             // c'est la passe ou sortent les diagnostics structurels.
             if (pass_ == 1) noteSectionMax(parts, reopened);
+            enterSection(curSection_);
             return;
         }
 
@@ -1132,13 +1327,13 @@ private:
         // définition de symbole : "name: EQU v" / "name EQU v" / "name = v"
         if (W0 == "EQU") {
             if (label.empty()) { structErr("EQU without a name"); return; }
-            defineSymbol(label, evalExprReal(after0));
+            defineSymbol(label, evalExprValue(after0));
             if (pass_ == 1) equDefs_.push_back({qualify(label), after0});
             return;
         }
         if (W1 == "EQU") {
             std::string e = restAfterFirst(after0);
-            defineSymbol(w0, evalExprReal(e));
+            defineSymbol(w0, evalExprValue(e));
             if (pass_ == 1) equDefs_.push_back({qualify(w0), e});
             return;
         }
@@ -1153,7 +1348,7 @@ private:
             // equDefs_, dont la résolution à point fixe est le mécanisme des
             // constantes — il écraserait la valeur vue par les usages antérieurs.
             // Corollaire assumé : une variable ne se référence pas en avant.
-            defineSymbol(name, evalExprReal(rhs), /*reassignable=*/true);
+            defineSymbol(name, evalExprValue(rhs), /*reassignable=*/true);
             return;
         }
 

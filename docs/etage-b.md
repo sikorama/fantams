@@ -34,7 +34,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B2 | Le fragment | B0 | **faite** |
 | B3 | La couture du linker | B2 | **faite** |
 | B4 | La table des symboles produite par le linker | B3 | **faite** |
-| B5 | La relocalisation de bout en bout | B1, B3 | à faire |
+| B5 | La relocalisation de bout en bout | B1, B3 | **faite** |
 | B6 | `PUBLIC` et `EXTERN` | B5 | à faire |
 | B7 | Le fichier objet, aller-retour | B6 | à faire |
 | B8 | Le multi-objet et l'exemple d'acceptation | B7 | à faire |
@@ -200,13 +200,38 @@ qui lui est offerte rend donc une valeur, il en teste le coefficient et demande
 une relocalisation. Le fait — *cette cible n'est pas connue* — appartient à
 l'endroit qui l'encode.
 
-- [ ] Une section sans `org` est relocalisable et placée par le linker
-- [ ] `Abs16`, `Rel8`, `High8` et `Low8` sont émises par l'assembleur et résolues par le linker
-- [ ] Un saut relatif hors de portée est refusé par l'encodeur en intra-section, où il connaît la distance
-- [ ] Le même, inter-sections, est refusé par le linker, où lui seul la connaît
-- [ ] `$` se comporte comme un label de la section courante
-- [ ] La portée hors de [-128, 127] n'est jamais silencieuse : aucun octet de garde n'est émis sans relocalisation
-- [ ] La correction du §10 est écrite dans cette étape
+- [x] Une section sans `org` est relocalisable et placée par le linker
+- [x] `Abs16`, `Rel8`, `High8` et `Low8` sont émises par l'assembleur et résolues par le linker
+- [x] Un saut relatif hors de portée est refusé par l'encodeur en intra-section, où il connaît la distance
+- [x] Le même, inter-sections, est refusé par le linker, où lui seul la connaît
+- [x] `$` se comporte comme un label de la section courante
+- [x] La portée hors de [-128, 127] n'est jamais silencieuse : aucun octet de garde n'est émis sans relocalisation
+- [x] La correction du §10 est écrite dans cette étape
+
+Quatre décisions prises en cours de route, à relire en B10 :
+
+- **Un `org` AVANT une section ne la place pas**, et c'est le seul cas où un
+  source d'aujourd'hui change de sortie. Le §10 affirmait que « toutes les
+  sections existantes portent un `org` » ; c'est vrai de celles qui le portent
+  *à l'intérieur*, pas de `org #8000` suivi de `section code`. Un tel bloc passe
+  de `#8000` à l'adresse choisie par le linker. Ce n'est **jamais silencieux** :
+  un avertissement le dit, une fois par section, sur le modèle de la banque
+  rémanente de l'ADR 0005 — la lecture est défendable, l'oubli aussi.
+- **`ctx.eval()` est le chemin STRICT** et refuse une adresse relocalisable ;
+  `evalAddr` et `rel8` sont les deux seuls qui l'acceptent. Le refus est donc le
+  défaut, sans avoir à reprendre un par un le numéro de bit, le vecteur `rst`,
+  le mode d'interruption et le déplacement indexé.
+- **Le prescan.** Quelles sections portent un `org` se décide AVANT les deux
+  passes, par un parcours textuel : la première ligne d'une section doit déjà
+  savoir si son `pc_` compte en adresses ou en offsets. Les macros et les
+  conditionnelles étant déjà déroulées quand l'assembleur voit ces lignes, le
+  prescan est exact et non heuristique.
+- **Le linker ÉCRIT la valeur d'une relocalisation, il ne l'additionne pas** à
+  ce qui se trouve dans les octets. Un objet dont l'addend est faux se lit alors
+  à l'œil — ce qui vaudra son prix au `.fo` de B7.
+- **Le placement des sections relocalisables suit l'ordre de DÉCLARATION**, après
+  le dernier octet absolu. C'est trivial et assumé : c'est ce calcul-là que C1
+  remplacera, sans toucher au reste.
 
 ## B6 — `PUBLIC` et `EXTERN`
 

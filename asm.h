@@ -76,6 +76,10 @@ struct Site {
 struct Fragment {
     std::string section;     // vide : des octets hors de toute section
     bool placed = false;     // un `org` lui a donné son adresse
+    // La section dont ce fragment attend la base, -1 s'il n'en attend aucune.
+    // Quand elle vaut autre chose, `addr` et `logical` sont des OFFSETS dans
+    // cette section, et non des adresses.
+    int relocSection = -1;
     int addr = 0;            // adresse de RANGEMENT de son octet 0
     int logical = 0;         // adresse LOGIQUE de son octet 0 ; = addr hors bloc déplacé
     int bank = -1;           // banque imposée par un préfixe `org b<n>:`, sinon -1
@@ -89,10 +93,37 @@ struct Fragment {
 // plus dans le même ordre.
 struct Section {
     std::string name;
+    int id = -1;             // identité stable, celle que citent les relocalisations
+    // Une section SANS `org` est RELOCALISABLE : c'est le linker qui la place,
+    // et c'est ce qui donne à « relocalisable » une définition sans nouvelle
+    // syntaxe (D1). Une section avec `org` va où son `org` le dit.
+    bool relocatable = false;
     std::string kind;        // "RO" / "RW" / "UNINIT"
     bool hasMax = false;
     int64_t max = 0;
     int64_t size = 0;        // octets émis, cumulés sur les réouvertures
+};
+
+// Une RELOCALISATION : à cet endroit-ci, il manque la base d'une section, et le
+// linker l'y écrira. Les quatre types du §4.6 — et `BankOf` est réservé à C1,
+// qui seul connaîtra les banques.
+//
+//   Abs16  une adresse sur deux octets, petit-boutien
+//   Rel8   le déplacement d'un saut relatif, depuis l'octet SUIVANT
+//   High8  l'octet de poids fort d'une adresse — ce que `high()` produit
+//   Low8   son octet de poids faible — ce que `low()` produit
+//
+// L'octet émis à cet endroit ne porte que l'addend ; c'est le linker qui écrit
+// la valeur finale, et non qui l'additionne à ce qui s'y trouve. Un objet faux
+// se lit alors à l'œil, ce qui vaut plus que tout à l'étage qui introduit la
+// relocalisation.
+struct Reloc {
+    enum Kind { Abs16, Rel8, High8, Low8 };
+    int frag = -1;           // le fragment où elle s'applique
+    int offset = 0;          // son offset dans ce fragment
+    Kind kind = Abs16;
+    int section = -1;        // la section dont la base manque
+    int64_t addend = 0;      // ce qui s'ajoute à cette base
 };
 
 // Le POINT D'ENTRÉE que `run` a demandé.
@@ -120,6 +151,7 @@ struct Object {
     // Les fragments, dans leur ordre d'écriture. Chacun nomme sa section.
     std::vector<Fragment> fragments;
     std::vector<Section> sections;
+    std::vector<Reloc> relocs;
     std::vector<Site> sites;     // les lignes citées par `Fragment::prov`
     Entry entry;
     std::map<std::string, int64_t> symbols;

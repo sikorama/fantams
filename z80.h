@@ -85,6 +85,12 @@ struct Instruction {
     Operand b; // 2e opérande (ou None)
 };
 
+// Ce que l'encodeur peut demander au linker d'écrire à sa place, quand la cible
+// n'a pas encore d'adresse. Il n'en connaît que la FORME de ce qu'il émet :
+// deux octets d'adresse, un déplacement relatif, ou un seul octet — lequel des
+// deux, `high()` ou `low()`, est l'affaire de l'expression, donc du contexte.
+enum class RelocKind { Abs16, Rel8, Byte };
+
 // --- Interface de contexte (frontière avec le reste de l'assembleur) --------
 // L'encodeur n'appelle QUE ces méthodes. Un contexte factice suffit à le tester.
 struct IAsmContext {
@@ -93,6 +99,10 @@ struct IAsmContext {
     virtual void emit(uint8_t b) = 0;
     // Évalue une expression et renvoie sa valeur. Peut être différée côté hôte ;
     // ici on suppose une valeur disponible (l'hôte gère la 2e passe).
+    //
+    // REFUSE une cible dont l'adresse n'est pas encore connue : les contextes qui
+    // en acceptent une passent par `evalAddr` ou `rel8`, et tout le reste — un
+    // numéro de bit, un vecteur RST, un déplacement indexé — n'en a jamais.
     virtual int64_t eval(const std::string &expr) = 0;
     // Adresse courante (PC logique) AVANT émission de l'instruction courante.
     // Nécessaire pour l'adressage relatif (JR / DJNZ).
@@ -100,6 +110,32 @@ struct IAsmContext {
     // Signale une erreur d'encodage (combinaison mnémonique/opérandes invalide,
     // déplacement hors bornes, etc.).
     virtual void error(const std::string &msg) = 0;
+
+    // --- Cibles dont l'adresse peut n'être connue qu'au linkage --------------
+    // Le §10 rangeait l'encodeur parmi les fichiers que la relocalisation ne
+    // concerne pas. C'est faux : il calcule LUI-MÊME le déplacement d'un `jr` et
+    // refuse ce qui sort de [-128, 127]. Il ne peut plus le faire sur une cible
+    // qu'il ne connaît pas — et intercepter en amont rendrait muet le
+    // diagnostic le plus utile du Z80. Le fait « cette cible n'est pas connue »
+    // appartient donc à l'endroit qui l'encode.
+
+    // Évalue une expression qui peut désigner une adresse pas encore décidée.
+    // Rend la partie CONNUE, et met `relocatable` à true si une base de section
+    // s'y ajoute — auquel cas l'appelant demande une relocalisation.
+    virtual int64_t evalAddr(const std::string &expr, bool &relocatable) {
+        relocatable = false;
+        return eval(expr);
+    }
+    // Le déplacement d'un saut relatif, `pcNext` étant l'adresse de
+    // l'instruction SUIVANTE. Rend false quand la distance n'est pas connue
+    // ici : l'encodeur émet alors un octet de garde et demande une `Rel8`.
+    virtual bool rel8(const std::string &expr, int64_t pcNext, int64_t &disp) {
+        disp = eval(expr) - pcNext;
+        return true;
+    }
+    // Demande une relocalisation portant sur les octets qui commencent au
+    // PROCHAIN `emit`.
+    virtual void reloc(const std::string &expr, RelocKind kind) { (void)expr; (void)kind; }
 };
 
 // Encode une instruction. Renvoie true si encodée, false si combinaison

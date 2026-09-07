@@ -104,7 +104,51 @@ Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 `sin(a*3.14159265/180)` for a degree argument.
 
 `high` and `low` are the explicit way to take one byte of a value; `hi` and `lo`
-are spellings of the same two functions.
+are spellings of the same two functions. They are also the **only** functions
+that accept a relocatable address — see below.
+
+### Relocatable values
+
+A section that carries **no `org` of its own** is placed by the linker. Its
+labels have no address while assembling: they are a section base plus an offset.
+Arithmetic on such a value is limited to what stays meaningful once the linker
+has chosen where the section goes.
+
+| Written | Result |
+|---|---|
+| `label`, `label + 4`, `label - 4` | relocatable |
+| `end - start`, **same** section | a plain number — this is how a table is measured |
+| `end - start`, **different** sections | **refused**: the distance is the linker's to decide |
+| `label + label`, `label * 2`, `label / 2` | **refused**: no meaning |
+| `label >> 8` | **refused**, naming `high()` |
+| `label & 255` | **refused**, naming `low()` |
+| `high(label)`, `low(label)` | the byte, resolved at link time |
+| `label + 0.5` | **refused**: an address is an integer |
+| `db label` | **refused**: an address does not fit in one byte — use `high()` / `low()` |
+
+Comparisons, boolean operators and the real functions (`sin`, `abs`, `min`, …)
+are refused on a relocatable value for the same reason. So is an index
+displacement, a bit number, an `rst` vector and an `im` mode: none of them is
+ever an address.
+
+`$` behaves as a label of the current section, so the idioms built on it cross
+relocation unchanged.
+
+The `>> 8` and `& 255` forms stay legal on a plain number. They are **not**
+recognised as patterns on a relocatable one: `label >> 9` looks like the pattern
+without being it, and someone whose `>> 9` failed while `>> 8` worked could not
+guess what separated them.
+
+**Relative jumps stay doubly checked.** A `jr` or `djnz` whose target is in the
+same section is measured while assembling, and refused there if it leaves
+[-128, 127]. One that crosses sections is measured by the linker, and refused
+there. No guard byte is ever emitted without its relocation, so an out-of-range
+jump is never silent.
+
+**An `org` above a section does not place it.** It applies to the bytes outside
+any section; the section itself still has no `org` of its own, so the linker
+places it — and says so, once per section. To place a section yourself, write
+the `org` **inside** it.
 
 ### What doesn't exist
 

@@ -659,8 +659,24 @@ c'est le seul morceau qui ne se découpe pas en petits pas.
 Un saut relatif inter-sections ne peut pas être résolu par l'assembleur : il
 devient une relocalisation dont le linker vérifie la portée.
 
-Ne sont pas concernés : `z80.cpp`, `keywords.cpp`, `parser.cpp`, `beautify.cpp`,
-et `pp.cpp` — le préprocesseur n'a rien à savoir des sections.
+Ne sont pas concernés : `keywords.cpp`, `parser.cpp`, `beautify.cpp`, et
+`pp.cpp` — le préprocesseur n'a rien à savoir des sections.
+
+> **Correction, écrite à l'étape B5.** Ce paragraphe rangeait aussi `z80.cpp`
+> parmi les fichiers non concernés. **C'est faux.** L'encodeur calcule LUI-MÊME
+> le déplacement d'un `jr` / `djnz` et refuse ce qui sort de [-128, 127] ; il ne
+> peut plus le faire sur une cible dont l'adresse n'est pas encore décidée.
+>
+> L'évaluation qui lui est offerte rend donc une **valeur** : il en teste le
+> coefficient, émet un octet de garde et demande une relocalisation `Rel8`. Le
+> fait — *cette cible n'est pas connue* — appartient à l'endroit qui l'encode.
+> L'alternative, une interception silencieuse en amont, rendrait muet le
+> diagnostic le plus utile du Z80.
+>
+> **La portée reste doublement contrôlée** : l'encodeur pour l'intra-section, où
+> il connaît la distance ; le linker pour l'inter-section, où lui seul la
+> connaît. Et l'octet de garde n'est jamais émis sans sa relocalisation — une
+> portée hors bornes ne devient donc jamais silencieuse.
 
 ### Les étages
 

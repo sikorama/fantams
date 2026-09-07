@@ -124,6 +124,24 @@ struct Emitter {
     void imm8(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); }
     void imm16(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); ctx.emit((uint8_t)((v >> 8) & 0xFF)); }
     void disp(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); }
+
+    // Une ADRESSE sur deux octets. Si sa cible n'est pas encore placée, la
+    // relocalisation est demandee AVANT les deux octets — c'est eux qu'elle
+    // couvre — et ceux-ci ne portent alors que la partie connue.
+    void addr16(const std::string &e) {
+        bool rel = false;
+        const int64_t v = ctx.evalAddr(e, rel);
+        if (rel) ctx.reloc(e, RelocKind::Abs16);
+        imm16(v);
+    }
+    // Un octet immediat. Une adresse n'y tient pas : seul `high()` ou `low()` en
+    // donne un, et c'est le contexte qui sait lequel des deux a ete ecrit.
+    void byte8(const std::string &e) {
+        bool rel = false;
+        const int64_t v = ctx.evalAddr(e, rel);
+        if (rel) ctx.reloc(e, RelocKind::Byte);
+        imm8(v);
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -173,7 +191,7 @@ bool encodeAlu(IAsmContext &ctx, int idx, const Operand &src) {
     Emitter e{ctx};
     if (src.kind == Operand::Kind::Imm) {
         e.op((uint8_t)(0xC6 + idx * 8));
-        e.imm8(ctx.eval(src.expr));
+        e.byte8(src.expr);
         return true;
     }
     R8 s = asR8(src);
@@ -250,7 +268,7 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         e.prefix(da.prefix);
         e.op((uint8_t)(0x06 + da.code * 8));
         if (da.indexed) e.disp(ctx.eval(da.disp));
-        e.imm8(ctx.eval(B.expr));
+        e.byte8(B.expr);
         return true;
     }
     // Formes chargement accumulateur / mémoire directe
@@ -263,10 +281,10 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
     // LD A,(BC)/(DE)/(nn) et réciproques
     if (isReg(A, Reg::A) && isRegInd(B, Reg::BC)) { e.op(0x0A); return true; }
     if (isReg(A, Reg::A) && isRegInd(B, Reg::DE)) { e.op(0x1A); return true; }
-    if (isReg(A, Reg::A) && B.kind == Operand::Kind::MemImm) { e.op(0x3A); e.imm16(ctx.eval(B.expr)); return true; }
+    if (isReg(A, Reg::A) && B.kind == Operand::Kind::MemImm) { e.op(0x3A); e.addr16(B.expr); return true; }
     if (isRegInd(A, Reg::BC) && isReg(B, Reg::A)) { e.op(0x02); return true; }
     if (isRegInd(A, Reg::DE) && isReg(B, Reg::A)) { e.op(0x12); return true; }
-    if (A.kind == Operand::Kind::MemImm && isReg(B, Reg::A)) { e.op(0x32); e.imm16(ctx.eval(A.expr)); return true; }
+    if (A.kind == Operand::Kind::MemImm && isReg(B, Reg::A)) { e.op(0x32); e.addr16(A.expr); return true; }
     // LD A,I / A,R / I,A / R,A
     if (isReg(A, Reg::A) && isReg(B, Reg::I)) { e.op(0xED); e.op(0x57); return true; }
     if (isReg(A, Reg::A) && isReg(B, Reg::R)) { e.op(0xED); e.op(0x5F); return true; }
@@ -281,12 +299,12 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         uint8_t p = 0; int rr = reg16code(A.reg, p);
         if (rr < 0) { ctx.error("invalid 16-bit register"); return false; }
         if (B.kind == Operand::Kind::Imm) { // LD rr,nn
-            e.prefix(p); e.op((uint8_t)(0x01 + rr * 16)); e.imm16(ctx.eval(B.expr)); return true;
+            e.prefix(p); e.op((uint8_t)(0x01 + rr * 16)); e.addr16(B.expr); return true;
         }
         if (B.kind == Operand::Kind::MemImm) { // LD rr,(nn)
             if (rr == 2) { e.prefix(p); e.op(0x2A); }       // HL/IX/IY
             else { e.op(0xED); e.op((uint8_t)(0x4B + rr * 16)); } // BC/DE/SP
-            e.imm16(ctx.eval(B.expr)); return true;
+            e.addr16(B.expr); return true;
         }
     }
     if (B.kind == Operand::Kind::Reg && is16bit(B.reg) && B.reg != Reg::AF &&
@@ -294,7 +312,7 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         uint8_t p = 0; int rr = reg16code(B.reg, p);
         if (rr == 2) { e.prefix(p); e.op(0x22); }           // HL/IX/IY
         else { e.op(0xED); e.op((uint8_t)(0x43 + rr * 16)); }
-        e.imm16(ctx.eval(A.expr)); return true;
+        e.addr16(A.expr); return true;
     }
     // « ld hl,sp » : l'assembleur de référence l'accepte et produit « ld hl,0 : add hl,sp ». Refusée
     // (ADR 0020) parce qu'elle n'est pas un réarrangement d'un transfert mais une
@@ -437,17 +455,17 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
             }
             if (A.kind == Operand::Kind::Cond) {
                 int cc = condcode(A.cc);
-                e.op((uint8_t)(0xC2 + cc * 8)); e.imm16(ctx.eval(B.expr)); return true;
+                e.op((uint8_t)(0xC2 + cc * 8)); e.addr16(B.expr); return true;
             }
-            if (A.kind == Operand::Kind::Imm) { e.op(0xC3); e.imm16(ctx.eval(A.expr)); return true; }
+            if (A.kind == Operand::Kind::Imm) { e.op(0xC3); e.addr16(A.expr); return true; }
             ctx.error("unrecognized JP form"); return false;
         }
         case Mnemo::CALL: {
             if (A.kind == Operand::Kind::Cond) {
                 int cc = condcode(A.cc);
-                e.op((uint8_t)(0xC4 + cc * 8)); e.imm16(ctx.eval(B.expr)); return true;
+                e.op((uint8_t)(0xC4 + cc * 8)); e.addr16(B.expr); return true;
             }
-            if (A.kind == Operand::Kind::Imm) { e.op(0xCD); e.imm16(ctx.eval(A.expr)); return true; }
+            if (A.kind == Operand::Kind::Imm) { e.op(0xCD); e.addr16(A.expr); return true; }
             ctx.error("unrecognized CALL form"); return false;
         }
         case Mnemo::RET: {
@@ -465,8 +483,17 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
                 tgt = &B; base = 0x20 + cc * 8;
             } else { tgt = &A; base = 0x18; }
             if (tgt->kind != Operand::Kind::Imm) { ctx.error("expected relative target"); return false; }
-            int64_t target = ctx.eval(tgt->expr);
-            int64_t disp = target - (int64_t)(pc0 + 2);
+            int64_t disp = 0;
+            if (!ctx.rel8(tgt->expr, (int64_t)(pc0 + 2), disp)) {
+                // La distance n'est pas connue ici — la cible est ailleurs, et
+                // le linker seul saura ou les deux tombent. L'octet de garde
+                // n'est emis QU'AVEC sa relocalisation : une portee hors bornes
+                // ne devient jamais silencieuse.
+                e.op((uint8_t)base);
+                ctx.reloc(tgt->expr, RelocKind::Rel8);
+                e.disp(0);
+                return true;
+            }
             // erreur valeur-dépendante : on émet quand même 2 octets (taille stable en 2 passes)
             if (disp < -128 || disp > 127) ctx.error("relative jump out of range (-128..127)");
             e.op((uint8_t)base); e.disp(disp); return true;
@@ -513,7 +540,7 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
 
         case Mnemo::IN: {
             if (A.kind == Operand::Kind::Reg && A.reg == Reg::A && B.kind == Operand::Kind::MemImm) {
-                e.op(0xDB); e.imm8(ctx.eval(B.expr)); return true; // IN A,(n)
+                e.op(0xDB); e.byte8(B.expr); return true; // IN A,(n)
             }
             if (A.kind == Operand::Kind::Reg && B.kind == Operand::Kind::RegInd && B.reg == Reg::C) {
                 int c = reg8code(A.reg);
@@ -524,7 +551,7 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
         }
         case Mnemo::OUT: {
             if (A.kind == Operand::Kind::MemImm && B.kind == Operand::Kind::Reg && B.reg == Reg::A) {
-                e.op(0xD3); e.imm8(ctx.eval(A.expr)); return true; // OUT (n),A
+                e.op(0xD3); e.byte8(A.expr); return true; // OUT (n),A
             }
             if (A.kind == Operand::Kind::RegInd && A.reg == Reg::C && B.kind == Operand::Kind::Reg) {
                 int c = reg8code(B.reg);

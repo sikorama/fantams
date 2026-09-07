@@ -264,6 +264,123 @@ int main() {
            img.symbolTable[0].value == 42);
     }
 
+    // --- Sections relocalisables et relocalisations -------------------------
+    // Un fragment d'une section relocalisable porte son OFFSET dans `addr` : le
+    // linker y ajoute la base qu'il decide.
+    {
+        asmb::Fragment f = frag(0, {1, 2, 3});
+        f.placed = false;
+        f.relocSection = 0;
+        asmb::Object o = obj1(f);
+        asmb::Section sec; sec.name = "data"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        link::Image img = link::build({o});
+        ok("sans rien d'absolu, elle est posee a zero", img.loadAddress == 0);
+        okBytes("ses octets sortent tels quels", img.bin, {1, 2, 3});
+    }
+    {
+        // Avec un bloc absolu, la section relocalisable se pose APRES lui.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 1});
+        o.fragments.push_back(frag(0x8000, {0xAA, 0xBB}));
+        asmb::Fragment r = frag(0, {1, 2});
+        r.placed = false; r.relocSection = 0;
+        o.fragments.push_back(r);
+        asmb::Section sec; sec.name = "data"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        link::Image img = link::build({o});
+        okBytes("elle suit le dernier octet absolu", img.bin, {0xAA, 0xBB, 1, 2});
+        ok("et rien ne se recouvre", img.warnings.empty());
+    }
+    {
+        // Abs16 : le linker ECRIT l'adresse finale, il ne l'additionne pas a ce
+        // qui s'y trouve. Un objet dont l'addend est faux se lit a l'oeil.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 1});
+        o.fragments.push_back(frag(0x8000, {0x21, 0xFF, 0xFF}));   // ld hl,????
+        asmb::Fragment r = frag(0, {9, 9});
+        r.placed = false; r.relocSection = 0;
+        o.fragments.push_back(r);
+        asmb::Section sec; sec.name = "data"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        asmb::Reloc rel;
+        rel.frag = 0; rel.offset = 1; rel.kind = asmb::Reloc::Abs16; rel.section = 0; rel.addend = 1;
+        o.relocs.push_back(rel);
+        link::Image img = link::build({o});
+        okBytes("Abs16 ecrit base + addend, petit-boutien", img.bin, {0x21, 0x04, 0x80, 9, 9});
+    }
+    {
+        // High8 et Low8 : les deux octets d'une adresse qu'on ne connaissait pas.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 1});
+        o.fragments.push_back(frag(0x8000, {0, 0}));
+        asmb::Section sec; sec.name = "data"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        asmb::Fragment r = frag(0, {7});
+        r.placed = false; r.relocSection = 0;
+        o.fragments.push_back(r);
+        asmb::Reloc hi; hi.frag = 0; hi.offset = 0; hi.kind = asmb::Reloc::High8; hi.section = 0; hi.addend = 0;
+        asmb::Reloc lo; lo.frag = 0; lo.offset = 1; lo.kind = asmb::Reloc::Low8;  lo.section = 0; lo.addend = 0;
+        o.relocs.push_back(hi);
+        o.relocs.push_back(lo);
+        link::Image img = link::build({o});
+        okBytes("High8 puis Low8", img.bin, {0x80, 0x02, 7});
+    }
+    {
+        // Rel8 : le deplacement se compte depuis l'octet SUIVANT celui qui le
+        // porte. Ici, et nulle part ailleurs, les deux adresses sont connues.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 5});
+        o.fragments.push_back(frag(0x8000, {0x18, 0x00}));   // jr ????
+        asmb::Fragment r = frag(0, {0xC9});
+        r.placed = false; r.relocSection = 0;
+        o.fragments.push_back(r);
+        asmb::Section sec; sec.name = "code"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        asmb::Reloc rel;
+        rel.frag = 0; rel.offset = 1; rel.kind = asmb::Reloc::Rel8; rel.section = 0; rel.addend = 0;
+        o.relocs.push_back(rel);
+        link::Image img = link::build({o});
+        okBytes("Rel8 compte depuis l'octet suivant", img.bin, {0x18, 0x00, 0xC9});
+    }
+    {
+        // Hors de portee INTER-sections : c'est le linker qui refuse, parce que
+        // lui seul connait la distance.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 5});
+        o.fragments.push_back(frag(0x8000, {0x18, 0x00}));
+        asmb::Fragment r = frag(0, {0xC9});
+        r.placed = false; r.relocSection = 0;
+        r.addr = 0;
+        o.fragments.push_back(r);
+        asmb::Section sec; sec.name = "code"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        asmb::Reloc rel;
+        rel.frag = 0; rel.offset = 1; rel.kind = asmb::Reloc::Rel8; rel.section = 0; rel.addend = 300;
+        o.relocs.push_back(rel);
+        link::Image img = link::build({o});
+        ok("une portee inter-sections hors bornes est refusee", !img.ok && img.errors.size() == 1);
+        ok("et elle nomme la ligne qui l'a ecrite",
+           !img.errors.empty() && img.errors[0].file == "a.asm" && img.errors[0].line == 5);
+    }
+    {
+        // La table des symboles suit la base : c'est tout l'objet de l'amendement.
+        asmb::Object o;
+        o.sites.push_back({"a.asm", 1});
+        o.fragments.push_back(frag(0x8000, {0xAA}));
+        asmb::Fragment r = frag(0, {1, 2});
+        r.placed = false; r.relocSection = 0;
+        o.fragments.push_back(r);
+        asmb::Section sec; sec.name = "data"; sec.id = 0; sec.relocatable = true;
+        o.sections.push_back(sec);
+        asmb::Symbol sy;
+        sy.name = "tbl"; sy.value = 1; sy.frag = 1; sy.offset = 1; sy.section = "data";
+        o.symbolTable.push_back(sy);
+        link::Image img = link::build({o});
+        ok("le symbole vaut la base plus son offset",
+           img.symbolTable[0].value == 0x8002 && img.symbolTable[0].store == 0x8002);
+    }
+
     // --- Rien a lier --------------------------------------------------------
     {
         link::Image img = link::build({});
