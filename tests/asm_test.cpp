@@ -628,6 +628,118 @@ int main() {
     chkErr("section : un quatrieme argument est refuse",
            "  section audio, \"ro\", 4, 8\n  org #8000\n  db 1\n");
 
+    // --- Une section "uninit" n'emet pas d'octet (§4.1) ----------------------
+    //
+    // `ds` y est exactement son usage : RESERVER. L'adresse avance, la coverage
+    // ne bouge pas, et rien n'entre dans le binaire — le linker n'aurait nulle
+    // part ou mettre des octets qu'une zone reservee porterait.
+    chk("uninit : ds reserve sans rien emettre",
+        "  section vars, \"uninit\"\n  org #8000\nbuffer:\n  ds 16\n", {});
+    chkSym("uninit : la reservation fait avancer l'adresse",
+           "  section vars, \"uninit\"\n  org #8000\nbuffer:\n  ds 16\napres:\n",
+           "apres", 0x8010);
+    // Ce qui est reserve n'etend pas l'image plate : le binaire commence au
+    // premier octet REELLEMENT ecrit, et pas avant.
+    chk("uninit : la reservation n'entre pas dans le binaire",
+        "  section vars, \"uninit\"\n  org #8000\n  ds 4\n"
+        "  section code, \"ro\"\n  org #9000\n  nop\n", {0x00}, 0x9000);
+    // Une place reservee COMPTE : c'est la seule information qu'une section
+    // "uninit" donne au linker, et sans elle son plafond ne servirait a rien.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  section vars, \"uninit\", 8\n  org #8000\n  ds 16\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message ==
+                         "Section 'vars' exceeds maximum declared size (0x10 > 0x8 bytes)";
+        okc("uninit : la place reservee compte dans le plafond", named);
+    }
+    // Le refus nomme le TYPE de la section, qui est la raison ; la ligne citee
+    // dit deja laquelle des directives corriger.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  section vars, \"uninit\"\n  org #8000\n  db 1\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message ==
+                         "section 'vars' is \"uninit\": it reserves space and emits no bytes "
+                         "(use `ds` to reserve, or declare the section \"rw\")";
+        okc("uninit : db y est refuse, en nommant le type de la section", named);
+    }
+    chkErr("uninit : dw y est refuse",
+           "  section vars, \"uninit\"\n  org #8000\n  dw #1234\n");
+    chkErr("uninit : une instruction y est refusee",
+           "  section vars, \"uninit\"\n  org #8000\n  ld a, 5\n");
+    // Une ligne qui emet cent octets n'a qu'une faute a corriger.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  section vars, \"uninit\"\n  org #8000\n  db \"bonjour\"\n", "t.asm");
+        okc("uninit : le refus est dit une fois par ligne, pas une fois par octet",
+            o.errors.size() == 1);
+    }
+    // « ds 16,#FF » laisserait croire a une zone initialisee : la refuser plutot
+    // que l'ignorer.
+    chkErr("uninit : ds n'y prend pas de valeur de remplissage",
+           "  section vars, \"uninit\"\n  org #8000\n  ds 16, #FF\n");
+    // Le refus NE MORD PAS au-dela : ailleurs, `ds` emet toujours son
+    // remplissage, et une section "rw" s'ecrit.
+    chk("uninit : ailleurs, ds emet toujours son remplissage",
+        "  section vars, \"rw\"\n  org #8000\n  ds 3, #FF\n", {0xFF, 0xFF, 0xFF}, 0x8000);
+
+    // --- ASSERT_SIZE : un plafond sur une sous-zone (§4.1) -------------------
+    //
+    // La zone est EXPLICITE, sur le modele de BOUNDARY : « depuis le dernier
+    // label » se lirait aussi bien, mais un label insere au milieu changerait ce
+    // qui est mesure sans que personne l'ait demande.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  org #8000\n  assert_size 2\ntable:\n  db 1, 2, 3\n  end_assert_size\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message ==
+                         "Block 'table' exceeds its asserted size (0x3 > 0x2 bytes)";
+        okc("assert_size : le depassement est refuse, et le bloc est nomme", named);
+    }
+    // Sans label, la zone est designee par son adresse : il faut bien pouvoir la
+    // retrouver.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  org #8000\n  assert_size 2\n  db 1, 2, 3\n  end_assert_size\n", "t.asm");
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message ==
+                         "Block at &8000 exceeds its asserted size (0x3 > 0x2 bytes)";
+        okc("assert_size : une zone sans label est designee par son adresse", named);
+    }
+    // La taille exactement egale passe, et la zone s'assemble comme si de rien
+    // n'etait : ASSERT_SIZE mesure, il ne deplace pas.
+    chk("assert_size : la taille exactement egale est acceptee, et n'ecarte rien",
+        "  org #8000\n  assert_size 3\ntable:\n  db 1, 2, 3\n  end_assert_size\n  db 4\n",
+        {0x01, 0x02, 0x03, 0x04}, 0x8000);
+    // A la difference de BOUNDARY, rien ne s'oppose a l'imbrication : la zone est
+    // mesuree par difference d'adresses, il n'y a pas de mesure prealable qu'un
+    // bloc interne arreterait.
+    chk("assert_size : les zones s'imbriquent",
+        "  org #8000\n  assert_size 4\n  db 1\n"
+        "  assert_size 2\n  db 2, 3\n  end_assert_size\n  db 4\n  end_assert_size\n",
+        {0x01, 0x02, 0x03, 0x04}, 0x8000);
+    chkErr("assert_size : la zone interne est mesuree pour elle-meme",
+           "  org #8000\n  assert_size 8\n  db 1\n"
+           "  assert_size 1\n  db 2, 3\n  end_assert_size\n  end_assert_size\n");
+    // Une mesure de BOUNDARY repasse sur les lignes du bloc : le controle ne doit
+    // pas y etre fait deux fois.
+    {
+        asmb::Output o = asmb::assembleText(
+            "  org #8000\n  boundary 256\n  assert_size 1\n  db 1, 2\n"
+            "  end_assert_size\n  end_boundary\n", "t.asm");
+        okc("assert_size : dans un BOUNDARY, le controle n'est fait qu'une fois",
+            o.errors.size() == 1);
+    }
+    chkErr("assert_size : une zone jamais fermee est refusee",
+           "  org #8000\n  assert_size 4\n  db 1\n");
+    chkErr("assert_size : une fermeture sans ouverture est refusee",
+           "  org #8000\n  db 1\n  end_assert_size\n");
+    // Le plafond decide d'un refus des la passe 1, comme celui d'une section.
+    chkErr("assert_size : une taille non evaluable en passe 1 est refusee",
+           "  org #8000\n  assert_size plus_tard\n  db 1\n  end_assert_size\n"
+           "plus_tard equ 4\n");
+
     // --- ADR 0020 : ce que l'assembleur TOLERE, et ce qu'il refuse -----------
     //
     // L'invariant de l'ADR 0017 : aucune source ne doit etre assemblable seulement

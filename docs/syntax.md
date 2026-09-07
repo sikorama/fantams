@@ -170,6 +170,7 @@ bytes with value 1 then three with value 2.
 | `run address` | entry point |
 | `boundary n` … `end_boundary` | a block that must not straddle an `n`-byte boundary |
 | `section name, "type"[, max]` | opens a logical unit of assembly (`"ro"`, `"rw"`, `"uninit"`) |
+| `assert_size n` … `end_assert_size` | a block that must not exceed `n` bytes |
 
 ### Boundary blocks
 
@@ -265,6 +266,64 @@ Section 'audio' exceeds maximum declared size (0x2140 > 0x2000 bytes)
   are being counted. A forward `equ` is refused.
 - A size exactly equal to the maximum is accepted: a cap is a permitted size, not
   the first refused one.
+
+### `"uninit"`: reserved, not written
+
+An `"uninit"` section is a **reserved location**, and the table above is enforced:
+it emits no bytes. `ds` is its whole vocabulary — reserving is exactly what it is
+for:
+
+```asm
+        section vars, "uninit"
+        org #C000
+buffer: ds 16
+flag:   ds 1
+
+        section code, "ro"
+        org #8000
+        ld a, (flag)            ; the address is known: 0xC010
+```
+
+- `ds` **advances the address without writing**: the labels are placed, the
+  symbol table carries them with their section, and nothing enters the binary.
+  The image above is four bytes at `0x8000`, not sixteen kilobytes.
+- `db`, `dw`, a string and an instruction are **refused** there, naming the type
+  of the section. A reserved area has nowhere to put bytes — a linker would have
+  no file to write them to.
+- `ds` takes **no fill value** there: `ds 16,#FF` would suggest an initialized
+  area, so it is refused rather than ignored.
+- Reserved space **counts** towards the declared maximum. It is the only thing an
+  `"uninit"` section tells a linker.
+
+### `assert_size`: a cap on a sub-area
+
+A section's maximum covers the unit a linker will place. `assert_size` covers a
+**sub-area inside it** — a jump table, a descriptor, whatever its author delimits:
+
+```asm
+        assert_size 8
+jump_table:
+        dw draw, move, hide, kill
+        end_assert_size
+```
+
+```
+Block 'jump_table' exceeds its asserted size (0xA > 0x8 bytes)
+```
+
+- The area is **explicit**, on the `boundary` model. Measuring "from the last
+  label" would read just as well, but a label inserted in the middle would change
+  what is measured without anyone asking for it.
+- The **first label** of the block names it in the diagnostic; without one, the
+  block is designated by its address. The error is reported on the `assert_size`
+  line — the one that carries the number to fix.
+- Blocks **nest**, unlike `boundary`: the area is assembled normally and measured
+  by difference of addresses, so there is no prior measurement that an inner block
+  could cut short.
+- It measures, it does not move: nothing is aligned, nothing is padded, and the
+  bytes are the same with or without it.
+- A missing `end_assert_size`, and an `end_assert_size` with no block open, are
+  both refused.
 
 ### Writes into `"ro"`, refused statically
 

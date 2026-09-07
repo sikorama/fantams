@@ -1,11 +1,5 @@
 # Binaires de test / CLI compilés
-z80_test
-pp_test
-parser_test
-asm_test
-beautify_test
-sna_test
-expr_test
+tests/*_test
 ppdump
 fantams
 

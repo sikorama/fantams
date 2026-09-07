@@ -46,27 +46,34 @@ target_link_libraries(ppdump PRIVATE pp)
 add_executable(fantams asm_main.cpp)
 target_link_libraries(fantams PRIVATE asmlib beautify)
 
-# Tests
-add_executable(z80_test z80_test.cpp)
+# Tests. Les sources vivent dans tests/ ; les cibles gardent leur nom, et les
+# répertoires d'inclusion des bibliothèques suffisent à résoudre leurs en-têtes.
+add_executable(z80_test tests/z80_test.cpp)
 target_link_libraries(z80_test PRIVATE z80)
 
-add_executable(pp_test pp_test.cpp)
+add_executable(pp_test tests/pp_test.cpp)
 target_link_libraries(pp_test PRIVATE pp)
 
-add_executable(parser_test parser_test.cpp)
+add_executable(parser_test tests/parser_test.cpp)
 target_link_libraries(parser_test PRIVATE parser)
 
-add_executable(asm_test asm_test.cpp)
+add_executable(asm_test tests/asm_test.cpp)
 target_link_libraries(asm_test PRIVATE asmlib)
 
-add_executable(beautify_test beautify_test.cpp)
+add_executable(beautify_test tests/beautify_test.cpp)
 target_link_libraries(beautify_test PRIVATE beautify asmlib)
 
-add_executable(sna_test sna_test.cpp)
+add_executable(sna_test tests/sna_test.cpp)
 target_link_libraries(sna_test PRIVATE sna)
+
+# expr_test manquait ici alors que le Makefile le construit : deux listes de
+# tests, dont une seule complete, est le genre d'ecart qui se paie en CI.
+add_executable(expr_test tests/expr_test.cpp)
+target_link_libraries(expr_test PRIVATE pp)
 
 enable_testing()
 add_test(NAME z80_encoding COMMAND z80_test)
+add_test(NAME expressions COMMAND expr_test)
 add_test(NAME preprocessor COMMAND pp_test)
 add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)

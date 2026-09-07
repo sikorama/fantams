@@ -35,6 +35,9 @@ const std::set<std::string> &instructionWords() {
         // §5 : un bloc auto-mesure. Sans eux ici, « BOUNDARY 256 » se lit comme
         // un label « BOUNDARY » suivi de la directive « 256 ».
         "BOUNDARY", "END_BOUNDARY",
+        // §4.1 : une sous-zone mesuree, meme raison — « ASSERT_SIZE 64 » se lirait
+        // comme un label suivi de « 64 ».
+        "ASSERT_SIZE", "END_ASSERT_SIZE",
         // §4.1 : « section nom, "type" » — sans elle ici, « section » se lit
         // comme un label.
         "SECTION",
@@ -263,6 +266,31 @@ const std::vector<BlockKind> &blockKinds() {
         {"STRUCT",  {"STRUCT"},                {"ENDSTRUCT", "ENDS"}},
     };
     return t;
+}
+
+// Les blocs de l'ASSEMBLAGE. Table SEPAREE de `blockKinds()`, qui est celle du
+// preprocesseur : y mêler BOUNDARY ferait chercher au préprocesseur une structure
+// qu'il n'a pas à connaître — il ne voit ni adresse ni octet, et ces deux blocs
+// sont mesurés par l'assembleur. La mise en forme, elle, doit indenter les deux :
+// un corps de bloc est un corps de bloc, quel que soit l'étage qui le mesure.
+const std::vector<BlockKind> &asmBlockKinds() {
+    static const std::vector<BlockKind> t = {
+        {"BOUNDARY",    {"BOUNDARY"},    {"END_BOUNDARY"}},
+        {"ASSERT_SIZE", {"ASSERT_SIZE"}, {"END_ASSERT_SIZE"}},
+    };
+    return t;
+}
+
+std::string asmBlockOfOpener(const std::string &kw) {
+    for (const auto &b : asmBlockKinds())
+        for (const char *o : b.openers) if (kw == o) return b.kind;
+    return "";
+}
+
+std::string asmBlockOfCloser(const std::string &kw) {
+    for (const auto &b : asmBlockKinds())
+        for (const char *c : b.closers) if (kw == c) return b.kind;
+    return "";
 }
 
 // Le bloc qu'ouvre ce mot-clé, ou "".

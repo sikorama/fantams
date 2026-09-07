@@ -33,6 +33,13 @@ same.
 bytes onto a captured post-boot machine state, so `call &BB5A` works instead of
 jumping into zeros.
 
+**Mistakes caught at assembly time, without a linker.** `section name, "type"`
+says what a block of source *is* — code, data, or reserved space — and that is
+enough to refuse a write into a `"ro"` section, a section that outgrows its
+declared maximum, a jump table that outgrows its `assert_size`, and a byte emitted
+into reserved space. Three of those normally wait for a link step that this
+toolchain does not have yet.
+
 **A machine-readable symbol table.** `--sym` writes a CSV — one line per label
 and constant, with type, owning section, logical address, storage bank, and origin
 file and line
@@ -46,7 +53,7 @@ file and line
 git clone https://github.com/sikorama/fantams
 cd fantams
 make            # builds the CLI and the test binaries
-make test       # 7 suites, 675 assertions
+make test       # 7 suites, 730 assertions
 ```
 
 A first source:

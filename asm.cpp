@@ -89,6 +89,7 @@ public:
         pass_ = 1; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         badNames_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
+        sizeAsserts_.clear();
         sectionMax_.clear(); sectionSite_.clear(); sectionSize_.clear();
         runPass(lines);
 
@@ -108,6 +109,7 @@ public:
         pass_ = 2; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0;
         displacedRanges_.clear(); currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
+        sizeAsserts_.clear();
         sectionSize_.clear();   // les octets ne se comptent qu'en passe 2
         runPass(lines);
         flushOverlap();   // le dernier chevauchement accumulé doit sortir avant les diagnostics
@@ -219,6 +221,13 @@ public:
             cur_ = boundarySite_;
             structErr("BOUNDARY without a matching END_BOUNDARY");
         }
+        // Meme faute, meme lecture : une zone jamais fermee s'etend jusqu'a la fin
+        // du fichier, ce que son auteur n'a pas ecrit. La plus interne d'abord.
+        while (!sizeAsserts_.empty()) {
+            cur_ = sizeAsserts_.back().site;
+            sizeAsserts_.pop_back();
+            structErr("ASSERT_SIZE without a matching END_ASSERT_SIZE");
+        }
     }
 
     // --- Ecriture en "ro", detectee statiquement (§4.2) ---------------------
@@ -291,20 +300,49 @@ public:
         return upper(firstToken(trim(stripComment(sl.text)))) == "END_BOUNDARY";
     }
 
+    // La section courante ne porte pas d'octets : ce qu'on y range est RESERVE,
+    // pas ecrit (§4.1).
+    bool inUninit() const {
+        if (curSection_.empty()) return false;
+        auto k = sectionKind_.find(curSection_);
+        return k != sectionKind_.end() && k->second == "UNINIT";
+    }
+
+    // La taille d'une section est CUMULEE sur ses reouvertures, et non l'etendue
+    // max-min de ses adresses : ce qui compte est la place qu'elle demande —
+    // celle que le linker posera d'un bloc — et non l'intervalle qu'elle couvre,
+    // qui avec `org` absolu a l'interieur serait de toute facon un nombre sans
+    // signification. Une place RESERVEE compte comme une place ecrite : c'est la
+    // seule information qu'une section "uninit" donne au linker.
+    //
+    // `align` et `boundary` n'y comptent pas : ils avancent `pc_` sans emettre ni
+    // reserver, et a cet etage le remplissage n'existe pas. Ce sera a recompter a
+    // l'etage C, ou c'est le linker qui aligne.
+    void countSectionBytes(int64_t n) {
+        if (pass_ == 2 && !measuring_ && !curSection_.empty()) sectionSize_[curSection_] += n;
+    }
+
+    // Reserver, c'est avancer sans ecrire : `pc_` bouge, la coverage ne bouge pas
+    // — et c'est ce qui laisse intacte la fusion avec une base (ADR 0012), qui ne
+    // recopie que ce qui est couvert.
+    void reserve(int64_t n) {
+        if (n <= 0) return;
+        countSectionBytes(n);
+        pc_ = (int)(pc_ + n);
+    }
+
     // --- IAsmContext ---
     void emit(uint8_t b) override {
+        // Une section "uninit" est un emplacement RESERVE : le §4.1 dit qu'elle
+        // n'emet pas d'octets, et le linker n'aurait nulle part ou mettre ceux
+        // qu'on y ecrirait. Le refus est ici parce qu'`emit()` est le seul point
+        // de passage des octets : `db`, `dw`, une chaine et l'encodeur y tombent
+        // tous, sans qu'il faille les reprendre un par un.
+        if (inUninit()) { refuseUninitEmission(); ++pc_; return; }
         // En mesure, seul `pc_` avance : aucun octet, aucune coverage, aucun
         // recouvrement — le bloc sera reellement assemble juste apres.
         if (pass_ == 2 && !measuring_) {
-            // La taille d'une section est CUMULEE sur ses reouvertures, et non
-            // l'etendue max-min de ses adresses : ce qui compte est la place
-            // qu'elle demande — celle que le linker posera d'un bloc — et non
-            // l'intervalle qu'elle couvre, qui avec `org` absolu a l'interieur
-            // serait de toute facon un nombre sans signification.
-            // `align` et `boundary` n'y comptent pas : ils avancent `pc_` sans
-            // emettre, et a cet etage le remplissage n'existe pas. Ce sera a
-            // recompter a l'etage C, ou c'est le linker qui aligne.
-            if (!curSection_.empty()) ++sectionSize_[curSection_];
+            countSectionBytes(1);
             // L'octet va a l'adresse de RANGEMENT ; l'adresse logique, elle, ne
             // sert qu'aux labels et aux expressions. Hors bloc deplace les deux
             // coincident, `displacement_` valant zero.
@@ -454,9 +492,16 @@ private:
     std::map<std::string, int64_t> sectionMax_;        // nom -> plafond declare, fige a la premiere declaration
     std::map<std::string, int64_t> sectionSize_;       // nom -> octets emis, cumules sur les reouvertures
     std::map<std::string, SourceLine> sectionSite_;    // la ligne qui porte le plafond, pour lui attribuer son erreur
+    bool uninitSaid_ = false;    // le refus d'emission en "uninit" est dit une fois par ligne
     int openBoundary_ = 0;       // blocs ouverts, pour refuser les fermetures qui manquent
     SourceLine boundarySite_;    // la ligne du BOUNDARY, pour lui attribuer son erreur
     std::string boundaryName_;   // le premier label du bloc, s'il y en a un
+    // Une sous-zone mesuree a l'interieur d'une section (§4.1). Une PILE : a la
+    // difference de BOUNDARY, rien ne s'oppose a l'imbrication — la zone est
+    // assemblee normalement et mesuree par difference d'adresses, il n'y a pas de
+    // mesure prealable dont un bloc interne arreterait la fin.
+    struct SizeAssert { int64_t max; int start; SourceLine site; std::string name; };
+    std::vector<SizeAssert> sizeAsserts_;
     int orgBank_ = -1;   // -1 : aucun prefixe rencontre, la banque suit l'adresse
     // Ecart entre l'adresse de rangement et l'adresse logique, pose par le second
     // parametre d'ORG. Zero hors bloc deplace, remis a zero par tout ORG nu.
@@ -569,6 +614,9 @@ private:
             return;
         }
         if (nameRefused(n, "a label")) return;
+        // Le premier label d'un bloc ASSERT_SIZE le NOMME, pour le diagnostic de
+        // depassement — comme le premier label d'un BOUNDARY.
+        if (!sizeAsserts_.empty() && sizeAsserts_.back().name.empty()) sizeAsserts_.back().name = n;
         std::string qn = qualify(n);
         if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
         setSymbol(qn, (double)(pc_ & 0xFFFF));
@@ -777,6 +825,17 @@ private:
         }
     }
 
+    // Une ligne peut emettre cent octets — « db » d'une chaine, une instruction
+    // prefixee — et son auteur n'a qu'une faute a corriger. Le diagnostic ne
+    // NOMME pas la directive : `emit()` ne sait pas qui l'appelle, et la ligne
+    // citee le dit deja. Il nomme le type de la section, qui est la raison.
+    void refuseUninitEmission() {
+        if (uninitSaid_) return;
+        uninitSaid_ = true;
+        structErr("section '" + curSection_ + "' is \"uninit\": it reserves space and "
+                  "emits no bytes (use `ds` to reserve, or declare the section \"rw\")");
+    }
+
     void emitDS(const std::string &ops) {
         auto parts = splitTopLevel(ops, ',');
         dropTrailingEmpty(parts);
@@ -788,6 +847,16 @@ private:
             int64_t n = evalExpr(parts[p]);
             if (!evalOk_) { structErr("DS: size not resolvable in pass 1"); return; }
             int64_t fill = (p + 1 < parts.size()) ? evalExpr(parts[p + 1]) : 0;
+            // En "uninit", `ds` est exactement son usage — reserver — et c'est la
+            // seule directive qui y soit permise. L'octet de remplissage n'a alors
+            // aucun sens : le refuser plutot que l'ignorer, sinon « ds 16,#FF »
+            // laisserait croire a une zone initialisee.
+            if (inUninit()) {
+                if (p + 1 < parts.size())
+                    structErr("DS in a \"uninit\" section reserves space: it cannot take a fill value");
+                reserve(n);
+                continue;
+            }
             for (int64_t k = 0; k < n; ++k) emit((uint8_t)(fill & 0xFF));
         }
     }
@@ -795,6 +864,7 @@ private:
     void process(const SourceLine &sl) {
         cur_ = sl;
         curSite_ = -1;
+        uninitSaid_ = false;
         std::string code = trim(stripComment(sl.text));
         if (code.empty()) return;
 
@@ -924,6 +994,44 @@ private:
             if (!measuring_) {
                 if (openBoundary_ <= 0) structErr("END_BOUNDARY without a matching BOUNDARY");
                 else --openBoundary_;
+            }
+            return;
+        }
+
+        // --- ASSERT_SIZE : un plafond sur une SOUS-ZONE (§4.1) ---------------
+        // Le plafond de `section` couvre l'unite que le linker posera ; celui-ci
+        // couvre une table de saut, un descripteur, ce que son auteur delimite.
+        // La zone est EXPLICITE, sur le modele de BOUNDARY : mesurer « depuis le
+        // dernier label » se lirait aussi bien, mais un label insere au milieu
+        // changerait alors ce qui est mesure sans que personne l'ait demande.
+        //
+        // Rien a mesurer d'avance, a la difference de BOUNDARY : la zone est
+        // assemblee normalement, et sa taille est la difference des adresses. Une
+        // mesure de BOUNDARY repasse sur ces lignes, d'ou le silence en mesure —
+        // le parcours reel fera le controle.
+        if (W0 == "ASSERT_SIZE") {
+            if (!label.empty()) defineLabel(label);
+            if (measuring_) return;
+            const int64_t n = evalExpr(after0);
+            if (!evalOk_) { structErr("ASSERT_SIZE: size not resolvable in pass 1"); return; }
+            if (n < 0) { structErr("ASSERT_SIZE: size cannot be negative"); return; }
+            sizeAsserts_.push_back({n, pc_, cur_, label});
+            return;
+        }
+        if (W0 == "END_ASSERT_SIZE") {
+            if (!label.empty()) defineLabel(label);
+            if (measuring_) return;
+            if (sizeAsserts_.empty()) { structErr("END_ASSERT_SIZE without a matching ASSERT_SIZE"); return; }
+            const SizeAssert a = sizeAsserts_.back();
+            sizeAsserts_.pop_back();
+            const int64_t size = (int64_t)pc_ - a.start;
+            // L'erreur est attribuee a la ligne de l'ASSERT_SIZE, seule ligne qui
+            // porte le nombre a corriger.
+            if (size > a.max) {
+                cur_ = a.site;
+                structErr("Block " + (a.name.empty() ? "at &" + hex4(a.start) : "'" + a.name + "'") +
+                          " exceeds its asserted size (" + hexSize(size) + " > " +
+                          hexSize(a.max) + " bytes)");
             }
             return;
         }

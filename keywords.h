@@ -72,6 +72,14 @@ std::string blockOfCloser(const std::string &kw);
 // La fermeture canonique d'un bloc, pour les diagnostics.
 std::string canonicalCloser(const std::string &kind);
 
+// Les blocs de l'ASSEMBLAGE — `boundary` (§5) et `assert_size` (§4.1) — que
+// l'assembleur mesure et que le préprocesseur ne voit pas. Table séparée pour
+// cette raison ; la mise en forme consulte les deux, un corps de bloc s'indentant
+// quel que soit l'étage qui le mesure.
+const std::vector<BlockKind> &asmBlockKinds();
+std::string asmBlockOfOpener(const std::string &kw);
+std::string asmBlockOfCloser(const std::string &kw);
+
 // Registres, paires et conditions du Z80. Contrairement aux mots ci-dessus, cet
 // ensemble n'est PAS indexé par phase : un registre est un mot de la machine à
 // toutes les phases. Il vivait dans `pp.cpp`, seul à le consulter, alors qu'il

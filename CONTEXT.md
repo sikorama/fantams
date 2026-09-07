@@ -187,6 +187,16 @@ porte sa propre écriture. Deux banques sont co-visibles si aucun axe ne les met
 dans la même fenêtre — ce qui rend le contrôle décidable sans énumérer les états.
 _Éviter_ : dimension, registre (qui désigne le moyen, pas l'axe)
 
+**Section** :
+Une unité logique d'assemblage, nommée, et classée par la **nature de son
+contenu** : code et constantes, données modifiables, ou emplacement réservé. Elle
+dit ce qu'un bloc de source *est*, pas où il *va* — c'est le placement qui décide
+de l'emplacement, et tant qu'il est absolu la section ne fait que nommer et
+classer (ADR 0026). Sa **taille** est la somme des octets qu'elle demande, cumulée
+sur ses réouvertures, et non l'étendue des adresses qu'elle couvre.
+_Éviter_ : segment, zone, bloc (qui désigne une structure de source), banque (qui
+est du stockage)
+
 **Section miroir** :
 Une section que le placement duplique au même offset dans plusieurs banques, pour
 que le flux d'instructions survive à une commutation. C'est un genre de

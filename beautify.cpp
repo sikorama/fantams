@@ -148,8 +148,12 @@ Delta blockDelta(const std::string &body, kw::Phase ph) {
         // « nom MACRO p » : le mot-clé est en seconde position, et seulement sur
         // la première instruction (le label a déjà été retiré par peelLabel).
         if (k == 0 && upper(secondToken(stmts[k])) == "MACRO") { ++d.opens; continue; }
-        if (!kw::blockOfOpener(w).empty()) ++d.opens;
-        else if (!kw::blockOfCloser(w).empty()) {
+        // Les deux tables : celle du préprocesseur (`repeat`, `if`, `macro`…) et
+        // celle de l'assemblage (`boundary`, `assert_size`). La mise en forme ne
+        // mesure rien — elle indente un corps de bloc, et un corps de bloc l'est
+        // quel que soit l'étage qui le mesure.
+        if (!kw::blockOfOpener(w).empty() || !kw::asmBlockOfOpener(w).empty()) ++d.opens;
+        else if (!kw::blockOfCloser(w).empty() || !kw::asmBlockOfCloser(w).empty()) {
             if (k == 0) d.firstIsCloser = true;
             ++d.closes;
         }

@@ -29,14 +29,15 @@ et c'est ce que doit écrire l'ADR de **A5**.
 |---|-------|------|
 | A0 | `SECTION nom, "type"`, la section dans `--sym`, le refus d'écriture en `"ro"`, `BOUNDARY` | **fait** |
 | A1 | Plafond de taille déclaré : `section nom, "type", max` | **fait** |
-| A2 | `"uninit"` n'émet pas d'octet | à faire |
-| A3 | `ASSERT_SIZE max` — une sous-zone dans une section | à faire — *forme arrêtée : un bloc explicite* |
-| A4 | `beautify` connaît les nouveaux mots-clés | à faire |
-| A5 | ADR : une section déclarative, et pourquoi la migration attend B | à faire |
+| A2 | `"uninit"` n'émet pas d'octet | **fait** |
+| A3 | `ASSERT_SIZE max` — une sous-zone dans une section | **fait** |
+| A4 | `beautify` connaît les nouveaux mots-clés | **fait** |
+| A5 | ADR : une section déclarative, et pourquoi la migration attend B | **fait** — [ADR 0026](adr/0026-une-section-nomme-et-classe.md) |
 | A6 | `CYCLES_BETWEEN(l1, l2)` (§4.3) — autonome, hors du chemin critique | optionnel |
 
 Fin de l'étage A : A1 à A5 faites, les sept suites vertes, `docs/syntax.md` à
-jour, et un `--sym` dont un consommateur peut lire la section.
+jour, et un `--sym` dont un consommateur peut lire la section. **Atteinte** — sept
+suites à 730 assertions. Reste A6, optionnel et hors du chemin critique.
 
 ---
 
@@ -110,92 +111,112 @@ qui ne compte pas, le plafond non évaluable en passe 1, les trois cas de
 réouverture, et le quatrième argument refusé — accepté et ignoré, il serait le
 pire des états, comme l'était le troisième avant A1.
 
-## A2 — `"uninit"` n'émet pas d'octet
+## A2 — `"uninit"` n'émet pas d'octet — fait
 
-**Ce que ça donne.** Le tableau du §4.1 dit « émet des octets : non » pour
-`"uninit"`. Aujourd'hui rien ne l'empêche, et une section réservée peut partir
-avec des octets dedans — que le linker n'aurait aucun endroit où mettre.
+Le tableau du §4.1 dit « émet des octets : non » ; c'est maintenant tenu.
 
-**Le point à trancher** : `ds` dans une section `"uninit"` est exactement son
-usage — réserver. Mais `emitDS` passe par `emit()`, donc il *écrit* des octets de
-remplissage. Il faut donc que `ds` **réserve sans émettre** quand la section est
-`"uninit"` : `pc_` avance, la coverage ne bouge pas. Et `db` / `dw` / une
-instruction y sont refusés, en nommant le type de la section.
+**`ds` réserve sans écrire.** `pc_` avance, la coverage ne bouge pas, rien n'entre
+dans l'image plate. C'est ce qui laisse intacte la fusion avec une base
+(ADR 0012), qui ne recopie que ce qui est couvert — et `sna_test` le confirme.
 
-C'est la seule étape de A qui touche un chemin d'émission existant. Elle vient
-après A1 pour une raison désormais concrète : le compteur d'A1 est **dans
-`emit()`**. Si `ds` cesse d'y passer, il faut compter la réservation ailleurs,
-sans quoi une section `"uninit"` aurait toujours une taille nulle et son plafond
-ne servirait à rien. C'est le premier test à écrire : un plafond dépassé par des
-octets réservés.
+```asm
+        section vars, "uninit"
+        org #C000
+buffer: ds 16
+flag:   ds 1
+```
 
-**Coût** : petit à moyen. Trois cycles, mais le premier touche `emitDS` et la
-coverage, dont dépend la fusion avec une base (ADR 0012) : la suite `sna_test`
-est le garde-fou à surveiller.
+`flag` vaut `0xC010`, le porte dans `--sym` avec sa section, et le binaire n'en
+contient pas un octet.
 
----
+**Le refus est dans `emit()`**, et c'est ce qui rend l'étape petite : `emit()` est
+le seul point de passage des octets, donc `db`, `dw`, une chaîne et l'encodeur y
+tombent tous sans qu'il faille les reprendre un par un. Le diagnostic ne nomme pas
+la directive — `emit()` ne sait pas qui l'appelle, et la ligne citée le dit déjà —
+il nomme le **type** de la section, qui est la raison. Dit **une fois par ligne** :
+`db "bonjour"` est une faute, pas sept.
 
-## A3 — `ASSERT_SIZE max`
+**Deux points que le document ne posait pas :**
 
-**Ce que ça donne.** Le §4.1 : « vérifie de la même façon une sous-zone à
-l'intérieur d'une section — une table de saut, par exemple ».
+- **`ds` n'y prend pas de valeur de remplissage.** `ds 16,#FF` laisserait croire à
+  une zone initialisée ; le refuser vaut mieux que l'ignorer — c'est la même règle
+  que le troisième argument de `section` avant A1.
+- **La place réservée compte dans le plafond d'A1.** Le compteur étant dans
+  `emit()`, il fallait le rappeler sur le chemin de réservation, sinon une section
+  `"uninit"` aurait toujours eu une taille nulle et son plafond n'aurait servi à
+  rien. C'est `countSectionBytes()`, appelé des deux côtés.
 
-**La forme est arrêtée : un bloc explicite**, sur le modèle de `BOUNDARY` /
-`END_BOUNDARY`. La spec ne disait pas *d'où* la sous-zone commence ; les trois
-lectures possibles, et la raison du choix :
+**Dix tests.** La réservation qui n'émet rien, l'adresse qui avance quand même, ce
+qui est réservé qui n'étend pas le binaire, le plafond franchi par de la place
+réservée, `db` refusé avec son message exact, `dw` et une instruction refusés, le
+refus dit une fois par ligne, la valeur de remplissage refusée, et le non-débord :
+ailleurs, `ds` émet toujours son remplissage.
 
-- **depuis le dernier label** — `ASSERT_SIZE` mesure du label précédent à la
-  ligne où elle est écrite. Rien à ouvrir, rien à fermer, et ça se lit ; mais la
-  zone est implicite, et un label inséré au milieu change ce qui est mesuré sans
-  que personne l'ait demandé.
-- **un bloc explicite**, sur le modèle de `BOUNDARY` / `END_BOUNDARY`, déjà écrit
-  et déjà testé. Cohérent avec ce qui existe, au prix d'un mot-clé de plus.
-- **depuis le début de la section** — alors ce n'est plus une sous-zone, c'est le
-  plafond de A1 sous un autre nom, et l'étape n'existe pas.
+## A3 — `ASSERT_SIZE max` — fait
 
-`BOUNDARY` a déjà établi la forme du bloc auto-mesuré dans ce langage, et une
-zone explicite ne se déplace pas sous les pieds de son auteur — c'est ce qui
-tranche contre la première lecture, à un mot-clé près.
+La zone est un **bloc explicite**, `assert_size n` … `end_assert_size`. « Depuis
+le dernier label » se lisait aussi bien, mais un label inséré au milieu changerait
+ce qui est mesuré sans que personne l'ait demandé ; et « depuis le début de la
+section » n'aurait été que le plafond d'A1 sous un autre nom.
 
-**Coût** : petit une fois la forme choisie — la mesure est celle de `BOUNDARY`,
-qui existe.
+```
+Block 'jump_table' exceeds its asserted size (0xA > 0x8 bytes)
+```
 
----
+**Plus petit que prévu**, et pour une raison qui vaut d'être notée : à la
+différence de `BOUNDARY`, il n'y a **rien à mesurer d'avance**. `BOUNDARY` doit
+connaître la taille du bloc avant de le placer, d'où le double parcours et le
+`measuring_`. Ici la zone est assemblée normalement et sa taille est une
+différence d'adresses — d'où trois conséquences gratuites :
 
-## A4 — `beautify` connaît les nouveaux mots-clés
+- **les zones s'imbriquent** (une pile, et non un compteur) : rien ne s'y oppose,
+  puisqu'il n'y a pas de mesure préalable qu'un bloc interne arrêterait ;
+- **rien ne bouge** : `assert_size` mesure, il n'aligne ni ne remplit ;
+- il fallait en revanche **se taire pendant une mesure de `BOUNDARY`**, qui
+  repasse sur les lignes du bloc — sinon le contrôle sortait deux fois.
 
-**Ce que ça donne.** `--beautify` indente le corps d'un bloc d'un cran. Il ne sait
-pas que `BOUNDARY` / `END_BOUNDARY` en est un, ni que `SECTION` commence en
-colonne 1 ou non. Une source qui les utilise ressort donc mal mise en forme, et
-l'invariant de l'ADR 0017 — aucune source ne doit être assemblable seulement
-après passage par la mise en forme — ne dit rien sur l'inverse.
+Le premier label de la zone la **nomme** dans le diagnostic, comme celui d'un
+`BOUNDARY` ; sans label, elle est désignée par son adresse. L'erreur est attribuée
+à la ligne de l'`assert_size`, seule qui porte le nombre à corriger.
 
-**Couture.** `beautify::format`, testée dans `beautify_test.cpp`. C'est la seule
-étape de A hors de `asmb::assemble`.
+**Neuf tests** : le dépassement nommé et le dépassement anonyme, la taille
+exactement égale qui n'écarte rien, l'imbrication et la zone interne mesurée pour
+elle-même, le contrôle fait une seule fois dans un `BOUNDARY`, la zone jamais
+fermée, la fermeture orpheline, et la taille non évaluable en passe 1.
 
-**Coût** : petit. Deux cycles, plus l'invariant d'octets que `beautify_test`
-vérifie déjà.
+## A4 — `beautify` connaît les nouveaux mots-clés — fait
 
----
+Deux choses, dont une était un **destructeur de source** : `end_assert_size`, seul
+sur sa ligne et en colonne 1, était lu comme un label et recevait un deux-points.
+Les enregistrer dans `instructionWords()` a suffi — et c'est exactement ce que
+l'ADR 0015 prévoit : un mot réservé l'est à toutes les phases.
 
-## A5 — l'ADR
+Ensuite l'indentation. Les corps de `boundary` et d'`assert_size` prennent leur
+cran, la fermeture se rend à celui de son ouvreur. Ce qui a demandé une décision :
+`blockKinds()` est la table du **préprocesseur** ; y mêler `BOUNDARY` lui ferait
+chercher une structure qu'il n'a pas à connaître — il ne voit ni adresse ni octet.
+D'où une table séparée, `asmBlockKinds()`, que seule la mise en forme consulte en
+plus de l'autre : un corps de bloc est un corps de bloc, quel que soit l'étage qui
+le mesure.
 
-**Ce que ça donne.** Une décision écrite là où on la cherchera : **une section, à
-l'étage A, nomme et classe ; elle ne reloge pas.** Ce que l'ADR doit porter, et
-qui est aujourd'hui dispersé dans ce fichier :
+`section` n'y figure pas : elle n'ouvre pas de bloc — pas de fermeture, et son
+corps est tout ce qui suit jusqu'à la prochaine. Elle s'indente comme `org`, la
+directive qu'elle accompagne.
 
-- pourquoi la migration `Space` → `Section` du §10 **attend l'étage B** : elle
-  n'est nécessaire qu'au fichier objet, et les trois gains de A s'obtiennent sans
-  elle ;
-- ce que « taille d'une section » veut dire (A1, les deux définitions), et le fait
-  que `align` devra être recompté à l'étage C ;
-- que le type **et le plafond** sont figés à la première déclaration, et pourquoi
-  (le refus silencieux qu'on éviterait sinon).
+**Neuf tests**, dont l'idempotence et l'invariant d'octets sur une source qui
+porte les deux blocs.
 
-Il ferme l'étage : sans lui, la prochaine personne à ouvrir `asm.cpp` lira des
-sections qui ne relogent pas et croira à un travail à moitié fait.
+## A5 — l'ADR — fait
 
----
+[ADR 0026 — À l'étage A, une section nomme et classe ; elle ne
+reloge pas](adr/0026-une-section-nomme-et-classe.md). Il porte les quatre
+décisions qui étaient dispersées dans ce fichier : pourquoi la migration
+`Space` → `Section` attend l'étage B, ce que « taille d'une section » veut dire et
+qu'`align` sera à recompter à l'étage C, le type et le plafond figés à la première
+déclaration, et `"uninit"` qui n'émet pas.
+
+Il ferme l'étage : sans lui, la prochaine personne à ouvrir `asm.cpp` lirait des
+sections qui ne relogent pas et croirait à un travail à moitié fait.
 
 ## A6 — `CYCLES_BETWEEN` (optionnel)
 

@@ -266,6 +266,44 @@ int main() {
     chk("ENDM, REND, WEND, ENDIF : idem",
         "endm\nrend\nwend\nendif\n", "    endm\n    rend\n    wend\n    endif\n",
         kw::Phase::Preprocess);
+
+    // --- les blocs de l'ASSEMBLAGE (§5, §4.1) --------------------------------
+    //
+    // `boundary` et `assert_size` sont mesurés par l'assembleur et invisibles au
+    // préprocesseur, mais un corps de bloc est un corps de bloc : il prend son
+    // cran, et la fermeture se rend à celui de son ouvreur.
+    chk("boundary : le corps prend un cran, la fermeture revient",
+        "boundary 256\ndb 1,2\nend_boundary\nnop\n",
+        "    boundary 256\n        db 1,2\n    end_boundary\n    nop\n");
+    chk("assert_size : idem",
+        "assert_size 4\ndw 1,2\nend_assert_size\n",
+        "    assert_size 4\n        dw 1,2\n    end_assert_size\n");
+    // Un label reste en colonne 1 quel que soit le cran : c'est la règle 4, et
+    // c'est ce qui permet de le retrouver dans un bloc.
+    chk("un label dans un bloc mesuré reste en colonne 1",
+        "boundary 256\ntable:\ndb 1\nend_boundary\n",
+        "    boundary 256\ntable:\n        db 1\n    end_boundary\n");
+    chk("les zones assert_size s'imbriquent, et l'indentation le montre",
+        "assert_size 8\ndb 1\nassert_size 2\ndb 2\nend_assert_size\nend_assert_size\n",
+        "    assert_size 8\n        db 1\n        assert_size 2\n            db 2\n"
+        "        end_assert_size\n    end_assert_size\n");
+    // Seuls sur leur ligne et en colonne 1, `end_boundary` et `end_assert_size`
+    // seraient lus comme des labels et recevraient un deux-points — ce qui
+    // détruirait le source. Ce sont des mots réservés, à toutes les phases.
+    chk("end_boundary et end_assert_size ne sont jamais étiquetés",
+        "end_boundary\nend_assert_size\n", "    end_boundary\n    end_assert_size\n",
+        kw::Phase::Preprocess);
+    // `section` n'ouvre PAS de bloc : elle n'a pas de fermeture, et son corps est
+    // tout ce qui suit jusqu'à la prochaine. Elle s'indente comme `org`, la
+    // directive qu'elle accompagne.
+    chk("section ne fait pas d'indentation : ce n'est pas un bloc",
+        "section audio, \"ro\", 0x100\norg #8000\nnop\n",
+        "    section audio, \"ro\", 0x100\n    org #8000\n    nop\n");
+    idem("blocs mesurés : idempotent",
+         "boundary 256\ntable:\ndb 1,2\nend_boundary\nassert_size 4\ndw 1\nend_assert_size\n");
+    sameBytes("blocs mesurés : les octets sont inchangés",
+              "  org #8000\n  boundary 256\ntable:\n  db 1,2\n  end_boundary\n"
+              "  assert_size 4\njt:\n  dw table\n  end_assert_size\n");
     // « nom MACRO p » est une graphie héritée, avertie par l'assembleur — donc que
     // le beautify a le droit de réécrire, comme les parenthèses d'appel.
     chk("macro complète : rien de détruit, le corps prend un cran",
