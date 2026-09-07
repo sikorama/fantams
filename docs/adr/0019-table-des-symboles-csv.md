@@ -116,7 +116,7 @@ explicite passe par `--sym=<chemin>`.
 
 ## Où vit le code
 
-Dans `sym.cpp`, une fonction **pure** qui prend un `Output` et rend une
+Dans `sym.cpp`, une fonction **pure** qui prend une image et rend une
 `std::string` ; le CLI n'écrit que le fichier. Le formatage est la seule partie qui
 peut être fausse, c'est donc la partie qui doit être testable sans toucher au
 disque. C'est aussi ce qui rendra mécanique son exposition au WASM, laissée hors
@@ -136,3 +136,34 @@ personne ne lit celle qui compte.
 Les tests portent sur des **invariants**, non sur un fichier témoin : un golden sur
 un format qu'on est en train d'inventer se met à jour à chaque itération et cesse
 d'affirmer quoi que ce soit.
+
+## Amendement (étape B4) — la table est produite par le LINKER
+
+Cet ADR dit que la table sort de l'assembleur. **Ce n'est plus vrai, et c'est
+délibéré.**
+
+Depuis que le linker existe, une section peut être **relocalisable** : ses
+fragments n'ont pas d'adresse tant qu'il ne les a pas placés. Un label d'une
+telle section n'a donc ni banque, ni adresse de rangement, ni même d'adresse
+logique définitive — trois des huit colonnes que ce format promet. Les faire
+sortir de l'assembleur reviendrait à y écrire un tiret, ou pire, l'adresse d'un
+placement provisoire.
+
+L'assembleur consigne donc **où le symbole habite** — quel fragment, à quel
+offset — et le linker en dérive la banque et le rangement, parce que c'est lui
+qui place. `asmb::Symbol` porte `frag` et `offset` ; `link::Symbol` porte `bank`
+et `store`.
+
+**Ce qui ne change pas : le format.** Pas une colonne, pas un en-tête, pas une
+règle de tri. Un désassembleur ou un émulateur qui lit ce CSV ne voit aucune
+différence — et c'est la raison de le faire ainsi plutôt que d'inventer une
+seconde table pour les sections relocalisables. Le `.fo` de l'étape B7 en restera
+un sous-ensemble.
+
+`sym::format` prend une `link::Image` au lieu d'un objet d'assemblage. La
+fonction reste **pure** et le CLI écrit toujours le fichier lui-même : cette
+partie de l'ADR tient telle quelle.
+
+Cet amendement est écrit **dans l'étape qui le provoque**, et non à la fin de
+l'étage. Une table produite par le linker alors que son ADR dit le contraire est
+exactement l'écart que l'ADR de clôture de l'étage A a été écrit pour éviter.

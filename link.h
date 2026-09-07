@@ -35,6 +35,25 @@ struct Block {
     std::vector<uint8_t> covered;  // 0 = trou réservé, non nul = écrit par la source
 };
 
+// Une entrée de la table des symboles exportable (`--sym`, ADR 0019), avec ses
+// adresses DÉFINITIVES.
+//
+// Elle sort du LINKER et non de l'assembleur : dans une section relocalisable,
+// un label n'a pas d'adresse tant que sa section n'est pas placée. Le FORMAT ne
+// change pas d'une colonne ni d'un en-tête, et son consommateur — désassembleur
+// ou émulateur — ne voit pas la différence. C'est même la raison de le faire
+// ainsi (amendement à l'ADR 0019).
+struct Symbol {
+    std::string name;       // QUALIFIE et MANGLE, tel que l'assembleur le connait
+    bool isConst = false;   // EQU ; sinon label
+    int64_t value = 0;      // adresse logique définitive, ou valeur de la constante
+    int bank = -1;          // banque de rangement, -1 pour une constante
+    int store = -1;         // adresse de rangement, -1 pour une constante
+    std::string section;    // la section qui le porte ; vide hors de toute section
+    std::string file;       // fichier D'ORIGINE, avant preprocesseur
+    int line = 0;
+};
+
 struct Image {
     bool ok = true;
     std::vector<asmb::Diagnostic> errors;
@@ -48,6 +67,9 @@ struct Image {
     std::vector<uint8_t> bin;
     uint16_t loadAddress = 0;      // adresse du premier octet de `bin`
     uint16_t runAddress = 0;       // point d'entrée résolu ; = loadAddress sans `run`
+    // La table exportable, avec des adresses définitives. Dans l'ordre des noms ;
+    // le tri du fichier (banque, rangement, nom) appartient au format, pas ici.
+    std::vector<Symbol> symbolTable;
 };
 
 // Lie N objets en une image. En B, le placement est absolu et le linker ne fait

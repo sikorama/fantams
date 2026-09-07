@@ -35,16 +35,16 @@ std::string csv(const std::string &s) {
 
 } // namespace
 
-std::string format(const asmb::Object &o) {
-    std::vector<asmb::Symbol> rows;
-    rows.reserve(o.symbolTable.size());
-    for (const auto &s : o.symbolTable) rows.push_back(s);
+std::string format(const link::Image &img) {
+    std::vector<link::Symbol> rows;
+    rows.reserve(img.symbolTable.size());
+    for (const auto &s : img.symbolTable) rows.push_back(s);
 
     // Les constantes n'ont ni banque ni rangement : elles se rangent en queue,
     // triees par nom. Le tri est TOTAL — deux symboles a la meme adresse est le
     // cas courant (« screen: » puis « .start: »), et sans departage la sortie
     // cesserait d'etre reproductible d'un assemblage a l'autre.
-    std::sort(rows.begin(), rows.end(), [](const asmb::Symbol &a, const asmb::Symbol &b) {
+    std::sort(rows.begin(), rows.end(), [](const link::Symbol &a, const link::Symbol &b) {
         if (a.isConst != b.isConst) return !a.isConst;
         if (!a.isConst) {
             if (a.bank != b.bank) return a.bank < b.bank;

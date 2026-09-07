@@ -29,22 +29,25 @@ struct Diagnostic {
     std::string message;
 };
 
-// Une entree de la table des symboles exportable (`--sym`, ADR 0019).
+// Ce que l'assembleur sait d'un symbole exportable (`--sym`, ADR 0019).
 //
-// `value` est l'adresse LOGIQUE : ce que le nom vaut dans une expression, et ce
-// qu'un desassembleur doit substituer. `bank` et `store` decrivent le RANGEMENT :
-// ou l'octet est reellement ecrit. Les deux ne divergent que dans un bloc
-// « org <logique>,<rangement> ».
+// Il n'y met AUCUNE adresse de rangement : dans une section relocalisable, un
+// label n'a pas d'adresse tant que le linker n'a pas placé son fragment. Il dit
+// donc OÙ le symbole habite — quel fragment, à quel offset — et c'est le linker
+// qui en tire la banque et l'adresse. C'est l'amendement à l'ADR 0019 : la table
+// change de maillon SANS changer de format, et son consommateur — désassembleur
+// ou émulateur — ne voit pas la différence. C'est même la raison de le faire
+// ainsi.
 //
-// Une CONSTANTE n'habite nulle part : `bank` et `store` valent -1, ce que la
-// table rend par un tiret. Les VARIABLES ('=') n'entrent pas dans la table — leur
-// valeur change en cours de route, et un desassembleur n'en ferait rien.
+// Une CONSTANTE n'habite nulle part : `frag` vaut -1, ce que la table rend par
+// un tiret. Les VARIABLES ('=') n'entrent pas dans la table — leur valeur change
+// en cours de route, et un desassembleur n'en ferait rien.
 struct Symbol {
     std::string name;       // tel que l'assembleur le connait : QUALIFIE et MANGLE
     bool isConst = false;   // EQU ; sinon label
     int64_t value = 0;      // adresse logique, ou valeur de la constante
-    int bank = -1;          // banque de rangement, -1 pour une constante
-    int store = -1;         // adresse de rangement, -1 pour une constante
+    int frag = -1;          // le fragment qui le porte, -1 pour une constante
+    int offset = 0;         // son offset dans ce fragment
     // La section qui PORTE le symbole (§4.1). Vide hors de toute section — le
     // cas d'une source qui n'en declare aucune, et celui d'une constante, qui
     // n'habite nulle part.

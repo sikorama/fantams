@@ -239,11 +239,11 @@ int main(int argc, char **argv) {
     // mais AVANT le refus des banques >= 8, ou l'assemblage a reussi et ou seul
     // l'export a plat echoue. C'est justement la que les adresses sont utiles.
     if (wantSym) {
-        const std::string table = sym::format(out);
+        const std::string table = sym::format(img);
         std::ofstream f(symPath, std::ios::binary);
         if (!f) { fprintf(stderr, "error: cannot write: %s\n", symPath.c_str()); return 2; }
         f.write(table.data(), (std::streamsize)table.size());
-        fprintf(stderr, "%s: %zu symboles\n", symPath.c_str(), out.symbolTable.size());
+        fprintf(stderr, "%s: %zu symboles\n", symPath.c_str(), img.symbolTable.size());
     }
     if (dumpOnly) return 0;   // -E --sym : les deux sorties demandees sont ecrites
 

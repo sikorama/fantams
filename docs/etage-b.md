@@ -33,7 +33,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B1 | La valeur affine dans l'évaluateur d'expressions | — | **faite** |
 | B2 | Le fragment | B0 | **faite** |
 | B3 | La couture du linker | B2 | **faite** |
-| B4 | La table des symboles produite par le linker | B3 | à faire |
+| B4 | La table des symboles produite par le linker | B3 | **faite** |
 | B5 | La relocalisation de bout en bout | B1, B3 | à faire |
 | B6 | `PUBLIC` et `EXTERN` | B5 | à faire |
 | B7 | Le fichier objet, aller-retour | B6 | à faire |
@@ -170,9 +170,22 @@ la table exportable ne peut plus sortir de l'assembleur. Elle change de maillon
 **sans changer de format** — et son consommateur, désassembleur ou émulateur, ne
 voit pas la différence. C'est même la raison de le faire ainsi.
 
-- [ ] La table est produite par le linker, avec des adresses définitives
-- [ ] Le format ne change pas d'une colonne ni d'un en-tête
-- [ ] L'amendement à l'ADR 0019 est écrit **dans cette étape**, pas à la fin de l'étage
+- [x] La table est produite par le linker, avec des adresses définitives
+- [x] Le format ne change pas d'une colonne ni d'un en-tête
+- [x] L'amendement à l'ADR 0019 est écrit **dans cette étape**, pas à la fin de l'étage
+
+Ce qui a bougé sous le capot, à relire en B10 :
+
+- **Un label OUVRE son fragment**, même si aucun octet ne suit : il faut bien
+  qu'il habite quelque part, et c'est ce fragment que le linker place. Un
+  fragment resté vide ne pose rien.
+- **`noteSymbol` tourne aux DEUX passes.** La passe 1 pose la section — c'est
+  elle que le contrôle d'écriture en `"ro"` lit, y compris sur une référence
+  *avant*, et il tournerait à vide si elle n'arrivait qu'en passe 2. La passe 2
+  ajoute le fragment et l'offset, qui n'existent qu'à ce moment-là.
+- **`fragmentHere()` est le seul endroit qui décide « quel fragment, quel
+  offset »** : les octets comme les labels y passent, ce qui garantit qu'un
+  label et l'octet qu'il nomme atterrissent dans le même fragment.
 
 ## B5 — la relocalisation de bout en bout
 

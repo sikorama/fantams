@@ -211,6 +211,59 @@ int main() {
         ok("run sur le rangement ne l'est pas", img.warnings.empty());
     }
 
+    // --- Table des symboles (amendement a l'ADR 0019) -----------------------
+    // Elle sort du LINKER : un label vaut l'adresse de son fragment plus son
+    // offset, et l'assembleur ne connait que le second terme.
+    {
+        asmb::Object o = obj1(frag(0x8000, {1, 2, 3}));
+        asmb::Symbol s;
+        s.name = "milieu"; s.value = 0x8001; s.frag = 0; s.offset = 1; s.section = "code";
+        s.file = "a.asm"; s.line = 3;
+        o.symbolTable.push_back(s);
+        link::Image img = link::build({o});
+        ok("un symbole, une entree", img.symbolTable.size() == 1);
+        const link::Symbol &r = img.symbolTable[0];
+        ok("le rangement est derive du fragment", r.store == 0x8001);
+        ok("la banque aussi", r.bank == 2);
+        ok("la provenance traverse", r.file == "a.asm" && r.line == 3 && r.section == "code");
+    }
+    {
+        // Un bloc deplace : le RANGEMENT n'est pas l'adresse logique, et c'est
+        // toute la raison d'avoir deux colonnes.
+        asmb::Fragment f = frag(0x3000, {1, 2});
+        f.logical = 0x2000;
+        asmb::Object o = obj1(f);
+        asmb::Symbol s;
+        s.name = "ici"; s.value = 0x2000; s.frag = 0; s.offset = 0;
+        o.symbolTable.push_back(s);
+        link::Image img = link::build({o});
+        ok("la valeur reste l'adresse logique", img.symbolTable[0].value == 0x2000);
+        ok("le rangement est celui du fragment", img.symbolTable[0].store == 0x3000);
+    }
+    {
+        // Un prefixe de banque : le symbole la porte, sans que son adresse la dise.
+        asmb::Fragment f = frag(0x4000, {0xAB});
+        f.bank = 5;
+        asmb::Object o = obj1(f);
+        asmb::Symbol s;
+        s.name = "haut"; s.value = 0x4000; s.frag = 0; s.offset = 0;
+        o.symbolTable.push_back(s);
+        link::Image img = link::build({o});
+        ok("la banque vient du fragment, pas de l'adresse",
+           img.symbolTable[0].bank == 5 && img.symbolTable[0].store == 0x4000);
+    }
+    {
+        // Une constante n'habite nulle part : ni banque, ni rangement.
+        asmb::Object o = obj1(frag(0x8000, {1}));
+        asmb::Symbol s;
+        s.name = "TAILLE"; s.isConst = true; s.value = 42;
+        o.symbolTable.push_back(s);
+        link::Image img = link::build({o});
+        ok("une constante n'a ni banque ni rangement",
+           img.symbolTable[0].bank == -1 && img.symbolTable[0].store == -1 &&
+           img.symbolTable[0].value == 42);
+    }
+
     // --- Rien a lier --------------------------------------------------------
     {
         link::Image img = link::build({});

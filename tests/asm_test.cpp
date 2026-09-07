@@ -22,6 +22,7 @@ static int g_pass = 0, g_fail = 0;
 // retirer. Il vit ici, dans le harnais, et nulle part ailleurs.
 struct Built {
     asmb::Object obj;                        // l'objet, pour ce qui s'y teste directement
+    link::Image img;                         // l'image, dont sort la table des symboles
     bool ok = true;
     std::vector<uint8_t> bin;
     uint16_t loadAddress = 0, runAddress = 0;
@@ -34,7 +35,8 @@ struct Built {
 static Built build(const std::string &src, const char *file) {
     Built b;
     b.obj = asmb::assembleText(src, file);
-    const link::Image img = link::build({b.obj});
+    b.img = link::build({b.obj});
+    const link::Image &img = b.img;
     const link::Flat flat = link::flatten(img);
     b.ok = b.obj.ok && img.ok;
     b.symbols = b.obj.symbols;
@@ -485,7 +487,7 @@ int main() {
             "far:\n"
             "  nop\n";
         Built o = build(src, "t.asm");
-        const std::string t = sym::format(o.obj);
+        const std::string t = sym::format(o.img);
 
         // L'en-tete est une VRAIE ligne CSV : les noms de colonnes SONT la version.
         okc("sym : en-tete exacte", t.rfind("name,type,section,value,bank,store,file,line\n", 0) == 0);
@@ -523,14 +525,14 @@ int main() {
         // se verifie de bout en bout au CLI, pas ici.
         Built o = build(
             "  org #8000\n@loop:\n  nop\ntop:\n.inner:\n  nop\n", "t.asm");
-        const std::string t = sym::format(o.obj);
+        const std::string t = sym::format(o.img);
         okc("sym : un label local sort qualifie", !symRow(t, "top.inner").empty());
     }
     {
         // Le champ fichier est guillemete SEULEMENT s'il en a besoin : sans ca, un
         // chemin a virgule produirait une ligne a huit champs dans un fichier a sept.
         Built o = build("  org #8000\nmain:\n  nop\n", "mon,brouillon.asm");
-        const std::string t = sym::format(o.obj);
+        const std::string t = sym::format(o.img);
         okc("sym : un chemin a virgule est guillemete",
             t.find(",\"mon,brouillon.asm\",2\n") != std::string::npos);
     }
@@ -544,7 +546,7 @@ int main() {
             "  org #8000\n"
             "my_table:\n"
             "  nop\n", "t.asm");
-        const std::string t = sym::format(o.obj);
+        const std::string t = sym::format(o.img);
         okc("sym : un label porte sa section",
             symRow(t, "my_table") == "my_table,label,tables_data,0x8000,2,0x8000,t.asm,3");
     }
@@ -557,7 +559,7 @@ int main() {
             "  org #8000\n"
             "WIDTH equ 80\n"
             "  nop\n", "t.asm");
-        const std::string t = sym::format(o.obj);
+        const std::string t = sym::format(o.img);
         okc("sym : une constante n'herite pas de la section",
             symRow(t, "WIDTH") == "WIDTH,const,-,0x50,-,-,t.asm,3");
     }

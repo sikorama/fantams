@@ -317,20 +317,8 @@ public:
             // L'octet va dans (FRAGMENT courant, OFFSET courant) — plus dans une
             // banque derivee de son adresse. La banque, elle, se derive au
             // PLACEMENT, et c'est la seule chose qui ait besoin d'une adresse.
-            const int st = pc_ + displacement_;
-            // Un fragment est CONTIGU, CROISSANT, et ne depasse pas l'espace
-            // adressable. Ce qui sort de la est un AUTRE bloc, et il y a deux
-            // facons d'y arriver : un `org` deplace rencontre dans un bloc
-            // mesure, qui laisse `displacement_` derriere lui alors que `pc_`
-            // est revenu en arriere, et un `ds` demesure. Sans cette regle, le
-            // premier cas ferait un offset negatif et le second un trou d'un
-            // mega-octet.
-            if (curFrag_ >= 0) {
-                const long long off = (long long)st - fragBase_;
-                if (off < (long long)frags_[curFrag_].bytes.size() || off >= 0x10000) closeFragment();
-            }
-            Fragment &f = openFragment();
-            const size_t off = (size_t)(st - fragBase_);
+            const size_t off = fragmentHere();
+            Fragment &f = frags_[curFrag_];
             if (off >= f.bytes.size()) {
                 // Un `ds` a l'interieur d'un fragment ne le coupe pas : il y
                 // reserve un trou, que la coverage laisse a zero.
@@ -371,6 +359,29 @@ private:
     // a la premiere ecriture, et pas avant — c'est ce qui evite de payer un
     // fragment vide pour une section qui n'emet rien.
     void closeFragment() { curFrag_ = -1; }
+
+    // Le fragment qui porte l'adresse de rangement courante, et l'offset qu'on y
+    // occupe. UN seul endroit decide de ce couple : les octets comme les labels
+    // y passent, et c'est ce qui garantit qu'un label et l'octet qu'il nomme
+    // atterrissent dans le meme fragment.
+    //
+    // Un fragment est CONTIGU, CROISSANT, et ne depasse pas l'espace adressable.
+    // Ce qui sort de la est un AUTRE bloc, et il y a deux facons d'y arriver :
+    // un `org` deplace rencontre dans un bloc mesure, qui laisse `displacement_`
+    // derriere lui alors que `pc_` est revenu en arriere, et un `ds` demesure.
+    // Sans cette regle, le premier cas ferait un offset negatif et le second un
+    // trou d'un mega-octet.
+    size_t fragmentHere() {
+        const int st = pc_ + displacement_;
+        if (curFrag_ >= 0) {
+            const long long off = (long long)st - fragBase_;
+            // « Revenir » veut dire revenir SUR des octets deja ecrits : c'est la
+            // qu'un recouvrement se produit, et le linker doit pouvoir le voir.
+            if (off < (long long)frags_[curFrag_].bytes.size() || off >= 0x10000) closeFragment();
+        }
+        openFragment();
+        return (size_t)(st - fragBase_);
+    }
 
     Fragment &openFragment() {
         if (curFrag_ >= 0) return frags_[curFrag_];
@@ -499,8 +510,12 @@ private:
     //
     // Une redefinition ecrase : elle a deja son erreur pour une constante, et pour
     // une variable il n'y a rien a noter — elles n'entrent pas dans la table.
+    // Consigne un symbole exportable. En PASSE 2, parce que c'est la seule ou
+    // les fragments existent : un label dit desormais OU il habite — quel
+    // fragment, a quel offset — et non plus a quelle adresse il se range. C'est
+    // le linker qui derivera la banque et le rangement, parce que c'est lui qui
+    // place (amendement a l'ADR 0019).
     void noteSymbol(const std::string &qn, bool isConst) {
-        if (pass_ != 1) return;
         Symbol s;
         s.name = qn;
         s.isConst = isConst;
@@ -510,9 +525,18 @@ private:
             // La section est un fait de RANGEMENT, comme la banque : une
             // constante, qui n'habite nulle part, n'en porte pas.
             s.section = curSection_;
-            const int st = (pc_ + displacement_) & 0xFFFF;
-            s.bank = orgBank_ < 0 ? ((st >> 14) & 3) : orgBank_;
-            s.store = st;
+            // Un label OUVRE son fragment, meme si aucun octet ne suit : il faut
+            // bien qu'il habite quelque part, et c'est ce fragment que le linker
+            // placera. Un fragment reste vide ne pose rien.
+            //
+            // Le fragment n'existe qu'en PASSE 2, la seule ou des octets
+            // s'ecrivent. La passe 1, elle, pose la SECTION — c'est elle que le
+            // controle d'ecriture en "ro" lit, y compris sur une reference
+            // AVANT, et il tournerait a vide si elle n'arrivait qu'en passe 2.
+            if (pass_ == 2) {
+                s.offset = (int)fragmentHere();
+                s.frag = curFrag_;
+            }
         }
         symInfo_[qn] = s;
     }

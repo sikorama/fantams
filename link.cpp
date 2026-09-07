@@ -194,6 +194,29 @@ Image build(const std::vector<asmb::Object> &objects) {
         break;   // un seul point d'entrée ; B8 dira quoi faire de deux
     }
 
+    // La table des symboles, avec des adresses DÉFINITIVES. C'est ici qu'elle se
+    // fabrique parce que c'est ici que les fragments sont placés : un label vaut
+    // l'adresse de son fragment plus son offset, et l'assembleur ne connaît que
+    // le second terme. Le format, lui, ne bouge pas (amendement à l'ADR 0019).
+    for (const asmb::Object &obj : objects) {
+        for (const asmb::Symbol &s : obj.symbolTable) {
+            Symbol out;
+            out.name = s.name;
+            out.isConst = s.isConst;
+            out.value = s.value;
+            out.section = s.section;
+            out.file = s.file;
+            out.line = s.line;
+            // Une constante n'habite nulle part : ni banque, ni rangement.
+            if (!s.isConst && s.frag >= 0 && (size_t)s.frag < obj.fragments.size()) {
+                const asmb::Fragment &f = obj.fragments[(size_t)s.frag];
+                out.store = (f.addr + s.offset) & 0xFFFF;
+                out.bank = f.bank < 0 ? ((out.store >> 14) & 3) : f.bank;
+            }
+            lk.out.symbolTable.push_back(std::move(out));
+        }
+    }
+
     lk.out.ok = lk.out.errors.empty();
     return lk.out;
 }
