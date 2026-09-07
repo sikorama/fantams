@@ -30,7 +30,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | # | Étape | Bloqué par | État |
 |---|-------|-----------|------|
 | B0 | Une seule table de section *(préfacteur)* | — | **faite** |
-| B1 | La valeur affine dans l'évaluateur d'expressions | — | à faire |
+| B1 | La valeur affine dans l'évaluateur d'expressions | — | **faite** |
 | B2 | Le fragment | B0 | à faire |
 | B3 | La couture du linker | B2 | à faire |
 | B4 | La table des symboles produite par le linker | B3 | à faire |
@@ -76,16 +76,26 @@ Le préprocesseur, qui tourne avant qu'aucune adresse existe, n'a jamais de vale
 relocalisable à rendre : il n'est touché qu'à l'endroit où il fabrique son
 résolveur.
 
-- [ ] `fin - debut` reste un nombre quand les deux labels partagent leur section
-- [ ] `label` seul est relocalisable
-- [ ] `label * 2` et `label + label` sont refusés, avec un message qui dit pourquoi
-- [ ] `label_s1 - label_s2`, sections différentes, est refusé
-- [ ] `high(x)` et `low(x)` rendent les deux octets d'une valeur relocalisable
-- [ ] `label >> 8` et `label & 255` sur une valeur relocalisable sont refusés **en nommant `high()` / `low()`**
-- [ ] Les mêmes formes restent légales sur une valeur absolue
-- [ ] Une valeur relocalisable ne peut pas porter de partie réelle non entière
-- [ ] Tout cela est testé à la couture de l'évaluateur, avec un résolveur de test rendant des sections factices, sans assembler une ligne
-- [ ] Les sept suites vertes : l'assembleur rend encore une valeur absolue partout
+- [x] `fin - debut` reste un nombre quand les deux labels partagent leur section
+- [x] `label` seul est relocalisable
+- [x] `label * 2` et `label + label` sont refusés, avec un message qui dit pourquoi
+- [x] `label_s1 - label_s2`, sections différentes, est refusé
+- [x] `high(x)` et `low(x)` rendent les deux octets d'une valeur relocalisable
+- [x] `label >> 8` et `label & 255` sur une valeur relocalisable sont refusés **en nommant `high()` / `low()`**
+- [x] Les mêmes formes restent légales sur une valeur absolue
+- [x] Une valeur relocalisable ne peut pas porter de partie réelle non entière
+- [x] Tout cela est testé à la couture de l'évaluateur, avec un résolveur de test rendant des sections factices, sans assembler une ligne
+- [x] Les sept suites vertes : l'assembleur rend encore une valeur absolue partout
+
+Deux choix pris en cours de route, à relire en B10 :
+
+- **`hi()` / `lo()` sont des graphies de `high()` / `low()`**, valeur
+  relocalisable comprise. Deux fonctions dont une seule accepterait une adresse
+  serait une asymétrie qu'aucune règle ne fait deviner ; le refus de `>> 8`
+  nomme quand même la graphie canonique.
+- **L'unaire moins garde l'affinité** et rend un coefficient `-1`. C'est ce qui
+  permet à `fin + -debut` de s'annuler ; un `-1` final n'est pas émettable, mais
+  ce n'est pas à l'évaluateur d'en juger — ce sera à l'émetteur, en B5.
 
 ## B2 — le fragment
 

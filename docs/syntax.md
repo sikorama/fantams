@@ -93,7 +93,7 @@ are interchangeable, and `'A'` is in no way different from `"A"`.
 |---|---|---|
 | `sin` `cos` | 1 | angles in **radians**, never degrees |
 | `abs` | 1 | |
-| `hi` `lo` | 1 | high / low byte of the integer value |
+| `high` `low` (`hi` `lo`) | 1 | high / low byte of the integer value |
 | `floor` `ceil` `int` `round` | 1 | toward −∞ / +∞ / zero / nearest |
 | `min` `max` | 2 | |
 | `sizeof` | 1 | size of a `struct` |
@@ -102,6 +102,9 @@ Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 
 `sin` and `cos` take **radians**, which is what a maths library takes. Write
 `sin(a*3.14159265/180)` for a degree argument.
+
+`high` and `low` are the explicit way to take one byte of a value; `hi` and `lo`
+are spellings of the same two functions.
 
 ### What doesn't exist
 

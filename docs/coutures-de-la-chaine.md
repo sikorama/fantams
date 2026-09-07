@@ -236,19 +236,27 @@ parallèle comme aujourd'hui. C'est la correction de fond de `sna::build`.
 ## 6. Le seul point qui traverse : `expr`
 
 Le §10 le nomme comme le morceau qui ne se découpe pas. En termes de couture :
-aujourd'hui `expr::Resolver` rend `bool(name, double&)` et une valeur est un
-nombre. Une valeur relocalisable est un couple `(section, offset)`, et
-l'affinité — `label2 - label1` absolu si même section, `label` seul
-relocalisable, `label * 2` illégal en contexte relocalisable — est une propriété
-de **l'arbre d'expression**, pas du symbole.
+`expr::Resolver` rendait `bool(name, double&)` et une valeur était un nombre.
+Une valeur relocalisable est un couple `(section, offset)`, et l'affinité —
+`label2 - label1` absolu si même section, `label` seul relocalisable,
+`label * 2` illégal en contexte relocalisable — est une propriété de **l'arbre
+d'expression**, pas du symbole.
 
 Elle doit donc être calculée dans `expr`, et non par un appelant qui
 pré-classerait les symboles : l'assembleur ne peut pas savoir que `label * 2` est
-illégal sans parcourir l'arbre. Et elle peut y être calculée **sans élargir
-l'interface** : `eval` reste une fonction, `Result` gagne un champ de section, le
-`Resolver` rend une valeur au lieu d'un `double`. Une interface presque
-inchangée, une implémentation nettement plus grosse — c'est l'approfondissement,
-au sens strict.
+illégal sans parcourir l'arbre.
+
+**C'est fait (étape B1)**, et sans élargir l'interface : `eval` reste une
+fonction, le `Resolver` rend une `expr::Value` — `{réel, section, coefficient,
+octet retenu}` — au lieu d'un `double`, et `Result` est une `Value` plus l'issue
+du calcul. Une interface presque inchangée, une implémentation nettement plus
+grosse — c'est l'approfondissement, au sens strict. La section n'est qu'un
+**entier opaque** de ce côté-ci : `expr` ne sait d'elle que « la même » ou « pas
+la même », ce qui est exactement ce qu'il faut pour la tester seule, avec un
+résolveur rendant des sections factices.
+
+Le préprocesseur n'a rien perdu à l'opération : il tourne avant qu'aucune adresse
+existe, laisse le coefficient nul, et la frontière des ADR 0003 et 0005 tient.
 
 C'est aussi ce qui explique que l'étage B soit indivisible : il n'ajoute pas une
 couture, il change le type qui circule à travers celle d'`expr`.

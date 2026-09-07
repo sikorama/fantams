@@ -583,22 +583,25 @@ private:
     double evalExprReal(const std::string &text) { evalRealLast_ = true; int64_t v = evalExpr(text); (void)v; return lastReal_; }
     int64_t evalExpr(const std::string &text) {
         evalOk_ = true;
-        auto r = expr::eval(text, [&](const std::string &n, double &o) -> bool {
+        // A cet etage l'assembleur rend une valeur ABSOLUE partout : les sections
+        // portent toutes un `org`, et le coefficient reste nul. C'est B5 qui
+        // fera parler ce resolveur des sections relocalisables.
+        auto r = expr::eval(text, [&](const std::string &n, expr::Value &o) -> bool {
             // '$' vaut l'adresse de DÉBUT de l'instruction, pas la position
             // courante : pendant l'encodage, les octets d'opcode sont déjà émis
             // et pc_ a avancé (de 1, ou de 2 pour un préfixe DD/FD). Hors
             // instruction (db/dw/equ), pc_ EST la bonne réponse.
-            if (n == "$") { o = (double)((inInstruction_ ? instrStart_ : pc_) & 0xFFFF); return true; }
+            if (n == "$") { o.real = (double)((inInstruction_ ? instrStart_ : pc_) & 0xFFFF); return true; }
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
-            if (it != symbols_.end()) { o = it->second; return true; }
+            if (it != symbols_.end()) { o.real = it->second; return true; }
             // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse des symboles) : on
             // avertit plutôt que d'échouer silencieusement sur une simple différence de casse.
             auto cit = ciIndex_.find(upper(qn));
             if (cit != ciIndex_.end()) {
                 warn("symbol '" + qn + "' not found exactly, using '" + cit->second +
                      "' (case mismatch — best practice: match case exactly)");
-                o = symbols_[cit->second];
+                o.real = symbols_[cit->second];
                 return true;
             }
             return false;

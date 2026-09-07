@@ -568,16 +568,19 @@ private:
 
     expr::Result evalPP(const std::string &text, const Env &env) {
         std::string deferred;
-        auto resolver = [&](const std::string &name, double &out) -> bool {
-            auto l = env.locals.find(name); if (l != env.locals.end()) { out = (double)l->second; return true; }
-            auto p = ppvars.find(name); if (p != ppvars.end()) { out = p->second; return true; }
+        // Le préprocesseur tourne AVANT qu'aucune adresse existe : il n'a jamais
+        // de valeur relocalisable à rendre, et laisse donc le coefficient nul.
+        // C'est tout ce que l'affinité lui coûte (ADR 0003, ADR 0005).
+        auto resolver = [&](const std::string &name, expr::Value &out) -> bool {
+            auto l = env.locals.find(name); if (l != env.locals.end()) { out.real = (double)l->second; return true; }
+            auto p = ppvars.find(name); if (p != ppvars.end()) { out.real = p->second; return true; }
             // La valeur a ete calculee au site d'appel (ADR 0014) : la reevaluer ici
             // avec un resolveur vide etait la source de l'asymetrie — « MAC high »
             // echouait la ou « repeat high » marche hors macro.
             auto a = env.args.find(name);
-            if (a != env.args.end() && a->second.hasValue) { out = a->second.value; return true; }
+            if (a != env.args.end() && a->second.hasValue) { out.real = a->second.value; return true; }
             auto v = asmvars.find(name);
-            if (v != asmvars.end()) { readAtPP.insert(name); out = v->second; return true; }
+            if (v != asmvars.end()) { readAtPP.insert(name); out.real = v->second; return true; }
             if (asmDeferred.count(name)) deferred = name;
             return false;
         };

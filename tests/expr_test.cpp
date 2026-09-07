@@ -7,12 +7,23 @@
 
 static int g_pass = 0, g_fail = 0;
 
-static std::map<std::string, double> g_syms;
-static expr::Resolver resolver = [](const std::string &n, double &out) -> bool {
+// Le resolveur de test rend des sections FACTICES : deux entiers opaques, qui
+// suffisent a tout ce que l'evaluateur sait d'une section — « la meme » ou
+// « pas la meme ». C'est ce qui permet de tester l'affinite entiere sans
+// assembler une ligne.
+static const expr::SectionId S1 = 1, S2 = 2;
+
+static std::map<std::string, expr::Value> g_syms;
+static expr::Resolver resolver = [](const std::string &n, expr::Value &out) -> bool {
     auto it = g_syms.find(n);
     if (it == g_syms.end()) return false;
     out = it->second; return true;
 };
+
+// Un label d'une section relocalisable : sa base plus son offset.
+static expr::Value reloc(expr::SectionId sec, double offset) {
+    expr::Value v; v.section = sec; v.coeff = 1; v.real = offset; return v;
+}
 
 static void chk(const char *desc, const std::string &text, int64_t expected) {
     expr::Result r = expr::eval(text, resolver);
@@ -30,9 +41,46 @@ static void chkErr(const char *desc, const std::string &text) {
     else ++g_pass;
 }
 
+// Un refus ET ce qu'il enseigne : le message doit porter `needle`. Sans cela,
+// « label >> 8 est refuse » serait vrai sans dire quoi ecrire a la place.
+static void chkErrSays(const char *desc, const std::string &text, const std::string &needle) {
+    expr::Result r = expr::eval(text, resolver);
+    if (r.ok) { ++g_fail; printf("  \033[31mFAIL\033[0m %-40s aurait dû échouer (= %lld)\n", desc, (long long)r.value); return; }
+    if (r.error.find(needle) == std::string::npos) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %-40s le message ne dit pas \"%s\" : %s\n",
+               desc, needle.c_str(), r.error.c_str());
+    } else ++g_pass;
+}
+
+// Une valeur ABSOLUE : coefficient nul, et la valeur attendue.
+static void chkAbs(const char *desc, const std::string &text, int64_t expected) {
+    expr::Result r = expr::eval(text, resolver);
+    if (!r.ok || r.value != expected || !r.absolute()) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %-40s attendu %lld absolu, obtenu %lld coeff %d%s\n",
+               desc, (long long)expected, (long long)r.value, r.coeff,
+               r.ok ? "" : (" err: " + r.error).c_str());
+    } else ++g_pass;
+}
+
+// Une valeur RELOCALISABLE : sa section, son coefficient, son addend, son octet.
+static void chkReloc(const char *desc, const std::string &text, expr::SectionId sec,
+                     int coeff, int64_t addend, expr::Byte byte = expr::Byte::Whole) {
+    expr::Result r = expr::eval(text, resolver);
+    if (!r.ok || r.section != sec || r.coeff != coeff || r.value != addend || r.byte != byte) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %-40s attendu (sec %d, coeff %d, addend %lld, octet %d), "
+               "obtenu (sec %d, coeff %d, addend %lld, octet %d)%s\n",
+               desc, sec, coeff, (long long)addend, (int)byte,
+               r.section, r.coeff, (long long)r.value, (int)r.byte,
+               r.ok ? "" : (" err: " + r.error).c_str());
+    } else ++g_pass;
+}
+
 int main() {
     printf("Tests évaluateur d'expressions\n");
-    g_syms["start"] = 0x8000;
+    g_syms["start"] = expr::Value{0x8000, expr::NoSection, 0, expr::Byte::Whole};
 
     // --- de base (préservé du comportement historique) ---
     // --- puissance (ADR 0008) ----------------------------------------------
@@ -109,6 +157,73 @@ int main() {
     chkErr("litteral vide n'a pas de valeur", "''");
     chkErr("litteral vide, delimiteur double", "\"\"");
     chkErr("litteral non termine", "'ab");
+
+    // --- Valeurs relocalisables (etage B, D2 / D3) --------------------------
+    // Toute l'affinite se teste ICI, avec un resolveur rendant des sections
+    // factices : pas un octet d'assembleur n'est necessaire.
+    printf("\n  valeur affine\n");
+    g_syms["debut"] = reloc(S1, 0);
+    g_syms["fin"]   = reloc(S1, 0x40);
+    g_syms["ailleurs"] = reloc(S2, 0x10);
+
+    // Un label seul est relocalisable ; l'addend est son offset dans la section.
+    chkReloc("un label seul est relocalisable", "debut", S1, 1, 0);
+    chkReloc("un label plus loin dans sa section", "fin", S1, 1, 0x40);
+    chkReloc("une adresse se deplace d'un nombre", "debut + 4", S1, 1, 4);
+    chkReloc("dans l'autre sens", "fin - 4", S1, 1, 0x3C);
+    chkReloc("le nombre peut venir en premier", "4 + debut", S1, 1, 4);
+    chkReloc("a travers des parentheses", "(debut) + 1", S1, 1, 1);
+    chkReloc("l'unaire plus ne change rien", "+debut", S1, 1, 0);
+
+    // Les coefficients s'annulent : mesurer une table reste un NOMBRE.
+    chkAbs("fin - debut, meme section, est absolu", "fin - debut", 0x40);
+    chkAbs("et il se calcule ensuite", "(fin - debut) * 2", 0x80);
+    chkAbs("meme decale", "(fin + 2) - (debut + 1)", 0x41);
+
+    // Ce qui n'a pas de sens est refuse, jamais calcule au hasard.
+    chkErr("label * 2 est refuse", "debut * 2");
+    chkErr("label / 2 est refuse", "debut / 2");
+    chkErr("label + label est refuse", "debut + fin");
+    chkErr("label ** 2 est refuse", "debut ** 2");
+    chkErr("une comparaison est refusee", "debut < fin");
+    chkErr("une fonction reelle est refusee", "sin(debut)");
+    chkErr("min() est refuse", "min(debut, 4)");
+    chkErrSays("deux sections differentes", "debut - ailleurs", "different sections");
+    chkErrSays("l'addition aussi", "debut + ailleurs", "different sections");
+    chkErrSays("une base citee deux fois", "debut + debut", "twice");
+    chkErrSays("une partie fractionnaire", "debut + 0.5", "fractional");
+
+    // L'unaire moins garde l'affinite ; c'est ce qui permet a `a - b` de
+    // s'annuler. Un -1 tout seul n'est pas emettable, mais ce n'est pas a
+    // l'evaluateur d'en juger.
+    chkReloc("l'unaire moins donne un coefficient -1", "-debut", S1, -1, 0);
+    chkAbs("et il s'annule contre un +1", "fin + -debut", 0x40);
+
+    // --- high() / low() -----------------------------------------------------
+    // Les seules fonctions qui acceptent une adresse inconnue : la reponse au
+    // refus de `>> 8` et de `& 255`.
+    chkReloc("high() d'une adresse", "high(debut)", S1, 1, 0, expr::Byte::High);
+    chkReloc("low() d'une adresse", "low(debut)", S1, 1, 0, expr::Byte::Low);
+    chkReloc("l'offset va DEDANS", "high(debut + 3)", S1, 1, 3, expr::Byte::High);
+    chkReloc("hi() en est une graphie", "hi(debut)", S1, 1, 0, expr::Byte::High);
+    chkReloc("lo() aussi", "lo(debut)", S1, 1, 0, expr::Byte::Low);
+    chkErrSays("rien ne se calcule apres", "high(debut) + 1", "high(label + 1)");
+    chkErrSays("ni deux fois de suite", "low(high(debut))", "high(label + 1)");
+    chkErr("high() d'une negation est refuse", "high(-debut)");
+
+    // Sur une valeur ABSOLUE, les quatre calculent comme avant.
+    chkAbs("high() absolu", "high(#1234)", 0x12);
+    chkAbs("low() absolu", "low(#1234)", 0x34);
+    chkAbs("high() se calcule ensuite", "high(#1234) + 1", 0x13);
+
+    // --- les deux idiomes refuses NOMMENT leur remplacant -------------------
+    chkErrSays("label >> 8 nomme high()", "debut >> 8", "high()");
+    chkErrSays("label & 255 nomme low()", "debut & 255", "low()");
+    chkErrSays("shr aussi", "debut shr 8", "high()");
+    chkErrSays("and aussi", "debut and 255", "low()");
+    // Les memes formes restent legales sur un nombre.
+    chkAbs("start >> 8 reste legal", "start >> 8", 0x80);
+    chkAbs("start & 255 reste legal", "start & 255", 0);
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
