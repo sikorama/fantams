@@ -39,7 +39,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B7 | Le fichier objet, aller-retour | B6 | **faite** |
 | B8 | Le multi-objet et l'exemple d'acceptation | B7 | **faite** |
 | B9 | Les accès à adresse littérale dans l'objet | B3 | **faite** |
-| B10 | L'ADR de clôture | B1, B2, B7, B8, B9 | à faire |
+| B10 | L'ADR de clôture | B1, B2, B7, B8, B9 | **faite** |
 
 Deux étapes ne sont pas dans la chaîne : **B1 est parallèle à B0**, et **B9 ne
 dépend que de B3**.
@@ -47,6 +47,17 @@ dépend que de B3**.
 Fin de l'étage B : B0 à B10 faites, les sept suites vertes plus celle du linkage,
 `docs/syntax.md` à jour, et l'exemple d'acceptation de B8 qui produit le binaire
 identique octet pour octet.
+
+**L'étage est fini.** Neuf suites vertes — les sept d'origine, plus `link_test`
+et `fo_test` — et le script d'acceptation, tous inscrits dans les **deux** listes
+de tests. `examples/separate_a.asm` + `separate_b.asm`, assemblées séparément
+puis linkées, produisent le même binaire que `separate_mono.asm`, octet pour
+octet.
+
+Une seule chose a changé pour un source d'aujourd'hui : un `org` placé **avant**
+une section ne place plus cette section, et un avertissement le dit. Tout le
+reste — binaires, `.sym`, `.sna`, diagnostics — est identique à ce qu'il était
+avant l'étage.
 
 ---
 
@@ -387,11 +398,17 @@ fermé l'étage A :
 3. le format objet est du **texte**, et un format compact est une décision de
    l'étage D.
 
-- [ ] L'ADR est écrit et porte les trois décisions
-- [ ] L'amendement à l'ADR 0019 a bien été écrit en B4
-- [ ] La correction du §10 sur l'encodeur a bien été écrite en B5
-- [ ] `docs/syntax.md` porte `public`, `extern`, `high` et `low`
-- [ ] `coutures-de-la-chaine.md` porte la liste de fragments à la place du flux d'octets unique
+- [x] L'ADR est écrit et porte les trois décisions — `adr/0027-la-relocalisation-et-le-fichier-objet.md`
+- [x] L'amendement à l'ADR 0019 a bien été écrit en B4
+- [x] La correction du §10 sur l'encodeur a bien été écrite en B5
+- [x] `docs/syntax.md` porte `public`, `extern`, `high` et `low`
+- [x] `coutures-de-la-chaine.md` porte la liste de fragments à la place du flux d'octets unique
+
+L'ADR reprend, en les tranchant, les notes « à relire en B10 » semées le long de
+l'étage. Deux d'entre elles n'y sont pas parce qu'elles appartiennent à un autre
+document : l'amendement à l'ADR 0019 vit dans l'ADR 0019, et la correction du
+§10 dans la spécification de la chaîne. Une décision écrite à la fin d'un étage
+est une décision que personne n'a lue au moment où elle comptait.
 
 ---
 

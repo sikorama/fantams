@@ -33,12 +33,23 @@ same.
 bytes onto a captured post-boot machine state, so `call &BB5A` works instead of
 jumping into zeros.
 
-**Mistakes caught at assembly time, without a linker.** `section name, "type"`
-says what a block of source *is* — code, data, or reserved space — and that is
-enough to refuse a write into a `"ro"` section, a section that outgrows its
-declared maximum, a jump table that outgrows its `assert_size`, and a byte emitted
-into reserved space. Three of those normally wait for a link step that this
-toolchain does not have yet.
+**Mistakes caught at assembly time.** `section name, "type"` says what a block of
+source *is* — code, data, or reserved space — and that is enough to refuse a
+write into a `"ro"` section, a section that outgrows its declared maximum, a jump
+table that outgrows its `assert_size`, and a byte emitted into reserved space.
+Three of those normally wait for a link step; here they are caught where they are
+written.
+
+**Separate assembly.** `fantams a.asm -o a.fo` assembles one unit into an object;
+`fantams a.fo b.fo -o prog.bin` links them. A section without an `org` of its own
+is placed by the linker, `public` and `extern` carry names across units, and
+`high()` / `low()` give the two bytes of an address nobody knows yet. Two units
+assembled separately and linked produce a binary **identical byte for byte** to
+the same program written in one file — `examples/separate_*.asm` is that proof,
+and `tests/accept_separate.sh` checks it.
+
+The `.fo` is **text**: a wrong object is read by eye, and writing it, reading it
+back and writing it again gives the same file.
 
 **A machine-readable symbol table.** `--sym` writes a CSV — one line per label
 and constant, with type, owning section, logical address, storage bank, and origin

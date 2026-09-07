@@ -273,8 +273,8 @@ couture, il change le type qui circule à travers celle d'`expr`.
 | étage | ce que la couture devient |
 |-------|---------------------------|
 | **A** | `Space` indexé par banque → `Section` nommée et typée. L'interface d'`assemble` change de *forme* mais pas de *taille*, et rien ne sort du module. Autonome, comme dit le §10. |
-| **B** | le type qui traverse `expr` change ; `Object` devient sérialisable. Le gros morceau, et le seul. |
-| **C1** | la couture `link` naît. Le travail dispersé dans `asm_main.cpp` et `bankOf()` migre derrière elle. |
+| **B** | le type qui traverse `expr` change ; `Object` porte une LISTE DE FRAGMENTS à la place d'un flux d'octets unique, et devient sérialisable. Le gros morceau, et le seul. **Fait.** |
+| **C1** | la couture `link` existe depuis B3 : c'est son INTÉRIEUR que C1 remplace — `placeRelocSections()`, aujourd'hui une concaténation, devient un calcul de fenêtres et de banques. Rien de son interface ne bouge. |
 | **C2** | rien ne bouge dans l'interface : des diagnostics de plus dans `Image`. C'est ce qui rend l'étage livrable séparément *sans* promesse anticipée. |
 | **D** | le *format* objet devient une couture réelle : deux producteurs. |
 
@@ -285,8 +285,10 @@ sans entrées-sorties — l'invariant de l'ADR 0001 tient sans effort
 supplémentaire.
 
 - `assemble` : source → `Object`. On assemble un texte et on inspecte des
-  sections, des symboles et des relocs. Aucun octet placé, donc aucun test qui se
-  casse quand un placement change.
+  sections, des **fragments**, des symboles et des relocs. Aucun octet placé,
+  donc aucun test qui se casse quand un placement change. Le flux d'octets unique
+  a disparu : chaque fragment porte SES octets et SA coverage, et c'est ce qui
+  permet à une section de n'avoir pas encore d'adresse.
 - `link` : `Object` fabriqué à la main → `Image`. **C'est le gain de test
   décisif** : vérifier un chevauchement inter-banques ou une faute de continuité
   ne demande plus d'écrire un source Z80 qui la provoque, mais deux structures de
