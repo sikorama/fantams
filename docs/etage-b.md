@@ -37,7 +37,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B5 | La relocalisation de bout en bout | B1, B3 | **faite** |
 | B6 | `PUBLIC` et `EXTERN` | B5 | **faite** |
 | B7 | Le fichier objet, aller-retour | B6 | **faite** |
-| B8 | Le multi-objet et l'exemple d'acceptation | B7 | à faire |
+| B8 | Le multi-objet et l'exemple d'acceptation | B7 | **faite** |
 | B9 | Les accès à adresse littérale dans l'objet | B3 | à faire |
 | B10 | L'ADR de clôture | B1, B2, B7, B8, B9 | à faire |
 
@@ -317,12 +317,35 @@ l'état que l'étage A a refusé trois fois.
 
 **Le critère de fin d'étage** est ici.
 
-- [ ] N objets sont linkés en un binaire
-- [ ] Une relocalisation qu'aucun objet ne résout est refusée, en nommant le symbole et l'objet qui le demande
-- [ ] Deux définitions du même symbole exporté sont refusées, en nommant les deux provenances
-- [ ] Deux fragments qui se recouvrent sont refusés
-- [ ] Un exemple d'acceptation dans `examples/` : deux sources portant une section relocalisable, un `PUBLIC` / `EXTERN`, un saut relatif inter-sections et un `high()`
-- [ ] Assemblées **séparément** puis linkées, elles produisent un binaire **identique octet pour octet** à celui de la version monolithique équivalente
+- [x] N objets sont linkés en un binaire
+- [x] Une relocalisation qu'aucun objet ne résout est refusée, en nommant le symbole et l'objet qui le demande
+- [x] Deux définitions du même symbole exporté sont refusées, en nommant les deux provenances
+- [x] Deux fragments qui se recouvrent sont refusés
+- [x] Un exemple d'acceptation dans `examples/` : deux sources portant une section relocalisable, un `PUBLIC` / `EXTERN`, un saut relatif inter-sections et un `high()`
+- [x] Assemblées **séparément** puis linkées, elles produisent un binaire **identique octet pour octet** à celui de la version monolithique équivalente
+
+Quatre décisions, à relire en B10 :
+
+- **Le recouvrement change de nature selon qu'il est interne ou non.** À
+  l'intérieur d'un fichier il reste un AVERTISSEMENT — réécrire est un idiome,
+  et l'auteur voit les deux lignes. Entre deux unités assemblées séparément
+  c'est un REFUS : personne ne l'a voulu, et personne ne le verrait. Le refus
+  **remplace** l'avertissement — deux diagnostics pour un seul fait en valent
+  zéro.
+- **Un seul point d'entrée.** Deux `run` sont refusés : en choisir un ferait
+  dépendre le point d'entrée de l'ordre des fichiers sur la ligne de commande,
+  ce qu'aucun auteur n'a écrit. Même raison pour le double `PUBLIC`.
+- **Les sections relocalisables se posent après le dernier octet absolu de TOUS
+  les objets**, dans l'ordre où les objets sont donnés puis, à l'intérieur,
+  dans l'ordre de déclaration. Les identifiants de section étant locaux à leur
+  objet, il y a une table de bases par objet et non une seule.
+- **Un source et des objets ne se mélangent pas** sur la ligne de commande. Cela
+  marcherait, mais cacherait quel fichier a été réassemblé — or la compilation
+  séparée vaut précisément par le fait qu'on SAIT ce qui a été refait.
+
+L'acceptation est un **script**, `tests/accept_separate.sh`, inscrit dans les
+deux listes : le fait porte sur le CLI et sur des fichiers, pas sur une
+structure en mémoire.
 
 ## B9 — les accès à adresse littérale dans l'objet
 

@@ -115,16 +115,87 @@ int main() {
         ok("deux fragments disjoints n'en produisent pas", img.warnings.empty());
     }
     {
-        // Le recouvrement se voit AUSSI entre deux objets, et chacun nomme son
-        // fichier : c'est tout l'interet de la table de sites concatenee.
+        // ENTRE DEUX OBJETS, c'est un REFUS et non un avertissement. A
+        // l'interieur d'un fichier, reecrire est un idiome que l'auteur voit ;
+        // entre deux unites assemblees separement, personne ne l'a voulu et
+        // personne ne le verrait. Et le refus REMPLACE l'avertissement : deux
+        // diagnostics pour un seul fait en valent zero.
         asmb::Object a = obj1(frag(0x8000, {1, 2}), "a.asm", 7);
+        a.name = "a.fo";
         asmb::Object b = obj1(frag(0x8000, {3, 4}), "b.asm", 9);
+        b.name = "b.fo";
         link::Image img = link::build({a, b});
-        ok("un recouvrement inter-objets est vu", img.warnings.size() == 1);
-        const std::string m = img.warnings.empty() ? std::string() : img.warnings[0].message;
-        ok("il nomme le fichier ecrase", m.find("a.asm:7") != std::string::npos);
-        ok("et il est rapporte sur l'ecrasant",
-           !img.warnings.empty() && img.warnings[0].file == "b.asm");
+        ok("un recouvrement inter-objets est refuse", !img.ok && img.errors.size() == 1);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("il nomme les DEUX objets",
+           m.find("'a.fo'") != std::string::npos && m.find("'b.fo'") != std::string::npos);
+        ok("et l'adresse en conflit", m.find("&8000") != std::string::npos);
+        ok("il est rapporte sur la ligne qui ecrase",
+           !img.errors.empty() && img.errors[0].file == "b.asm" && img.errors[0].line == 9);
+        ok("et il ne double pas l'avertissement de chevauchement", img.warnings.empty());
+    }
+    {
+        // Deux objets qui exportent le meme nom : refuse, en nommant LES DEUX
+        // provenances. En choisir un ferait dependre le programme de l'ordre
+        // des fichiers sur la ligne de commande.
+        asmb::Object a = obj1(frag(0x8000, {1}), "a.asm", 1);
+        a.name = "a.fo";
+        asmb::Symbol sa; sa.name = "shared"; sa.isPublic = true; sa.value = 0x8000; sa.frag = 0; sa.line = 3;
+        a.symbolTable.push_back(sa);
+        asmb::Object b = obj1(frag(0x9000, {2}), "b.asm", 1);
+        b.name = "b.fo";
+        asmb::Symbol sb; sb.name = "shared"; sb.isPublic = true; sb.value = 0x9000; sb.frag = 0; sb.line = 5;
+        b.symbolTable.push_back(sb);
+        link::Image img = link::build({a, b});
+        ok("un symbole exporte deux fois est refuse", !img.ok && img.errors.size() == 1);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et les deux provenances sont nommees",
+           m.find("'a.fo'") != std::string::npos && m.find("'b.fo'") != std::string::npos &&
+           m.find("shared") != std::string::npos);
+    }
+    {
+        // N objets se linkent, et un EXTERN se resout contre le PUBLIC d'un
+        // autre : c'est la compilation separee, reellement livree.
+        asmb::Object a;
+        a.name = "a.fo";
+        a.sites.push_back({"a.asm", 4});
+        asmb::Fragment fa = frag(0, {0xCD, 0, 0});
+        fa.placed = false; fa.relocSection = 0;
+        a.fragments.push_back(fa);
+        asmb::Section seca; seca.name = "code"; seca.id = 0; seca.relocatable = true;
+        a.sections.push_back(seca);
+        asmb::Reloc r; r.frag = 0; r.offset = 1; r.kind = asmb::Reloc::Abs16; r.symbol = "draw";
+        a.relocs.push_back(r);
+
+        asmb::Object b;
+        b.name = "b.fo";
+        b.sites.push_back({"b.asm", 3});
+        asmb::Fragment fb = frag(0, {0xC9});
+        fb.placed = false; fb.relocSection = 0;
+        b.fragments.push_back(fb);
+        asmb::Section secb; secb.name = "lib"; secb.id = 0; secb.relocatable = true;
+        b.sections.push_back(secb);
+        asmb::Symbol sd; sd.name = "draw"; sd.isPublic = true; sd.frag = 0; sd.offset = 0;
+        b.symbolTable.push_back(sd);
+
+        link::Image img = link::build({a, b});
+        ok("deux objets se linkent", img.ok);
+        okBytes("et l'EXTERN pointe sur le PUBLIC de l'autre", img.bin, {0xCD, 0x03, 0x00, 0xC9});
+    }
+    {
+        // Un EXTERN que personne n'exporte est refuse, en nommant le symbole ET
+        // l'objet qui le demande.
+        asmb::Object a;
+        a.name = "a.fo";
+        a.sites.push_back({"a.asm", 4});
+        a.fragments.push_back(frag(0x8000, {0xCD, 0, 0}));
+        asmb::Reloc r; r.frag = 0; r.offset = 1; r.kind = asmb::Reloc::Abs16; r.symbol = "draw";
+        a.relocs.push_back(r);
+        link::Image img = link::build({a});
+        ok("un EXTERN sans definition est refuse", !img.ok && img.errors.size() == 1);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("il nomme le symbole et l'objet demandeur",
+           m.find("'draw'") != std::string::npos && m.find("'a.fo'") != std::string::npos);
     }
 
     // --- Banques ------------------------------------------------------------

@@ -155,6 +155,10 @@ struct Entry {
 // appartiennent au linker (D6).
 struct Object {
     bool ok = true;
+    // D'OÙ il vient, pour que le linker puisse nommer l'unité fautive quand deux
+    // objets se disputent une adresse ou un symbole. Vide n'est pas une erreur :
+    // un objet fabriqué à la main dans un test n'a pas de fichier.
+    std::string name;
     // Les fragments, dans leur ordre d'écriture. Chacun nomme sa section.
     std::vector<Fragment> fragments;
     std::vector<Section> sections;

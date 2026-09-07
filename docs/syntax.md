@@ -167,6 +167,21 @@ names the faulty line.
 The `--sym` table is a **subset** of the `symbol` block: same names, plus the
 scope and the fragment each one is anchored in.
 
+**What the linker refuses across objects**, each naming both sides: an `extern`
+no object exports, the same name exported twice, two objects writing to the same
+address, and two objects declaring an entry point. Inside a *single* file,
+overwriting an address stays a warning — it is an idiom, and the author sees both
+lines; between separately assembled units nobody intended it and nobody would
+see it.
+
+A source and objects are not mixed on one command line. It would work, but it
+would hide which file was reassembled — and separate assembly is worth having
+precisely because you know what was rebuilt.
+
+`examples/separate_a.asm`, `separate_b.asm` and `separate_mono.asm` are the same
+program written twice: in two units, and in one. Assembled separately and linked,
+the two units produce a binary **identical byte for byte** to the monolithic one.
+
 ### Scope between objects
 
 | Directive | Effect |

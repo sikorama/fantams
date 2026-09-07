@@ -60,8 +60,9 @@ ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp pp.h expr.h z80.h keywo
 fantams: $(CORE) asm_main.cpp asm.h pp.h sym.h
 	$(CXX) $(CXXFLAGS) $(CORE) asm_main.cpp -o $@
 
-test: $(TESTS)
+test: $(TESTS) fantams
 	@for t in $(TESTS); do ./$$t || exit 1; done
+	@$(T)/accept_separate.sh
 
 clean:
 	rm -f $(TESTS) ppdump fantams

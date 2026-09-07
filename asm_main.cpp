@@ -182,10 +182,18 @@ int main(int argc, char **argv) {
             fprintf(stderr, "error: %s: %s\n", in.c_str(), err.c_str());
             return 1;
         }
+        obj.name = in;
         objects.push_back(std::move(obj));
     }
     if (sources.size() > 1) {
         fprintf(stderr, "error: un seul source .asm a la fois ; assemble-les separement en .fo puis linke-les\n");
+        return 2;
+    }
+    if (!sources.empty() && !objects.empty() && !wantFo) {
+        // Melanger un source et des objets marcherait, mais cacherait quel
+        // fichier a ete reassemble : la compilation separee vaut par le fait
+        // qu'on SAIT ce qui a ete refait.
+        fprintf(stderr, "error: melange d'un source et d'objets ; assemble le source en .fo d'abord\n");
         return 2;
     }
     if (sources.empty() && objects.empty()) {
@@ -269,6 +277,7 @@ int main(int argc, char **argv) {
     std::vector<asmb::SourceLine> lines;
     for (auto &l : pre.lines) lines.push_back({l.text, l.file, l.line, l.col0});
     out = asmb::assemble(lines);
+    out.name = path;
     objects.push_back(out);
     // PRINT n'est ni une erreur ni un avertissement : c'est ce que la source a
     // demande d'afficher. Sur stderr comme le reste, pour que stdout reste libre

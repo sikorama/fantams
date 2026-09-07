@@ -87,5 +87,13 @@ add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)
 add_test(NAME linker COMMAND link_test)
 add_test(NAME object_file COMMAND fo_test)
+# L'acceptation de l'etage B : deux sources assemblees separement puis linkees
+# donnent le meme binaire que la version monolithique. Un script, parce que le
+# fait porte sur le CLI et sur des FICHIERS.
+add_test(NAME accept_separate
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_separate.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_separate PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 add_test(NAME beautify COMMAND beautify_test)
 add_test(NAME sna COMMAND sna_test)

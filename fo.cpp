@@ -392,6 +392,9 @@ bool read(const std::string &text, asmb::Object &out, std::string &error) {
     // permet au linker de resoudre un `run <nom>`. Les VARIABLES n'y sont pas,
     // et n'y etaient deja pas — leur valeur n'est celle d'aucun point precis.
     for (const asmb::Symbol &s : out.symbolTable) out.symbols[s.name] = s.value;
+    // `name` n'est PAS dans le texte : c'est le chemin du fichier, que l'appelant
+    // connait deja, et l'y ecrire ferait dependre l'aller-retour de l'endroit ou
+    // le fichier est pose.
     out.ok = true;
     return true;
 }

@@ -14,6 +14,9 @@
 namespace link {
 namespace {
 
+// Le nom d'un objet tel qu'un diagnostic doit le citer.
+std::string obj_name(const asmb::Object &o) { return o.name; }
+
 // Un ESPACE de 16 K, indexé par banque, et non un tableau plat de 64 K : le
 // masquage 16 bits ne laisse aucun endroit où loger une banque (ADR 0006).
 // Alloué à la première écriture, si bien qu'une source qui n'écrit qu'en banque
@@ -51,6 +54,19 @@ struct Linker {
     // `EXTERN` se resolvent.
     std::map<std::string, int64_t> exported_;
     std::set<std::string> unresolved_;   // deja signales, pour ne le dire qu'une fois
+    // De quel objet vient l'octet pose a chaque adresse : c'est ce qui permet de
+    // distinguer une reecriture INTERNE — un idiome — d'un recouvrement entre
+    // deux unites assemblees separement, qui n'est jamais voulu.
+    std::map<int, std::vector<int>> owner_;
+    std::set<long long> clash_;          // paires d'objets deja signalees
+    int curObject_ = -1;
+    std::vector<std::string> objectNames_;
+
+    std::string objectLabel(int oi) const {
+        if (oi < 0 || (size_t)oi >= objectNames_.size() || objectNames_[(size_t)oi].empty())
+            return "object " + std::to_string(oi < 0 ? 0 : oi + 1);
+        return "'" + objectNames_[(size_t)oi] + "'";
+    }
     int baseOf(int section) const {
         if (section < 0) return 0;
         auto it = relocBase_.find(section);
@@ -118,27 +134,36 @@ struct Linker {
     // deux : la banque y suit l'adresse, et c'est au placement que cela se voit.
     // Où poser les sections que personne n'a placées. En B c'est trivial et
     // assumé : elles se suivent, dans leur ordre de déclaration, après le
-    // dernier octet absolu. C1 remplacera CE calcul — fenêtres, banques,
-    // configurations — sans toucher au reste.
-    std::map<int, int> placeRelocSections(const asmb::Object &obj) {
+    // dernier octet absolu — de TOUS les objets, sans quoi deux unités
+    // assemblées séparément se marcheraient dessus. C1 remplacera CE calcul —
+    // fenêtres, banques, configurations — sans toucher au reste.
+    //
+    // Les identifiants de section sont LOCAUX à leur objet : c'est pour cela
+    // qu'il y a une table de bases par objet, et non une seule.
+    std::vector<std::map<int, int>> placeRelocSections(const std::vector<asmb::Object> &objects) {
         int cursor = 0;
-        for (const asmb::Fragment &f : obj.fragments)
-            if (f.relocSection < 0 && !f.bytes.empty())
-                cursor = std::max(cursor, (f.addr + (int)f.bytes.size()) & 0xFFFF);
-        // Les tailles, par section : un fragment d'une section relocalisable
-        // porte son OFFSET dans `addr`, donc la section s'étend jusqu'au plus
-        // loin qu'un de ses fragments atteigne.
-        std::map<int, int> size;
-        for (const asmb::Fragment &f : obj.fragments)
-            if (f.relocSection >= 0)
-                size[f.relocSection] = std::max(size[f.relocSection], f.addr + (int)f.bytes.size());
-        std::map<int, int> base;
-        for (const asmb::Section &sec : obj.sections) {
-            if (!sec.relocatable || !size.count(sec.id)) continue;
-            base[sec.id] = cursor;
-            cursor += size[sec.id];
+        for (const asmb::Object &obj : objects)
+            for (const asmb::Fragment &f : obj.fragments)
+                if (f.relocSection < 0 && !f.bytes.empty())
+                    cursor = std::max(cursor, (f.addr + (int)f.bytes.size()) & 0xFFFF);
+        std::vector<std::map<int, int>> all;
+        for (const asmb::Object &obj : objects) {
+            // Les tailles, par section : un fragment d'une section relocalisable
+            // porte son OFFSET dans `addr`, donc la section s'étend jusqu'au plus
+            // loin qu'un de ses fragments atteigne.
+            std::map<int, int> size;
+            for (const asmb::Fragment &f : obj.fragments)
+                if (f.relocSection >= 0)
+                    size[f.relocSection] = std::max(size[f.relocSection], f.addr + (int)f.bytes.size());
+            std::map<int, int> base;
+            for (const asmb::Section &sec : obj.sections) {
+                if (!sec.relocatable || !size.count(sec.id)) continue;
+                base[sec.id] = cursor;
+                cursor += size[sec.id];
+            }
+            all.push_back(std::move(base));
         }
-        return base;
+        return all;
     }
 
     // Résoudre les relocalisations : écrire, dans les octets du fragment, la
@@ -164,7 +189,8 @@ struct Linker {
                     // noieraient les autres diagnostics.
                     if (unresolved_.insert(r.symbol).second)
                         diagAt(obj, f, r.offset,
-                               "unresolved EXTERN symbol '" + r.symbol + "': no object exports it");
+                               "unresolved EXTERN symbol '" + r.symbol + "': " +
+                               objectLabel(curObject_) + " asks for it, no object exports it");
                     continue;
                 }
                 target = it->second + r.addend;
@@ -232,6 +258,38 @@ struct Linker {
                 const uint16_t site = f.prov[k] == kUnknownSite
                                           ? kUnknownSite : (uint16_t)(f.prov[k] + siteBase);
                 Space &sp = spaces_[bank];
+                std::vector<int> &own = owner_[bank];
+                if (own.empty()) own.assign(0x4000, -1);
+                const int prevOwner = own[(size_t)off];
+                own[(size_t)off] = curObject_;
+                if (prevOwner >= 0 && prevOwner != curObject_) {
+                    // Deux objets qui se disputent une adresse : c'est un REFUS,
+                    // pas un avertissement. À l'intérieur d'un fichier, réécrire
+                    // est un idiome que l'auteur voit ; entre deux unités
+                    // assemblées séparément, personne ne l'a voulu et personne ne
+                    // le verrait.
+                    //
+                    // Une fois par PAIRE d'objets : deux unités qui se recouvrent
+                    // le font sur toute une plage, et une ligne par octet
+                    // noierait tout le reste. La première adresse suffit à aller
+                    // voir. Et le refus REMPLACE l'avertissement de
+                    // chevauchement : deux diagnostics pour un seul fait en
+                    // valent zéro.
+                    const long long pair = (long long)std::min(prevOwner, curObject_) * 4096 +
+                                           std::max(prevOwner, curObject_);
+                    if (clash_.insert(pair).second) {
+                        char at[16];
+                        snprintf(at, sizeof at, "&%04X", addr);
+                        flushOverlap();
+                        diagAt(obj, f, (int)k,
+                               std::string("two objects write to ") + at + ": " +
+                               objectLabel(prevOwner) + " and " + objectLabel(curObject_) +
+                               " — separately assembled units cannot share an address");
+                    }
+                    sp.prov[off] = site;
+                    sp.bytes[off] = f.bytes[k];
+                    continue;
+                }
                 noteWrite(bank, off, addr, site, sp);
                 sp.bytes[off] = f.bytes[k];
                 // lo_/hi_ ne decrivent que le binaire plat des 64 K de base.
@@ -282,15 +340,30 @@ Image build(const std::vector<asmb::Object> &objects) {
     // un recouvrement nommer la bonne ligne du bon fichier.
     // Trois temps, et l'ordre est force. D'abord : ou vont les sections que
     // personne n'a placees.
-    for (const asmb::Object &obj : objects) lk.bases_.push_back(lk.placeRelocSections(obj));
+    lk.bases_ = lk.placeRelocSections(objects);
 
     // Ensuite : ce que les objets EXPORTENT. Il faut que TOUTES les bases soient
     // decidees avant, sans quoi un `PUBLIC` d'une section relocalisable n'aurait
     // pas encore d'adresse a offrir.
+    for (const asmb::Object &obj : objects) lk.objectNames_.push_back(obj.name);
+    std::map<std::string, size_t> exportedBy;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         lk.relocBase_ = lk.bases_[oi];
-        for (const asmb::Symbol &s : objects[oi].symbolTable)
-            if (s.isPublic) lk.exported_[s.name] = lk.symbolAddress(objects[oi], s);
+        for (const asmb::Symbol &s : objects[oi].symbolTable) {
+            if (!s.isPublic) continue;
+            // Deux objets qui exportent le même nom : refusé, en nommant LES
+            // DEUX provenances. En choisir un silencieusement ferait dépendre le
+            // programme de l'ordre des fichiers sur la ligne de commande.
+            auto prev = exportedBy.find(s.name);
+            if (prev != exportedBy.end()) {
+                lk.out.errors.push_back({obj_name(objects[oi]), s.line,
+                    "symbol '" + s.name + "' is exported twice: by " +
+                    lk.objectLabel((int)prev->second) + " and by " + lk.objectLabel((int)oi)});
+                continue;
+            }
+            exportedBy[s.name] = oi;
+            lk.exported_[s.name] = lk.symbolAddress(objects[oi], s);
+        }
     }
 
     // Enfin : ecrire dans les octets ce que ces decisions rendent calculable, et
@@ -300,6 +373,7 @@ Image build(const std::vector<asmb::Object> &objects) {
         const uint16_t base = (uint16_t)lk.sites_.size();
         for (const asmb::Site &s : obj.sites) lk.sites_.push_back(s);
         lk.relocBase_ = lk.bases_[oi];
+        lk.curObject_ = (int)oi;
         asmb::Object placed = obj;
         lk.resolve(placed.fragments, obj);
         lk.place(placed, base);
@@ -323,6 +397,7 @@ Image build(const std::vector<asmb::Object> &objects) {
     // nom qu'il n'a pas résolu a déjà produit son erreur, à sa ligne. En dire
     // une seconde ici ne ferait que doubler le diagnostic.
     lk.out.runAddress = lk.out.loadAddress;
+    int entryFrom = -1;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const asmb::Object &obj = objects[oi];
         if (!obj.entry.has) continue;
@@ -330,9 +405,17 @@ Image build(const std::vector<asmb::Object> &objects) {
         int run = (int)obj.entry.value;
         auto it = obj.symbols.find(obj.entry.name);
         if (!obj.entry.name.empty() && it != obj.symbols.end()) run = (int)it->second;
+        // Deux `run` : refusé. En choisir un ferait dépendre le point d'entrée
+        // de l'ordre des fichiers, ce qu'aucun auteur n'a écrit.
+        if (entryFrom >= 0) {
+            lk.out.errors.push_back({obj.entry.file, obj.entry.line,
+                "two objects declare an entry point: " + lk.objectLabel(entryFrom) +
+                " and " + lk.objectLabel((int)oi)});
+            continue;
+        }
+        entryFrom = (int)oi;
         lk.out.runAddress = (uint16_t)run;
         lk.warnRunDisplaced(obj, run);
-        break;   // un seul point d'entrée ; B8 dira quoi faire de deux
     }
 
     // La table des symboles, avec des adresses DÉFINITIVES. C'est ici qu'elle se
