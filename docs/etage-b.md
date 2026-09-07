@@ -31,7 +31,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 |---|-------|-----------|------|
 | B0 | Une seule table de section *(préfacteur)* | — | **faite** |
 | B1 | La valeur affine dans l'évaluateur d'expressions | — | **faite** |
-| B2 | Le fragment | B0 | à faire |
+| B2 | Le fragment | B0 | **faite** |
 | B3 | La couture du linker | B2 | à faire |
 | B4 | La table des symboles produite par le linker | B3 | à faire |
 | B5 | La relocalisation de bout en bout | B1, B3 | à faire |
@@ -104,11 +104,28 @@ section sans `org` est un fragment unique. C'est ce qui donne à « relocalisabl
 une définition sans nouvelle syntaxe, et cela ne change rien pour l'auteur d'une
 source d'aujourd'hui — qui porte un `org` dans chaque section.
 
-- [ ] Les octets vont dans (fragment courant, offset courant), et non plus à une banque dérivée de l'adresse
-- [ ] Un fragment porte sa propre coverage, allouée à la première écriture
-- [ ] Une section porte une liste de fragments, chacun connaissant son adresse absolue si un `org` la lui a donnée
-- [ ] Le plafond de section, `"uninit"`, `BOUNDARY` et `ASSERT_SIZE` se comportent à l'identique
-- [ ] Les sept suites vertes, **sans une ligne de test modifiée** — c'est la preuve de la migration
+- [x] Les octets vont dans (fragment courant, offset courant), et non plus à une banque dérivée de l'adresse
+- [x] Un fragment porte sa propre coverage, allouée à la première écriture
+- [x] Une section porte une liste de fragments, chacun connaissant son adresse absolue si un `org` la lui a donnée
+- [x] Le plafond de section, `"uninit"`, `BOUNDARY` et `ASSERT_SIZE` se comportent à l'identique
+- [x] Les sept suites vertes, **sans une ligne de test modifiée** — c'est la preuve de la migration
+
+Trois choses à savoir sur ce qui a été fait, à relire en B10 :
+
+- **Le placement est rassemblé, pas encore déplacé.** `placeFragments()` rejoue
+  les fragments dans leur ordre de création, y dérive les banques et y voit les
+  recouvrements. Rejouer dans cet ordre rejoue les écritures dans leur ordre
+  d'origine — c'est ce qui laisse les diagnostics de chevauchement identiques.
+  Cette fonction est le bloc que **B3 emporte entier** derrière la couture.
+- **Un fragment est contigu, croissant, et ne dépasse pas l'espace adressable.**
+  Ce qui en sort ouvre un autre fragment. Sans cette règle, un `org` déplacé
+  rencontré dans un bloc mesuré donnait un offset négatif.
+- **Un seul `ds` ne peut plus dépasser `#10000` octets** — la seule chose que
+  l'utilisateur voit changer, et elle n'était pas prévue. Hors `"uninit"`, `ds`
+  **émet** ses octets : `ds #7FFFFFF0` en émettait deux milliards qui
+  s'écrasaient en silence, et faisait désormais grossir un fragment jusqu'à
+  l'épuisement mémoire. La limite est écrite plutôt qu'à découvrir, et vaut
+  mieux que le silence d'avant. `docs/syntax.md` la porte.
 
 ## B3 — la couture du linker
 

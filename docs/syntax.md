@@ -163,6 +163,10 @@ parameter named `p`.
 `ds` accepts **multiple pairs** on one line: `ds 3,1,3,2` reserves three
 bytes with value 1 then three with value 2.
 
+A single `ds` cannot exceed **`#10000`** bytes — the whole address space. Past
+that the bytes would come back over themselves, so it is refused rather than
+wrapped in silence.
+
 ## 7. Placement
 
 | Directive | Effect |

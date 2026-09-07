@@ -87,6 +87,7 @@ public:
         symInfo_.clear();
 
         pass_ = 1; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
+        frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
         badNames_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
@@ -107,11 +108,13 @@ public:
         }
 
         pass_ = 2; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0;
+        frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
         displacedRanges_.clear(); currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
         for (auto &kv : sections_) kv.second.size = 0;   // les octets ne se comptent qu'en passe 2
         runPass(lines);
+        placeFragments();   // le travail de linker qui attend sa couture (B3)
         flushOverlap();   // le dernier chevauchement accumulé doit sortir avant les diagnostics
         warnRunDisplaced();
         checkSectionSizes();
@@ -343,21 +346,31 @@ public:
         // recouvrement — le bloc sera reellement assemble juste apres.
         if (pass_ == 2 && !measuring_) {
             countSectionBytes(1);
-            // L'octet va a l'adresse de RANGEMENT ; l'adresse logique, elle, ne
-            // sert qu'aux labels et aux expressions. Hors bloc deplace les deux
-            // coincident, `displacement_` valant zero.
-            const int st = (pc_ + displacement_) & 0xFFFF;
-            const int bank = bankOf(st);
-            const int off = st & 0x3FFF;   // ADR 0005 : l'offset est le masquage
-            Space &sp = spaceFor(bank);
-            noteWrite(bank, off, st, sp);
-            sp.bytes[off] = b;
-            // lo_/hi_ ne decrivent que le binaire plat des 64 K de base.
-            if (bank < 4) {
-                const int flat = bank * 0x4000 + off;
-                if (flat < lo_) lo_ = flat;
-                if (flat + 1 > hi_) hi_ = flat + 1;
+            // L'octet va dans (FRAGMENT courant, OFFSET courant) — plus dans une
+            // banque derivee de son adresse. La banque, elle, se derive au
+            // PLACEMENT, et c'est la seule chose qui ait besoin d'une adresse.
+            const int st = pc_ + displacement_;
+            // Un fragment est CONTIGU, CROISSANT, et ne depasse pas l'espace
+            // adressable. Ce qui sort de la est un AUTRE bloc, et il y a deux
+            // facons d'y arriver : un `org` deplace rencontre dans un bloc
+            // mesure, qui laisse `displacement_` derriere lui alors que `pc_`
+            // est revenu en arriere, et un `ds` demesure. Sans cette regle, le
+            // premier cas ferait un offset negatif et le second un trou d'un
+            // mega-octet.
+            if (curFrag_ >= 0) {
+                const long long off = (long long)st - fragBase_;
+                if (off < (long long)frags_[curFrag_].bytes.size() || off >= 0x10000) closeFragment();
             }
+            Fragment &f = openFragment();
+            const size_t off = (size_t)(st - fragBase_);
+            if (off >= f.bytes.size()) {
+                // Un `ds` a l'interieur d'un fragment ne le coupe pas : il y
+                // reserve un trou, que la coverage laisse a zero.
+                f.bytes.resize(off + 1, 0);
+                f.prov.resize(off + 1, 0);
+            }
+            f.bytes[off] = b;
+            f.prov[off] = siteId();
             if (displacement_) noteDisplaced(pc_ & 0xFFFF);
         }
         ++pc_;
@@ -367,15 +380,59 @@ public:
     int64_t eval(const std::string &e) override { return evalExpr(e); }
 
 private:
-    // --- Le modele memoire (ADR 0006) --------------------------------------
-    // Une collection d'espaces de 16 K indexee par banque, et non un tableau plat
-    // de 64 K : le masquage 16 bits ne laissait aucun endroit ou loger une banque.
-    // Les banques 0..3 forment les 64 K de base, les suivantes l'extension.
+    // --- Le FRAGMENT, unite ou vont les octets (etage B, D1) ---------------
+    // Un fragment est un bloc d'octets CONTIGU, ouvert par `section` ou par
+    // `org`, portant SA coverage — allouee a la premiere ecriture — appartenant
+    // a une section, et connaissant son adresse de rangement si un `org` la lui
+    // a donnee. Une section sans `org` est un fragment unique ; une section avec
+    // `org` porte un fragment par `org`.
     //
-    // Chaque espace porte SA coverage : elle est allouee a la premiere ecriture,
-    // si bien qu'un source qui n'ecrit qu'en banque 4 ne paie pas les 64 K de base.
-    // Les banques 0..7 : les 64 K de base plus l'extension du 6128, soit ce qu'un
-    // dump plat de 128 K sait porter.
+    // C'est la generalisation du modele memoire de l'ADR 0006 : « un bloc
+    // d'octets avec sa coverage, alloue a la premiere ecriture, indexe par un
+    // entier dont on ne prejuge pas le sens ». Le fragment est ce bloc dont la
+    // cle cesse d'etre une banque — et c'est ce qui donnera a « relocalisable »
+    // une definition sans nouvelle syntaxe.
+    // `section` et `placed` ne sont encore lus par personne : ce sont les deux
+    // faits que B5 demandera pour decider qu'un fragment est relocalisable, et
+    // les consigner ici est tout l'interet de faire B2 avant.
+    struct Fragment {
+        std::string section;         // vide : des octets hors de toute section
+        bool placed = false;         // un `org` lui a donne son adresse
+        int addr = 0;                // adresse de RANGEMENT de son octet 0
+        int bank = -1;               // banque imposee par un prefixe `org b<n>:`, sinon -1
+        std::vector<uint8_t> bytes;
+        std::vector<uint16_t> prov;  // parallele a `bytes` : 0 = trou reserve, jamais ecrit
+    };
+    std::vector<Fragment> frags_;
+    int curFrag_ = -1;    // index dans `frags_`, -1 tant qu'aucun octet n'est ecrit
+    int fragBase_ = 0;    // adresse de rangement de l'octet 0 du fragment courant
+    bool sawOrg_ = false; // un `org` a-t-il decide de l'adresse ou l'on est ?
+
+    // Un `org` ou un `section` FERME le fragment courant ; le suivant s'ouvrira
+    // a la premiere ecriture, et pas avant — c'est ce qui evite de payer un
+    // fragment vide pour une section qui n'emet rien.
+    void closeFragment() { curFrag_ = -1; }
+
+    Fragment &openFragment() {
+        if (curFrag_ >= 0) return frags_[curFrag_];
+        fragBase_ = pc_ + displacement_;
+        Fragment f;
+        f.section = curSection_;
+        f.placed = sawOrg_;
+        f.addr = fragBase_;
+        f.bank = orgBank_;
+        curFrag_ = (int)frags_.size();
+        frags_.push_back(std::move(f));
+        if (!curSection_.empty()) sections_[curSection_].frags.push_back(curFrag_);
+        return frags_[curFrag_];
+    }
+
+    // --- Le PLACEMENT ------------------------------------------------------
+    // Poser les fragments a leur adresse, en deriver les banques, et voir les
+    // recouvrements. Tout ce bloc est du travail de LINKER : il vit encore ici
+    // parce que la couture n'existe pas, et il partira entier en B3. Rejouer les
+    // fragments dans leur ordre de creation rejoue les ecritures dans leur ordre
+    // d'origine — c'est ce qui laisse les recouvrements identiques.
     static const int kFlatBanks = 8;
 
     struct Space {
@@ -385,14 +442,35 @@ private:
     };
     std::map<int, Space> spaces_;
 
-    Space &spaceFor(int bank) { return spaces_[bank]; }
-
-    // La banque ou ranger l'octet d'adresse logique `pc`.
+    // La banque ou ranger l'octet d'adresse `addr` dans le fragment `f`.
     //
-    // Sans prefixe rencontre, elle SUIT l'adresse — c'est le comportement
-    // historique, et il reste juste : les 64 K de base sont les banques 0..3.
-    // Apres un « org b<n>: », elle est REMANENTE jusqu'au prochain ORG (ADR 0005).
-    int bankOf(int pc) const { return orgBank_ < 0 ? ((pc >> 14) & 3) : orgBank_; }
+    // Sans prefixe, elle SUIT l'adresse — c'est le comportement historique, et il
+    // reste juste : les 64 K de base sont les banques 0..3. Un « org b<n>: » la
+    // fixe pour tout le fragment, la remanence etant portee par `orgBank_` au
+    // moment de l'ouverture (ADR 0005).
+    static int bankOf(const Fragment &f, int addr) {
+        return f.bank < 0 ? ((addr >> 14) & 3) : f.bank;
+    }
+
+    void placeFragments() {
+        for (const Fragment &f : frags_) {
+            for (size_t k = 0; k < f.bytes.size(); ++k) {
+                if (f.prov[k] == 0) continue;   // un trou reserve ne se range pas
+                const int addr = (f.addr + (int)k) & 0xFFFF;
+                const int bank = bankOf(f, addr);
+                const int off = addr & 0x3FFF;   // ADR 0005 : l'offset est le masquage
+                Space &sp = spaces_[bank];
+                noteWrite(bank, off, addr, f.prov[k], sp);
+                sp.bytes[off] = f.bytes[k];
+                // lo_/hi_ ne decrivent que le binaire plat des 64 K de base.
+                if (bank < 4) {
+                    const int flat = bank * 0x4000 + off;
+                    if (flat < lo_) lo_ = flat;
+                    if (flat + 1 > hi_) hi_ = flat + 1;
+                }
+            }
+        }
+    }
 
     // --- coverage et provenance (ADR 0012) ---------------------------------
     // prov_[a] : 0 = jamais écrit, sinon 1+index dans sites_, ou kUnknownSite.
@@ -450,8 +528,7 @@ private:
     // produit) ; `addr` est l'adresse de RANGEMENT, celle ou les octets s'ecrasent
     // reellement et donc celle que le diagnostic doit nommer. Hors bloc deplace
     // elle est aussi l'adresse logique.
-    void noteWrite(int bank, int off, int addr, Space &sp) {
-        uint16_t site = siteId();
+    void noteWrite(int bank, int off, int addr, uint16_t site, Space &sp) {
         uint16_t prev = sp.prov[off];
         sp.prov[off] = site;
         if (prev == 0 || prev == site) return;   // écrire sur du vierge, ou se relire soi-même
@@ -498,6 +575,7 @@ private:
         int64_t max = 0;          // le plafond, fige a la premiere declaration
         SourceLine site;          // la ligne qui porte le plafond, pour lui attribuer son erreur
         int64_t size = 0;         // octets emis, cumules sur les reouvertures
+        std::vector<int> frags;   // ses fragments, dans l'ordre, par index dans `frags_` (lu a partir de B5)
     };
     std::map<std::string, SectionInfo> sections_;   // nom -> ce qu'on en sait
 
@@ -570,7 +648,7 @@ private:
             // constante, qui n'habite nulle part, n'en porte pas.
             s.section = curSection_;
             const int st = (pc_ + displacement_) & 0xFFFF;
-            s.bank = bankOf(st);
+            s.bank = orgBank_ < 0 ? ((st >> 14) & 3) : orgBank_;
             s.store = st;
         }
         symInfo_[qn] = s;
@@ -786,6 +864,7 @@ private:
         }
         pc_ = (int)evalExpr(logical);
         displacement_ = displaced ? (int)evalExpr(storage) - pc_ : 0;
+        sawOrg_ = true;
     }
 
     // Le plafond de taille declare (§4.1). Il suit la meme regle que le type :
@@ -865,6 +944,14 @@ private:
         for (size_t p = 0; p < parts.size(); p += 2) {
             int64_t n = evalExpr(parts[p]);
             if (!evalOk_) { structErr("DS: size not resolvable in pass 1"); return; }
+            // Reserver plus que l'espace adressable n'a pas de sens : les octets
+            // reviendraient se recouvrir eux-memes. La limite est ECRITE plutot
+            // qu'a decouvrir — sans elle, « ds #7FFFFFF0 » emettait deux
+            // milliards d'octets qui s'ecrasaient en silence.
+            if (n > 0x10000) {
+                structErr("DS: " + std::to_string(n) + " bytes do not fit the 64K address space");
+                return;
+            }
             int64_t fill = (p + 1 < parts.size()) ? evalExpr(parts[p + 1]) : 0;
             // En "uninit", `ds` est exactement son usage — reserver — et c'est la
             // seule directive qui y soit permise. L'octet de remplissage n'a alors
@@ -942,7 +1029,9 @@ private:
         if (W0 == "BUILDSNA" || W0 == "BANKSET") { if (!label.empty()) defineLabel(label); return; }
 
         // directives d'émission / contrôle
-        if (W0 == "ORG") { doOrg(after0); if (!label.empty()) defineLabel(label); return; }
+        // Un `org` ouvre un fragment : ce qui suit ne prolonge plus le bloc
+        // d'octets precedent, il en commence un autre, a une autre adresse.
+        if (W0 == "ORG") { doOrg(after0); if (!measuring_) closeFragment(); if (!label.empty()) defineLabel(label); return; }
         if (W0 == "RUN") { run_ = (int)evalExpr(after0); hasRun_ = true; runFile_ = cur_.file; runLine_ = cur_.line; if (!label.empty()) defineLabel(label); return; }
         if (W0 == "ALIGN") {
             int64_t n = evalExpr(after0);
@@ -971,6 +1060,7 @@ private:
                 return;
             }
             curSection_ = trim(parts[0]);
+            if (!measuring_) closeFragment();   // les octets qui suivent appartiennent a une autre section
             // Une section se ROUVRE — c'est ainsi qu'on alterne code et donnees —
             // mais son type est fixe a la premiere declaration. Le laisser changer
             // desarmerait le controle d'ecriture en "ro" en silence. C'est le TYPE
