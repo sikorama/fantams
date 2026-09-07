@@ -38,7 +38,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B6 | `PUBLIC` et `EXTERN` | B5 | **faite** |
 | B7 | Le fichier objet, aller-retour | B6 | **faite** |
 | B8 | Le multi-objet et l'exemple d'acceptation | B7 | **faite** |
-| B9 | Les accès à adresse littérale dans l'objet | B3 | à faire |
+| B9 | Les accès à adresse littérale dans l'objet | B3 | **faite** |
 | B10 | L'ADR de clôture | B1, B2, B7, B8, B9 | à faire |
 
 Deux étapes ne sont pas dans la chaîne : **B1 est parallèle à B0**, et **B9 ne
@@ -358,10 +358,20 @@ L'intérêt de le faire ici est de valider le format objet sur un bloc qui n'est
 des octets ni des symboles. Les lectures et les ports demandent un parcours
 d'encodeur que rien ne consomme avant C2 ; les ajouter tard est indolore.
 
-- [ ] Chaque écriture à adresse littérale est consignée avec sa section, son offset et son sens
-- [ ] Un accès dont l'adresse est calculée n'y figure pas — la limite est écrite, pas découverte
-- [ ] Le bloc survit à l'aller-retour du `.fo`
-- [ ] Le refus d'écriture en `"ro"` de l'étage A se comporte à l'identique
+- [x] Chaque écriture à adresse littérale est consignée avec sa section, son offset et son sens
+- [x] Un accès dont l'adresse est calculée n'y figure pas — la limite est écrite, pas découverte
+- [x] Le bloc survit à l'aller-retour du `.fo`
+- [x] Le refus d'écriture en `"ro"` de l'étage A se comporte à l'identique
+
+Deux détails, à relire en B10 :
+
+- **L'offset consigné est celui du CHAMP D'ADRESSE**, pas du premier octet de
+  l'instruction — le même que celui de la relocalisation `Abs16` qui l'accompagne
+  quand la cible est relocalisable. Dans le `.fo`, les deux lignes se lisent donc
+  comme parlant du même champ.
+- **L'adresse visée se dit comme une relocalisation** : une base de section plus
+  un décalage, un symbole `EXTERN`, ou un nombre tout court quand elle est
+  absolue. Une seule grammaire pour « ce qui manque » et « ce qui est visé ».
 
 ## B10 — l'ADR de clôture
 

@@ -94,7 +94,7 @@ public:
         warnedReloc_.clear();
         publicNames_.clear(); externId_.clear(); externName_.clear();
         publicSites_.clear(); externSites_.clear(); nextId_ = 0;
-        relocs_.clear();
+        relocs_.clear(); accesses_.clear();
         curSectionId_ = expr::NoSection;
         // AVANT les deux passes : la premiere ligne d'une section doit deja
         // savoir si son `pc_` compte en adresses ou en offsets de section.
@@ -116,7 +116,7 @@ public:
 
         pass_ = 2; pc_ = 0; orgBank_ = -1; displacement_ = 0;
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
-        relocs_.clear(); curSectionId_ = expr::NoSection;
+        relocs_.clear(); accesses_.clear(); curSectionId_ = expr::NoSection;
         currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
@@ -166,6 +166,7 @@ public:
             o.sections.push_back(std::move(sec));
         }
         o.relocs = relocs_;
+        o.accesses = accesses_;
         o.sites = sites_;
         o.entry = entry_;
         return o;
@@ -231,9 +232,15 @@ public:
     // n'y figure pas et ne sera jamais attrape — c'est la limite du controle,
     // et elle est ecrite plutot qu'a decouvrir (§4.6).
     void checkReadOnlyWrite(const z80::Instruction &in) {
+        writePending_ = false;
         if (pass_ != 2) return;   // les symboles avant ne sont connus qu'ici
         if (in.mnemo != z80::Mnemo::LD) return;
         if (in.a.kind != z80::Operand::Kind::MemImm) return;
+        // Une ECRITURE a adresse LITTERALE : c'est le quatrieme bloc du §4.6.
+        // Le drapeau est consomme par la premiere evaluation d'adresse que
+        // l'encodeur demandera — celle de `nn`, justement — ce qui evite de
+        // reevaluer l'expression ici et d'en doubler les diagnostics.
+        writePending_ = true;
         for (const std::string &id : identifiers(in.a.expr)) {
             auto it = symInfo_.find(qualify(id));
             if (it == symInfo_.end() || it->second.section.empty()) continue;
@@ -379,6 +386,7 @@ public:
     int64_t evalAddr(const std::string &e, bool &relocatable) override {
         const int64_t v = evalExpr(e);
         relocatable = evalOk_ && lastValue_.relocatable();
+        if (writePending_) { writePending_ = false; noteAccess(); }
         return v;
     }
     // La distance d'un saut relatif n'est connue ICI que si la cible et
@@ -416,6 +424,23 @@ private:
     // les consigner ici est tout l'interet de faire B2 avant.
     std::vector<Fragment> frags_;
     std::vector<Reloc> relocs_;
+    std::vector<Access> accesses_;
+    bool writePending_ = false;   // l'instruction en cours ECRIT a une adresse litterale
+
+    // Consigner, sans interpreter. `lastValue_` est celle de l'adresse visee,
+    // qui vient d'etre evaluee.
+    void noteAccess() {
+        if (pass_ != 2 || measuring_ || !evalOk_) return;
+        Access a;
+        a.offset = (int)fragmentHere();
+        a.frag = curFrag_;
+        a.kind = Access::MemWrite;
+        auto ex = externName_.find(lastValue_.section);
+        if (ex != externName_.end()) a.symbol = ex->second;
+        else a.section = lastValue_.section;
+        a.addend = (int64_t)std::llround(lastValue_.real);
+        accesses_.push_back(std::move(a));
+    }
 
     // Une relocalisation a l'adresse COURANTE : elle couvre les octets qui
     // commencent au prochain `emit`, ce que `fragmentHere()` designe deja.

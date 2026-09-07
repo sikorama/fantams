@@ -92,6 +92,9 @@ int main() {
     roundTrip("plus de seize octets par ligne",
               "  org #8000\n  db 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20\n");
     roundTrip("un chemin a espace et virgule", "  org #8000\n  nop\n");
+    roundTrip("des acces a adresse litterale",
+              "  section code,\"ro\"\n  ld (tbl),a\n  ld (#C000),hl\n"
+              "  section data,\"rw\"\ntbl:\n  db 0\n");
 
     // --- Ce que le texte doit contenir, et qu'un humain doit y lire ----------
     {
@@ -143,6 +146,43 @@ int main() {
     bad("une taille de section illisible",
         std::string(kHead) + "section \"a\" id=0 abs size=oups\n", 2);
 
+    // --- Les acces a adresse litterale (§4.6, bloc 4) ------------------------
+    {
+        const asmb::Object a = asmb::assembleText(
+            "  org #8000\n  ld (#C000),a\n  ld hl,#C000\n  ld (hl),a\n", "t.asm");
+        ok("une ecriture a adresse litterale est consignee", a.accesses.size() == 1);
+        ok("avec son fragment, son offset et son sens",
+           a.accesses.size() == 1 && a.accesses[0].frag == 0 &&
+           a.accesses[0].offset == 1 && a.accesses[0].kind == asmb::Access::MemWrite &&
+           a.accesses[0].addend == 0xC000);
+        // La limite est ECRITE, pas a decouvrir : `ld (hl),a` n'y figure pas et
+        // ne sera jamais attrape.
+        ok("un acces dont l'adresse est calculee n'y figure pas", a.accesses.size() == 1);
+    }
+    {
+        // Une LECTURE n'y figure pas : l'etage B ne consigne que les ecritures,
+        // le sens que le controle en "ro" produit deja.
+        const asmb::Object a = asmb::assembleText("  org #8000\n  ld a,(#C000)\n", "t.asm");
+        ok("une lecture n'y figure pas (C2 s'en chargera)", a.accesses.empty());
+    }
+    {
+        // Vers une section relocalisable, l'acces dit ce que le linker dira :
+        // une base de section plus un decalage.
+        const asmb::Object a = asmb::assembleText(
+            "  section code,\"ro\"\n  ld (tbl+2),a\n  section data,\"rw\"\ntbl:\n  ds 4\n", "t.asm");
+        ok("il cite la section visee et son decalage",
+           a.accesses.size() == 1 && a.accesses[0].section >= 0 && a.accesses[0].addend == 2);
+    }
+    {
+        const asmb::Object a = asmb::assembleText(
+            "  extern port\n  section code,\"ro\"\n  ld (port),a\n", "t.asm");
+        ok("ou le symbole EXTERN vise",
+           a.accesses.size() == 1 && a.accesses[0].symbol == "port");
+        const std::string t = fo::write(a);
+        ok("et le bloc se lit dans le texte",
+           t.find("access frag=0 offset=0x1 write symbol=\"port\"") != std::string::npos);
+    }
+
     // --- Un objet relu est le meme objet -------------------------------------
     printf("\n  fidelite\n");
     {
@@ -154,6 +194,7 @@ int main() {
         ok("il se relit", fo::read(fo::write(a), b, err));
         ok("les fragments sont tous la", a.fragments.size() == b.fragments.size());
         ok("les relocalisations aussi", a.relocs.size() == b.relocs.size());
+        ok("les acces litteraux aussi", a.accesses.size() == b.accesses.size());
         ok("les sites aussi", a.sites.size() == b.sites.size());
         ok("les sections aussi", a.sections.size() == b.sections.size());
         ok("les symboles aussi", a.symbolTable.size() == b.symbolTable.size());

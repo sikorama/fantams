@@ -133,6 +133,33 @@ struct Reloc {
     int64_t addend = 0;      // ce qui s'ajoute à cette base
 };
 
+// Un ACCÈS À ADRESSE LITTÉRALE (§4.6, bloc 4) : un `ld (nn),a` dont l'adresse
+// est écrite en clair, avec l'endroit d'où il part et ce qu'il vise.
+//
+// L'assembleur ne l'INTERPRÈTE pas — il ne connaît aucune machine — il
+// CONSIGNE. C'est l'étage C2, qui connaîtra le profil, qui y lira une écriture
+// dans une plage commutant par accident. Même partage des rôles que la
+// relocalisation : l'assembleur note, le linker tranche.
+//
+// À l'étage B, seules les ÉCRITURES mémoire y figurent : c'est le sens que le
+// contrôle d'écriture en `"ro"` produit déjà et teste déjà. Les lectures et les
+// ports demandent un parcours d'encodeur que rien ne consomme avant C2.
+//
+// Un `ld (hl),a` dont HL est calculé n'y figure pas et ne sera **jamais**
+// attrapé. C'est la limite du contrôle, et elle est ÉCRITE plutôt qu'à
+// découvrir.
+struct Access {
+    enum Kind { MemWrite };
+    int frag = -1;           // le fragment qui porte l'instruction
+    int offset = 0;          // son offset dans ce fragment
+    Kind kind = MemWrite;
+    // L'adresse VISÉE, dite comme une relocalisation : une base de section plus
+    // un décalage, ou un nombre tout court quand elle est absolue.
+    int section = -1;
+    std::string symbol;
+    int64_t addend = 0;
+};
+
 // Le POINT D'ENTRÉE que `run` a demandé.
 //
 // C'est un NOM, résolu par le linker : dans une section relocalisable, un label
@@ -163,6 +190,7 @@ struct Object {
     std::vector<Fragment> fragments;
     std::vector<Section> sections;
     std::vector<Reloc> relocs;
+    std::vector<Access> accesses;
     std::vector<Site> sites;     // les lignes citées par `Fragment::prov`
     Entry entry;
     std::map<std::string, int64_t> symbols;

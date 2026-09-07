@@ -193,6 +193,15 @@ std::string write(const asmb::Object &obj) {
         o << " addend=" << hex(r.addend) << '\n';
     }
 
+    o << "\n; les acces a adresse litterale (§4.6, bloc 4). Consignes, pas\n"
+         "; interpretes : c'est C2 qui y lira une ecriture qui commute par accident.\n";
+    for (const asmb::Access &a : obj.accesses) {
+        o << "access frag=" << a.frag << " offset=" << hex(a.offset) << " write";
+        if (!a.symbol.empty()) o << " symbol=" << quoted(a.symbol);
+        else o << " section=" << a.section;
+        o << " addend=" << hex(a.addend) << '\n';
+    }
+
     o << "\n; les symboles. La table de --sym en est un sous-ensemble.\n";
     for (const asmb::Symbol &s : obj.symbolTable) {
         o << "symbol " << quoted(s.name) << (s.isConst ? " const" : " label")
@@ -357,6 +366,17 @@ bool read(const std::string &text, asmb::Object &out, std::string &error) {
             }
             if (!kindSeen) return fail("reloc: expected one of abs16, rel8, high8, low8");
             out.relocs.push_back(std::move(r));
+        } else if (w == "access") {
+            asmb::Access a;
+            a.frag = (int)num("frag", -1, ok);
+            a.offset = (int)num("offset", 0, ok);
+            a.section = (int)num("section", -1, ok);
+            a.addend = num("addend", 0, ok);
+            if (!ok) return fail("access: a numeric field is unreadable");
+            if (kv.count("symbol")) a.symbol = kv["symbol"];
+            if (!has("write")) return fail("access: expected 'write' (reads and ports come with C2)");
+            a.kind = asmb::Access::MemWrite;
+            out.accesses.push_back(std::move(a));
         } else if (w == "symbol") {
             if (t.size() < 2) return fail("symbol: expected a name");
             asmb::Symbol s;
