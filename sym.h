@@ -1,6 +1,6 @@
 // sym.h - Table des symboles exportable (ADR 0019)
 //
-// Rend l'`asmb::Output` d'un assemblage en un CSV d'une ligne par symbole,
+// Rend l'`asmb::Object` d'un assemblage en un CSV d'une ligne par symbole,
 // destine a un desassembleur ou a un emulateur — l'equivalent de ce que l'assembleur de référence
 // ecrit avec son `.sym`, plus le type et la PROVENANCE.
 //
@@ -46,6 +46,6 @@ namespace sym {
 // L'en-tete est une VRAIE ligne CSV, non commentee : les noms de colonnes SONT le
 // numero de version. Un lecteur qui voit apparaitre une colonne le sait, et
 // `csv.reader` n'a pas de preambule a sauter.
-std::string format(const asmb::Output &o);
+std::string format(const asmb::Object &o);
 
 } // namespace sym

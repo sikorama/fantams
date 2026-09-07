@@ -38,6 +38,7 @@
 //          canonise deja PUIS deroule : deux sorties differentes.
 #include "asm.h"
 #include "beautify.h"
+#include "link.h"
 #include "pp.h"
 #include "sna.h"
 #include "sym.h"
@@ -214,14 +215,22 @@ int main(int argc, char **argv) {
     // 2) assembler (2 passes) on the flat text
     std::vector<asmb::SourceLine> lines;
     for (auto &l : pre.lines) lines.push_back({l.text, l.file, l.line, l.col0});
-    asmb::Output out = asmb::assemble(lines);
+    asmb::Object out = asmb::assemble(lines);
     // PRINT n'est ni une erreur ni un avertissement : c'est ce que la source a
     // demande d'afficher. Sur stderr comme le reste, pour que stdout reste libre
     // (l'option -E y ecrit la source deroulee).
     for (auto &p : out.prints) fprintf(stderr, "%s:%d: %s\n", p.file.c_str(), p.line, p.message.c_str());
+
+    // 3) linkage : l'assembleur a rendu un OBJET, le linker en fait une IMAGE.
+    // C'est le seul chemin par lequel un octet sort d'ici, et c'est lui qui
+    // decide des banques, des adresses et du recouvrement — le CLI n'en derive
+    // plus aucune.
+    const link::Image img = link::build({out});
     for (auto &w : out.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
-    if (!out.ok) {
+    for (auto &w : img.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
+    if (!out.ok || !img.ok) {
         for (auto &e : out.errors) fprintf(stderr, "%s:%d: error: %s\n", e.file.c_str(), e.line, e.message.c_str());
+        for (auto &e : img.errors) fprintf(stderr, "%s:%d: error: %s\n", e.file.c_str(), e.line, e.message.c_str());
         return 1;
     }
 
@@ -244,7 +253,7 @@ int main(int argc, char **argv) {
     // les banques, plutot que d'ecrire un fichier ampute qui aurait l'air correct.
     int dumpKo = 64;
     std::string tooHigh;
-    for (int b : out.banksWritten) {
+    for (int b : img.banksWritten) {
         if (b >= 8) tooHigh += (tooHigh.empty() ? "" : ", ") + std::to_string(b);
         else if (b >= 4) dumpKo = 128;
     }
@@ -255,20 +264,25 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // 3) write out : .sna -> snapshot ; otherwise raw binary
+    // 4) write out : .sna -> snapshot ; otherwise raw binary
     bool asSna = wantSna;
     std::vector<uint8_t> data;
     if (asSna) {
-        sna::Options o; o.pc = out.runAddress;
-        data = sna::build(out.image, o, hasBase ? &base : nullptr,
-                          hasBase ? &out.coverage : nullptr, dumpKo);
+        // Le backend de snapshot n'est pas touche a cet etage : il prend une
+        // image plate et une coverage separee, et c'est le linker qui les lui
+        // reconstitue. Sa signature est une dette reelle, mais c'est celle du
+        // builder.
+        const link::Flat flat = link::flatten(img);
+        sna::Options o; o.pc = img.runAddress;
+        data = sna::build(flat.bytes, o, hasBase ? &base : nullptr,
+                          hasBase ? &flat.covered : nullptr, dumpKo);
     } else {
         // Le binaire brut est un intervalle contigu d'adresses logiques : il n'a
         // pas de place pour dire « et ces octets-la sont en banque 5 ».
         if (dumpKo > 64)
             fprintf(stderr, "warning: banks beyond the base 64K were written; a raw binary cannot "
                             "carry them — export a .sna to keep them\n");
-        data = out.bin;
+        data = img.bin;
     }
     std::ofstream f(outPath, std::ios::binary);
     if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
@@ -278,10 +292,10 @@ int main(int argc, char **argv) {
             fprintf(stderr, "base: %s (CPCType %d)\n", basePath.c_str(), (int)base.cpcType);
         else
             fprintf(stderr, "base: aucune (hors du code assemble, la memoire vaut zero)\n");
-        fprintf(stderr, "%s: snapshot (%zu bytes), PC=0x%04X\n", outPath.c_str(), data.size(), out.runAddress);
+        fprintf(stderr, "%s: snapshot (%zu bytes), PC=0x%04X\n", outPath.c_str(), data.size(), img.runAddress);
     }
     else
-        fprintf(stderr, "%s: %zu bytes @ 0x%04X\n", outPath.c_str(), data.size(), out.loadAddress);
+        fprintf(stderr, "%s: %zu bytes @ 0x%04X\n", outPath.c_str(), data.size(), img.loadAddress);
 
     if (showSyms)
         for (auto &s : out.symbols)

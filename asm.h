@@ -53,11 +53,72 @@ struct Symbol {
     int line = 0;           // ligne dans ce fichier
 };
 
-struct Output {
+// La LIGNE qui a écrit un octet. `Fragment::prov` y renvoie, et c'est ce qui
+// permet au linker de nommer les deux lignes en conflit dans un recouvrement.
+struct Site {
+    std::string file;
+    int line = 0;
+};
+
+// Un FRAGMENT : un bloc d'octets CONTIGU, appartenant à une section, et
+// connaissant son adresse de rangement si un `org` la lui a donnée (D1). C'est
+// l'unité que le linker place.
+//
+// `prov` est PARALLÈLE à `bytes` et porte les deux faits à la fois : zéro = cet
+// octet n'a pas été écrit — un trou réservé par `ds` — et non nul = il l'a été,
+// par la ligne que `Object::sites[prov - 1]` donne. La coverage de l'ADR 0012
+// est exactement « prov non nul » : elle voyage donc AVEC ses octets, dans le
+// même objet, et non dans un tableau parallèle que l'appelant doit penser à
+// passer.
+struct Fragment {
+    std::string section;     // vide : des octets hors de toute section
+    bool placed = false;     // un `org` lui a donné son adresse
+    int addr = 0;            // adresse de RANGEMENT de son octet 0
+    int logical = 0;         // adresse LOGIQUE de son octet 0 ; = addr hors bloc déplacé
+    int bank = -1;           // banque imposée par un préfixe `org b<n>:`, sinon -1
+    std::vector<uint8_t> bytes;
+    std::vector<uint16_t> prov;
+};
+
+// Ce qu'on sait d'une section (§4.1). Ses fragments se retrouvent par leur nom
+// dans `Object::fragments`, où ils gardent leur ORDRE D'ÉCRITURE — l'ordre que
+// le placement rejoue, et sans lequel deux recouvrements ne se diagnostiquent
+// plus dans le même ordre.
+struct Section {
+    std::string name;
+    std::string kind;        // "RO" / "RW" / "UNINIT"
+    bool hasMax = false;
+    int64_t max = 0;
+    int64_t size = 0;        // octets émis, cumulés sur les réouvertures
+};
+
+// Le POINT D'ENTRÉE que `run` a demandé.
+//
+// C'est un NOM, résolu par le linker : dans une section relocalisable, un label
+// n'a pas encore d'adresse, et l'assembleur n'a rien à en dire. `run` accepte
+// aussi une adresse littérale — « run #100 » — qui n'a personne à résoudre :
+// elle voyage alors telle quelle, `name` vide. Les deux formes existent parce
+// que la directive accepte une expression, pas parce qu'il y a deux mécanismes.
+struct Entry {
+    bool has = false;
+    std::string name;        // vide quand `run` portait autre chose qu'un nom
+    int64_t value = 0;       // l'adresse, quand `name` est vide
+    std::string file;        // la ligne du `run`, pour lui attribuer son diagnostic
+    int line = 0;
+};
+
+// L'OBJET rendu par l'assembleur : ce qu'une unité de compilation contient, et
+// rien de ce qu'il faudrait décider pour la ranger. Aucune image, aucune
+// coverage parallèle, aucune banque écrite, aucun binaire, aucune adresse de
+// chargement ni d'exécution — ce sont six décisions de PLACEMENT, et elles
+// appartiennent au linker (D6).
+struct Object {
     bool ok = true;
-    std::vector<uint8_t> bin;                 // octets [loadAddress .. loadAddress+size)
-    uint16_t loadAddress = 0;                  // 1re adresse écrite
-    uint16_t runAddress = 0;                    // point d'entrée (directive RUN, sinon = loadAddress)
+    // Les fragments, dans leur ordre d'écriture. Chacun nomme sa section.
+    std::vector<Fragment> fragments;
+    std::vector<Section> sections;
+    std::vector<Site> sites;     // les lignes citées par `Fragment::prov`
+    Entry entry;
     std::map<std::string, int64_t> symbols;
     // La table exportable (ADR 0019) : les memes noms que `symbols`, moins les
     // variables, plus le type et la provenance. Rendue dans l'ordre des noms ;
@@ -66,23 +127,9 @@ struct Output {
     std::vector<Diagnostic> errors;
     std::vector<Diagnostic> warnings;          // bonnes pratiques (non bloquant) : label sans ':', instruction en colonne 1...
     std::vector<Diagnostic> prints;            // sorties de PRINT (diagnostic de build, ni erreur ni avertissement)
-    // Image mémoire des banques 0..7, à plat : l'octet (banque b, offset o) est en
-    // `b * 0x4000 + o`. Les banques 0..3 sont les 64 K de base, 4..7 l'extension
-    // du 6128. 131 072 octets, quelle que soit l'étendue réellement écrite.
-    std::vector<uint8_t> image;
-    // coverage : 65536 octets, non nul là où le source a RÉELLEMENT écrit. Elle
-    // distingue « le source a écrit 0x00 ici » de « le source n'a rien écrit
-    // ici » — distinction que l'image seule ne porte pas, et sans laquelle le
-    // backend ne saurait pas quels octets d'une base laisser en place (ADR 0012).
-    std::vector<uint8_t> coverage;
-    // Les banques où le source a RÉELLEMENT écrit, triées. L'appelant en tire
-    // deux décisions que l'assembleur n'a pas à prendre : la taille du dump —
-    // 64 K si tout tient dans les banques 0..3, 128 K sinon — et le refus des
-    // banques >= 8, qu'aucun dump plat ne peut porter (ADR 0006).
-    std::vector<int> banksWritten;
 };
 
-Output assemble(const std::vector<SourceLine> &lines);
-Output assembleText(const std::string &source, const std::string &file);
+Object assemble(const std::vector<SourceLine> &lines);
+Object assembleText(const std::string &source, const std::string &file);
 
 } // namespace asmb

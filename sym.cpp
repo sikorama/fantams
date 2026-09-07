@@ -35,7 +35,7 @@ std::string csv(const std::string &s) {
 
 } // namespace
 
-std::string format(const asmb::Output &o) {
+std::string format(const asmb::Object &o) {
     std::vector<asmb::Symbol> rows;
     rows.reserve(o.symbolTable.size());
     for (const auto &s : o.symbolTable) rows.push_back(s);

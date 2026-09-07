@@ -78,15 +78,13 @@ std::string formatValue(int64_t v, const std::string &fmt) {
 // ---------------------------------------------------------------------------
 class Assembler : public z80::IAsmContext {
 public:
-    Output run(const std::vector<SourceLine> &lines) {
-        spaces_.clear();
+    Object run(const std::vector<SourceLine> &lines) {
         sites_.clear();
-        ov_.active = false;
         symbols_.clear();
         ciIndex_.clear();
         symInfo_.clear();
 
-        pass_ = 1; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
+        pass_ = 1; pc_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
         badNames_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
@@ -107,19 +105,16 @@ public:
             if (!changed) break;
         }
 
-        pass_ = 2; pc_ = 0; lo_ = 0x10000; hi_ = 0; orgBank_ = -1; displacement_ = 0;
+        pass_ = 2; pc_ = 0; orgBank_ = -1; displacement_ = 0;
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
-        displacedRanges_.clear(); currentGlobal_.clear();
+        currentGlobal_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
         sizeAsserts_.clear();
         for (auto &kv : sections_) kv.second.size = 0;   // les octets ne se comptent qu'en passe 2
         runPass(lines);
-        placeFragments();   // le travail de linker qui attend sa couture (B3)
-        flushOverlap();   // le dernier chevauchement accumulé doit sortir avant les diagnostics
-        warnRunDisplaced();
         checkSectionSizes();
 
-        Output o;
+        Object o;
         // Output.symbols reste entier : c'est une table d'ADRESSES destinee aux
         // outils et aux humains. La precision reelle n'a d'interet qu'a
         // l'interieur du calcul d'expressions.
@@ -137,46 +132,19 @@ public:
         o.warnings = warnings_;
         o.prints = prints_;
         o.ok = errors_.empty();
-        // L'image plate est RECONSTITUEE depuis les banques de base, pour que
-        // `sna::build` et le harnais de comparaison restent inchangés tant que le
-        // format de sortie est plat.
-        o.image.assign(kFlatBanks * 0x4000, 0);
-        o.coverage.assign(kFlatBanks * 0x4000, 0);
-        for (const auto &kv : spaces_) {
-            o.banksWritten.push_back(kv.first);
-            if (kv.first >= kFlatBanks) continue;   // hors de portée d'un dump plat
-            const int base = kv.first * 0x4000;
-            for (int k = 0; k < 0x4000; ++k) {
-                o.image[base + k] = kv.second.bytes[k];
-                o.coverage[base + k] = kv.second.prov[k] ? 1 : 0;
-            }
+        o.fragments = std::move(frags_);
+        for (const auto &kv : sections_) {
+            Section sec;
+            sec.name = kv.first;
+            sec.kind = kv.second.kind;
+            sec.hasMax = kv.second.hasMax;
+            sec.max = kv.second.max;
+            sec.size = kv.second.size;
+            o.sections.push_back(std::move(sec));
         }
-        if (hi_ > lo_) {
-            o.loadAddress = (uint16_t)lo_;
-            o.bin.assign(o.image.begin() + lo_, o.image.begin() + hi_);
-        }
-        o.runAddress = hasRun_ ? (uint16_t)run_ : o.loadAddress;
+        o.sites = sites_;
+        o.entry = entry_;
         return o;
-    }
-
-    // Un RUN qui tombe dans un bloc deplace fait demarrer le PC sur de la memoire
-    // vide : les octets sont ranges ailleurs, en attente d'etre recopies. Le PC
-    // reste celui que la source a demande — « run label » doit valoir ce que vaut
-    // « label », sinon plus rien n'est previsible — mais le silence laisserait une
-    // panne a l'execution sans diagnostic, la meme raison qui fait avertir sur une
-    // banque remanente (ADR 0005).
-    void warnRunDisplaced() {
-        if (!hasRun_) return;
-        const int r = run_ & 0xFFFF;
-        for (const auto &g : displacedRanges_) {
-            if (r < g.first || r >= g.second) continue;
-            char msg[192];
-            snprintf(msg, sizeof msg,
-                     "RUN &%04X falls inside a displaced ORG block: the bytes are stored elsewhere, "
-                     "so nothing is at this address until a loader copies them there", r);
-            warnings_.push_back({runFile_, runLine_, msg});
-            return;
-        }
     }
 
     // Une passe complete sur les lignes. L'index est EXPLICITE — et non un
@@ -371,7 +339,6 @@ public:
             }
             f.bytes[off] = b;
             f.prov[off] = siteId();
-            if (displacement_) noteDisplaced(pc_ & 0xFFFF);
         }
         ++pc_;
     }
@@ -395,14 +362,6 @@ private:
     // `section` et `placed` ne sont encore lus par personne : ce sont les deux
     // faits que B5 demandera pour decider qu'un fragment est relocalisable, et
     // les consigner ici est tout l'interet de faire B2 avant.
-    struct Fragment {
-        std::string section;         // vide : des octets hors de toute section
-        bool placed = false;         // un `org` lui a donne son adresse
-        int addr = 0;                // adresse de RANGEMENT de son octet 0
-        int bank = -1;               // banque imposee par un prefixe `org b<n>:`, sinon -1
-        std::vector<uint8_t> bytes;
-        std::vector<uint16_t> prov;  // parallele a `bytes` : 0 = trou reserve, jamais ecrit
-    };
     std::vector<Fragment> frags_;
     int curFrag_ = -1;    // index dans `frags_`, -1 tant qu'aucun octet n'est ecrit
     int fragBase_ = 0;    // adresse de rangement de l'octet 0 du fragment courant
@@ -420,6 +379,7 @@ private:
         f.section = curSection_;
         f.placed = sawOrg_;
         f.addr = fragBase_;
+        f.logical = pc_;
         f.bank = orgBank_;
         curFrag_ = (int)frags_.size();
         frags_.push_back(std::move(f));
@@ -427,68 +387,18 @@ private:
         return frags_[curFrag_];
     }
 
-    // --- Le PLACEMENT ------------------------------------------------------
-    // Poser les fragments a leur adresse, en deriver les banques, et voir les
-    // recouvrements. Tout ce bloc est du travail de LINKER : il vit encore ici
-    // parce que la couture n'existe pas, et il partira entier en B3. Rejouer les
-    // fragments dans leur ordre de creation rejoue les ecritures dans leur ordre
-    // d'origine — c'est ce qui laisse les recouvrements identiques.
-    static const int kFlatBanks = 8;
-
-    struct Space {
-        std::vector<uint8_t> bytes;
-        std::vector<uint16_t> prov;   // 0 = jamais ecrit, sinon 1+index dans sites_
-        Space() : bytes(0x4000, 0), prov(0x4000, 0) {}
-    };
-    std::map<int, Space> spaces_;
-
-    // La banque ou ranger l'octet d'adresse `addr` dans le fragment `f`.
+    // --- provenance et coverage (ADR 0012) ---------------------------------
+    // `Fragment::prov[k]` : 0 = jamais ecrit, sinon 1+index dans `sites_`, ou
+    // kUnknownSite. La coverage EST « prov non nul » : elle voyage avec ses
+    // octets, dans le fragment, et non dans un tableau parallele.
     //
-    // Sans prefixe, elle SUIT l'adresse — c'est le comportement historique, et il
-    // reste juste : les 64 K de base sont les banques 0..3. Un « org b<n>: » la
-    // fixe pour tout le fragment, la remanence etant portee par `orgBank_` au
-    // moment de l'ouverture (ADR 0005).
-    static int bankOf(const Fragment &f, int addr) {
-        return f.bank < 0 ? ((addr >> 14) & 3) : f.bank;
-    }
-
-    void placeFragments() {
-        for (const Fragment &f : frags_) {
-            for (size_t k = 0; k < f.bytes.size(); ++k) {
-                if (f.prov[k] == 0) continue;   // un trou reserve ne se range pas
-                const int addr = (f.addr + (int)k) & 0xFFFF;
-                const int bank = bankOf(f, addr);
-                const int off = addr & 0x3FFF;   // ADR 0005 : l'offset est le masquage
-                Space &sp = spaces_[bank];
-                noteWrite(bank, off, addr, f.prov[k], sp);
-                sp.bytes[off] = f.bytes[k];
-                // lo_/hi_ ne decrivent que le binaire plat des 64 K de base.
-                if (bank < 4) {
-                    const int flat = bank * 0x4000 + off;
-                    if (flat < lo_) lo_ = flat;
-                    if (flat + 1 > hi_) hi_ = flat + 1;
-                }
-            }
-        }
-    }
-
-    // --- coverage et provenance (ADR 0012) ---------------------------------
-    // prov_[a] : 0 = jamais écrit, sinon 1+index dans sites_, ou kUnknownSite.
-    // Deux octets par octet d'image, aujourd'hui sur une image plate de 64K ; le
-    // jour où l'image devient une collection d'espaces d'adressage (ADR 0006),
-    // c'est l'espace qui portera sa coverage, allouée à la première écriture.
+    // Ce qui se FAIT de ces sites — nommer les deux lignes d'un recouvrement —
+    // appartient au linker : c'est lui qui pose les octets, donc lui qui les voit
+    // s'ecraser. L'assembleur ne fait que consigner qui a ecrit quoi.
     static const uint16_t kUnknownSite = 0xFFFF;
-
-    struct Site { std::string file; int line; };
-    // Un chevauchement en cours d'accumulation : les octets consécutifs qui
-    // partagent le même couple (site écrasé, site écrasant) ne donnent qu'un
-    // seul avertissement. C'est cette coalescence, et non un plafond, qui
-    // empêche un bloc réécrit de produire un avertissement par octet.
-    struct Overlap { bool active = false; int bank = 0, start = 0, end = 0; uint16_t prev = 0, cur = 0; };
 
     std::vector<Site> sites_;
     int curSite_ = -1;      // site de la ligne courante, alloué à sa 1re écriture
-    Overlap ov_;
 
     // Alloue paresseusement le site de la ligne courante : seules les lignes qui
     // émettent des octets entrent dans la table.
@@ -500,51 +410,6 @@ private:
         return (uint16_t)curSite_;
     }
 
-    std::string siteLabel(uint16_t id) const {
-        if (id == 0 || id == kUnknownSite) return "site inconnu";
-        const Site &s = sites_[id - 1];
-        return s.file + ":" + std::to_string(s.line);
-    }
-
-    void flushOverlap() {
-        if (!ov_.active) return;
-        ov_.active = false;
-        char range[64];
-        if (ov_.end - ov_.start == 1) snprintf(range, sizeof range, "&%04X", ov_.start);
-        else snprintf(range, sizeof range, "&%04X-&%04X", ov_.start, ov_.end - 1);
-        std::string where = (ov_.cur == 0 || ov_.cur == kUnknownSite)
-                                ? std::string() : sites_[ov_.cur - 1].file;
-        int line = (ov_.cur == 0 || ov_.cur == kUnknownSite) ? 0 : sites_[ov_.cur - 1].line;
-        // La banque n'est nommee que si elle sort des 64 K de base : la mentionner
-        // partout ferait du bruit sur l'immense majorite des sources, qui n'en ont
-        // qu'une notion implicite.
-        char bk[24] = "";
-        if (ov_.bank >= 4) snprintf(bk, sizeof bk, "banque %d, ", ov_.bank);
-        warnings_.push_back({where, line,
-            std::string("chevauchement : ") + bk + range + " deja ecrit par " + siteLabel(ov_.prev)});
-    }
-
-    // `off` localise l'octet DANS sa banque (c'est la que le recouvrement se
-    // produit) ; `addr` est l'adresse de RANGEMENT, celle ou les octets s'ecrasent
-    // reellement et donc celle que le diagnostic doit nommer. Hors bloc deplace
-    // elle est aussi l'adresse logique.
-    void noteWrite(int bank, int off, int addr, uint16_t site, Space &sp) {
-        uint16_t prev = sp.prov[off];
-        sp.prov[off] = site;
-        if (prev == 0 || prev == site) return;   // écrire sur du vierge, ou se relire soi-même
-        if (ov_.active && ov_.bank == bank && ov_.end == addr &&
-            ov_.prev == prev && ov_.cur == site) { ov_.end = addr + 1; return; }
-        flushOverlap();
-        ov_ = {true, bank, addr, addr + 1, prev, site};
-    }
-
-    void noteDisplaced(int a) {
-        if (!displacedRanges_.empty() && displacedRanges_.back().second == a) {
-            displacedRanges_.back().second = a + 1;
-            return;
-        }
-        displacedRanges_.push_back({a, a + 1});
-    }
 
     std::vector<Diagnostic> prints_;
     double lastReal_ = 0;
@@ -559,7 +424,7 @@ private:
     std::set<std::string> badNames_;          // noms refusés déjà signalés (ADR 0015)
     std::vector<Diagnostic> errors_;
     std::vector<Diagnostic> warnings_;
-    int pass_ = 1, pc_ = 0, lo_ = 0, hi_ = 0;
+    int pass_ = 1, pc_ = 0;
     // Frontiere demandee par un BOUNDARY que `runPass` n'a pas encore traite, et
     // profondeur de mesure (0 = parcours reel).
     int64_t pendingBoundary_ = 0;
@@ -601,9 +466,7 @@ private:
     int displacement_ = 0;
     // Les plages d'adresses LOGIQUES couvertes par un bloc deplace. Elles seules
     // permettent de dire qu'un RUN tombe sur du code qui n'est pas encore la.
-    std::vector<std::pair<int, int>> displacedRanges_;
-    int run_ = 0; bool hasRun_ = false;
-    std::string runFile_; int runLine_ = 0;   // provenance du RUN, pour son avertissement
+    Entry entry_;
     SourceLine cur_;
     bool evalOk_ = true;
     // dernier label "global" (non local) rencontré : contexte de qualification des
@@ -1032,7 +895,26 @@ private:
         // Un `org` ouvre un fragment : ce qui suit ne prolonge plus le bloc
         // d'octets precedent, il en commence un autre, a une autre adresse.
         if (W0 == "ORG") { doOrg(after0); if (!measuring_) closeFragment(); if (!label.empty()) defineLabel(label); return; }
-        if (W0 == "RUN") { run_ = (int)evalExpr(after0); hasRun_ = true; runFile_ = cur_.file; runLine_ = cur_.line; if (!label.empty()) defineLabel(label); return; }
+        // Le point d'entree ne se RESOUT pas ici : c'est une decision de
+        // placement, et elle appartient au linker (D6). L'assembleur consigne le
+        // NOM quand `run` en porte un — c'est ce nom que le linker resoudra le
+        // jour ou la section sera relocalisable — et l'adresse quand il porte
+        // autre chose. L'expression est quand meme evaluee, pour que son refus
+        // sorte a SA ligne et non deux maillons plus loin.
+        if (W0 == "RUN") {
+            entry_.value = evalExpr(after0);
+            entry_.has = true;
+            entry_.file = cur_.file;
+            entry_.line = cur_.line;
+            entry_.name.clear();
+            const std::string one = trim(after0);
+            if (evalOk_ && kw::isIdentifier(one)) {
+                const std::string qn = qualify(one);
+                if (symbols_.count(qn)) entry_.name = qn;
+            }
+            if (!label.empty()) defineLabel(label);
+            return;
+        }
         if (W0 == "ALIGN") {
             int64_t n = evalExpr(after0);
             if (n > 0) pc_ = (int)((pc_ + n - 1) & ~(n - 1));
@@ -1258,12 +1140,12 @@ private:
 
 } // namespace
 
-Output assemble(const std::vector<SourceLine> &lines) {
+Object assemble(const std::vector<SourceLine> &lines) {
     Assembler a;
     return a.run(lines);
 }
 
-Output assembleText(const std::string &source, const std::string &file) {
+Object assembleText(const std::string &source, const std::string &file) {
     std::vector<SourceLine> lines;
     std::string cur; int ln = 1;
     for (size_t i = 0; i <= source.size(); ++i) {

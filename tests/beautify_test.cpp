@@ -7,6 +7,7 @@
 // Le reste vérifie chaque règle et, surtout, ce que la mise en forme REFUSE de
 // toucher.
 #include "beautify.h"
+#include "link.h"
 #include "pp.h"
 
 #include "asm.h"
@@ -16,6 +17,28 @@
 #include <vector>
 
 static int g_pass = 0, g_fail = 0;
+
+// Assembler PUIS linker : ces tests comparent des OCTETS a des ADRESSES, et
+// l'adresse est desormais une decision du linker. Meme helper que dans
+// asm_test, reduit a ce qui s'y lit.
+struct Built {
+    bool ok = true;
+    std::vector<uint8_t> bin;
+    uint16_t loadAddress = 0;
+    std::vector<asmb::Diagnostic> warnings;
+};
+
+static Built buildAsm(const std::string &src, const char *file) {
+    Built b;
+    const asmb::Object obj = asmb::assembleText(src, file);
+    const link::Image img = link::build({obj});
+    b.ok = obj.ok && img.ok;
+    b.bin = img.bin;
+    b.loadAddress = img.loadAddress;
+    b.warnings = obj.warnings;
+    for (const auto &w : img.warnings) b.warnings.push_back(w);
+    return b;
+}
 
 static std::string show(const std::string &s) {
     std::string o;
@@ -56,9 +79,9 @@ static size_t countLines(const std::string &s) {
 
 // Invariant n°1 : les octets assemblés sont identiques avant et après.
 static void sameBytes(const char *desc, const std::string &src) {
-    asmb::Output a = asmb::assembleText(src, "t.asm");
+    Built a = buildAsm(src, "t.asm");
     std::string b = beautify::apply(src, kw::Phase::Assembly);
-    asmb::Output o = asmb::assembleText(b, "t.asm");
+    Built o = buildAsm(b, "t.asm");
     okc(desc, a.ok && o.ok && a.bin == o.bin && a.loadAddress == o.loadAddress);
     if (a.ok && o.ok && a.bin != o.bin)
         printf("    (%zu octets contre %zu)\n", a.bin.size(), o.bin.size());
@@ -78,10 +101,10 @@ static void sameBytes(const char *desc, const std::string &src) {
 static void normKeepsBytes(const char *desc, const std::string &src) {
     auto build = [](const std::string &text) {
         pp::Result p = pp::preprocess(text, "t.asm", [](const std::string &, std::string &) { return false; });
-        return p.ok ? asmb::assembleText(p.dump(), "t.asm") : asmb::Output{};
+        return p.ok ? buildAsm(p.dump(), "t.asm") : Built{};
     };
-    asmb::Output before = build(src);
-    asmb::Output after = build(pp::normalize(src));
+    Built before = build(src);
+    Built after = build(pp::normalize(src));
     okc(desc, before.ok && after.ok && before.bin == after.bin &&
               before.loadAddress == after.loadAddress);
 }
@@ -93,8 +116,8 @@ static void idem(const char *desc, const std::string &src, kw::Phase ph = kw::Ph
 
 // Invariant n°3 : les deux avertissements visés s'éteignent.
 static void noWarn(const char *desc, const std::string &src) {
-    asmb::Output before = asmb::assembleText(src, "t.asm");
-    asmb::Output after = asmb::assembleText(beautify::apply(src, kw::Phase::Assembly), "t.asm");
+    Built before = buildAsm(src, "t.asm");
+    Built after = buildAsm(beautify::apply(src, kw::Phase::Assembly), "t.asm");
     bool had = false;
     for (auto &w : before.warnings)
         if (w.message.find("label without ':'") != std::string::npos ||
@@ -373,7 +396,7 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
     // Le contre-exemple assumé : ce que la mise en forme n'éteint PAS, parce
     // qu'elle refuse de deviner. `sprite` peut être un appel de macro.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = buildAsm(
             beautify::apply("start:\nsprite 4,12\n", kw::Phase::Assembly), "t.asm");
         bool still = false;
         for (auto &w : o.warnings)

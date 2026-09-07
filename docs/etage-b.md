@@ -32,7 +32,7 @@ vertes à chaque étape, comme pendant tout l'étage A.
 | B0 | Une seule table de section *(préfacteur)* | — | **faite** |
 | B1 | La valeur affine dans l'évaluateur d'expressions | — | **faite** |
 | B2 | Le fragment | B0 | **faite** |
-| B3 | La couture du linker | B2 | à faire |
+| B3 | La couture du linker | B2 | **faite** |
 | B4 | La table des symboles produite par le linker | B3 | à faire |
 | B5 | La relocalisation de bout en bout | B1, B3 | à faire |
 | B6 | `PUBLIC` et `EXTERN` | B5 | à faire |
@@ -142,14 +142,26 @@ Le backend de snapshot n'est **pas** touché : sa signature plate est un problè
 réel, mais c'est celui du builder, et le mêler ici ferait de l'étage indivisible
 un étage à deux sujets.
 
-- [ ] L'assembleur ne rend plus ni image plate, ni coverage parallèle, ni banques écrites, ni binaire, ni adresse de chargement, ni adresse d'exécution
-- [ ] L'entrée du programme est un **nom** de symbole, résolu par le linker
-- [ ] La coverage voyage attachée à ses octets, du fragment jusqu'au bloc placé, jamais en paramètre optionnel parallèle
-- [ ] Une nouvelle suite teste le linkage à partir d'objets fabriqués à la main
-- [ ] Cette suite est inscrite dans **les deux** listes de tests du dépôt
-- [ ] Les 730 assertions de la suite d'assemblage survivent par un helper de harnais qui assemble puis linke ; ce helper n'est pas exposé comme API
-- [ ] La suite de snapshot verte : la fusion avec une base ne recopie toujours que ce qui est réellement écrit
-- [ ] Le binaire et le snapshot produits par le CLI sont inchangés
+- [x] L'assembleur ne rend plus ni image plate, ni coverage parallèle, ni banques écrites, ni binaire, ni adresse de chargement, ni adresse d'exécution
+- [x] L'entrée du programme est un **nom** de symbole, résolu par le linker
+- [x] La coverage voyage attachée à ses octets, du fragment jusqu'au bloc placé, jamais en paramètre optionnel parallèle
+- [x] Une nouvelle suite teste le linkage à partir d'objets fabriqués à la main
+- [x] Cette suite est inscrite dans **les deux** listes de tests du dépôt
+- [x] Les 730 assertions de la suite d'assemblage survivent par un helper de harnais qui assemble puis linke ; ce helper n'est pas exposé comme API
+- [x] La suite de snapshot verte : la fusion avec une base ne recopie toujours que ce qui est réellement écrit
+- [x] Le binaire et le snapshot produits par le CLI sont inchangés
+
+Deux nuances à relire en B10 :
+
+- **`run` accepte une expression, pas seulement un nom.** L'entrée est donc
+  `{nom, valeur}` : l'assembleur consigne le NOM quand `run` en porte un — et
+  c'est ce nom que le linker résout — la valeur quand il porte autre chose. Ce
+  ne sont pas deux mécanismes, c'est une directive qui accepte deux formes.
+  L'expression est quand même évaluée par l'assembleur, pour que son refus sorte
+  à SA ligne ; un nom qu'il n'a pas résolu ne voyage pas.
+- **`warnRunDisplaced` a migré au linker**, et se calcule maintenant sur les
+  fragments : « déplacé » veut dire « rangé ailleurs que son adresse logique »,
+  et un fragment porte les deux adresses. `displacedRanges_` a disparu.
 
 ## B4 — la table des symboles produite par le linker
 

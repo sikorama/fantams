@@ -33,8 +33,10 @@ add_library(sna STATIC sna.cpp)
 target_include_directories(sna PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # sym.cpp : le format de la table des symboles (ADR 0019), fonction pure —
-# il vit avec l'assembleur parce qu'il ne rend que son Output.
-add_library(asmlib STATIC asm.cpp sym.cpp)
+# il vit avec l'assembleur parce qu'il ne rend que son Object.
+# asm.cpp rend un OBJET, link.cpp en fait une IMAGE : les deux moities de la
+# meme chaine, et la seule facon d'obtenir un octet.
+add_library(asmlib STATIC asm.cpp link.cpp sym.cpp)
 target_include_directories(asmlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asmlib PUBLIC parser z80 pp sna keywords)
 
@@ -60,6 +62,9 @@ target_link_libraries(parser_test PRIVATE parser)
 add_executable(asm_test tests/asm_test.cpp)
 target_link_libraries(asm_test PRIVATE asmlib)
 
+add_executable(link_test tests/link_test.cpp)
+target_link_libraries(link_test PRIVATE asmlib)
+
 add_executable(beautify_test tests/beautify_test.cpp)
 target_link_libraries(beautify_test PRIVATE beautify asmlib)
 
@@ -77,5 +82,6 @@ add_test(NAME expressions COMMAND expr_test)
 add_test(NAME preprocessor COMMAND pp_test)
 add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)
+add_test(NAME linker COMMAND link_test)
 add_test(NAME beautify COMMAND beautify_test)
 add_test(NAME sna COMMAND sna_test)

@@ -197,6 +197,22 @@ sur ses réouvertures, et non l'étendue des adresses qu'elle couvre.
 _Éviter_ : segment, zone, bloc (qui désigne une structure de source), banque (qui
 est du stockage)
 
+**Fragment** :
+Un bloc d'octets **contigu**, ouvert par une `section` ou par un `org`, portant
+sa propre coverage, appartenant à une section, et connaissant son adresse de
+rangement si un `org` la lui a donnée. C'est l'unité que le linker **place** :
+une section sans `org` est un fragment unique, une section avec `org` porte un
+fragment par `org`. C'est ce qui donne à « relocalisable » une définition sans
+nouvelle syntaxe.
+_Éviter_ : bloc (réservé au bloc placé), chunk, morceau (qui est une unité de
+livraison)
+
+**Bloc placé** :
+Un fragment une fois que le linker a décidé de sa banque et de son adresse. Il
+vit dans **une** banque et à des adresses qui se suivent : un fragment sans
+préfixe de banque qui franchit une frontière de 16 K en donne donc deux.
+_Éviter_ : segment, section placée
+
 **Section miroir** :
 Une section que le placement duplique au même offset dans plusieurs banques, pour
 que le flux d'instructions survive à une commutation. C'est un genre de
@@ -326,8 +342,8 @@ _Éviter_ : listing, map, .lst
 ### Architecture
 
 **Cœur** :
-Les six modules sans état ni entrées-sorties (`z80`, `expr`, `parser`, `pp`,
-`asm`, `sna`). Il ne connaît aucun hôte.
+Les sept modules sans état ni entrées-sorties (`z80`, `expr`, `parser`, `pp`,
+`asm`, `link`, `sna`). Il ne connaît aucun hôte.
 _Éviter_ : lib, moteur, backend
 
 **Hôte** :
@@ -340,6 +356,21 @@ La couche fine qui relie un hôte au cœur : elle fournit le `FileProvider`,
 traduit les options et sérialise le résultat. Elle ne contient aucune règle du
 langage.
 _Éviter_ : wrapper, binding, glue
+
+**Objet** :
+Ce que l'assembleur rend pour **une** unité de compilation : ses sections et
+leurs fragments, ses symboles, ses relocalisations, ses accès à adresse
+littérale. Il ne porte **aucune** décision de placement — ni image, ni banque
+écrite, ni binaire, ni adresse de chargement ou d'exécution : ce sont des
+réponses que seul le linker a.
+_Éviter_ : module (qui est un scope de source), unité, .o
+
+**Linker** :
+Le maillon qui prend N objets et rend une image : il place les fragments,
+résout les relocalisations et les symboles externes, et constate les
+recouvrements. C'est le **seul** chemin par lequel un octet sort de fantams —
+de sorte qu'un placement faux fait rougir un test le jour où on l'écrit.
+_Éviter_ : éditeur de liens, loader, packer
 
 **Backend** :
 Producteur d'un format de sortie à partir de l'image mémoire assemblée (`sna`,

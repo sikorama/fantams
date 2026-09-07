@@ -46,11 +46,12 @@ endroits qui ne savent pas qu'ils le font — `bankOf()` qui dérive la banque d
 l'adresse, `kFlatBanks = 8` qui décide qu'au-delà on ne sait pas ranger, et les
 lignes d'`asm_main.cpp` qui parcourent `banksWritten` pour choisir `dumpKo`.
 
-*Depuis l'étape B2*, les deux premiers sont **rassemblés en un seul endroit** :
-les octets vont dans un **fragment**, et `placeFragments()` est la seule fonction
-qui pose une adresse, dérive une banque et voit un recouvrement. Toujours du
-travail de linker, mais il n'est plus dispersé — il attend sa couture, et c'est
-B3 qui la lui donne.
+*Depuis l'étape B3*, ils sont **derrière une couture** : `link::build(objets)`
+rend une `link::Image`, et c'est le seul endroit qui pose une adresse, dérive une
+banque, choisit 64 K ou 128 K et voit un recouvrement. Le CLI n'en dérive plus
+aucune. L'`asmb::Object` ne porte ni image, ni coverage parallèle, ni banque
+écrite, ni binaire, ni adresse de chargement ou d'exécution — les six champs sont
+partis d'un coup.
 
 **`sna::build` est le module plat du lot.** Cinq paramètres dont deux pointeurs
 optionnels, une contrainte non exprimable dans la signature (« une base sans

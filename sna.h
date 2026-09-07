@@ -43,7 +43,7 @@ bool parseBase(const std::vector<uint8_t> &snapshot, Base &out, std::string &err
 // garantissent pas.
 //
 // Avec une base, `coverage` (non nul là où le source a écrit — cf.
-// `asmb::Output::coverage`) départage : hors coverage, l'octet vient de la base.
+// `link::Flat::covered`) départage : hors coverage, l'octet vient de la base.
 // Une coverage absente ferait écraser toute la base par l'image, ce qui vide la
 // base de son sens : l'appelant doit la fournir. La base ne couvre que les 64 K
 // de base — le firmware ne vit pas dans l'extension — donc les banques hautes

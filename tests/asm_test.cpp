@@ -1,6 +1,9 @@
 // asm_test.cpp - Tests de l'assembleur 2 passes
 #include "asm.h"
+#include "link.h"
 #include "sym.h"
+
+#include <map>
 
 #include <cstdint>
 #include <cstdio>
@@ -8,6 +11,46 @@
 #include <vector>
 
 static int g_pass = 0, g_fail = 0;
+
+// --- Le harnais : assembler PUIS linker -------------------------------------
+// L'assembleur ne rend plus d'adresses : il rend un OBJET, et c'est le linker
+// qui pose les octets. Les assertions, elles, portent sur des octets a des
+// adresses — ce qu'un auteur voit — et n'ont aucune raison de changer.
+//
+// Ce helper n'est donc PAS une API : l'exposer figerait dans l'interface de
+// l'assembleur les six champs de placement que l'etage B existe pour en
+// retirer. Il vit ici, dans le harnais, et nulle part ailleurs.
+struct Built {
+    asmb::Object obj;                        // l'objet, pour ce qui s'y teste directement
+    bool ok = true;
+    std::vector<uint8_t> bin;
+    uint16_t loadAddress = 0, runAddress = 0;
+    std::map<std::string, int64_t> symbols;
+    std::vector<asmb::Diagnostic> errors, warnings, prints;
+    std::vector<uint8_t> image, coverage;    // les 128 K a plat, comme avant
+    std::vector<int> banksWritten;
+};
+
+static Built build(const std::string &src, const char *file) {
+    Built b;
+    b.obj = asmb::assembleText(src, file);
+    const link::Image img = link::build({b.obj});
+    const link::Flat flat = link::flatten(img);
+    b.ok = b.obj.ok && img.ok;
+    b.symbols = b.obj.symbols;
+    b.errors = b.obj.errors;
+    b.warnings = b.obj.warnings;
+    b.prints = b.obj.prints;
+    for (const auto &e : img.errors) b.errors.push_back(e);
+    for (const auto &w : img.warnings) b.warnings.push_back(w);
+    b.bin = img.bin;
+    b.loadAddress = img.loadAddress;
+    b.runAddress = img.runAddress;
+    b.banksWritten = img.banksWritten;
+    b.image = flat.bytes;
+    b.coverage = flat.covered;
+    return b;
+}
 
 static std::string hex(const std::vector<uint8_t> &v) {
     std::string s; char b[8];
@@ -18,7 +61,7 @@ static std::string hex(const std::vector<uint8_t> &v) {
 // Assemble `src`, vérifie octets + adresse de chargement.
 static void chk(const char *desc, const std::string &src,
                 std::initializer_list<uint8_t> expected, uint16_t load = 0) {
-    asmb::Output o = asmb::assembleText(src, "t.asm");
+    Built o = build(src, "t.asm");
     std::vector<uint8_t> exp(expected);
     bool okLoad = (exp.empty() || o.loadAddress == load);
     if (!o.ok || o.bin != exp || !okLoad) {
@@ -34,7 +77,7 @@ static void okc(const char *desc, bool cond) {
 }
 
 static void chkSym(const char *desc, const std::string &src, const char *sym, int64_t val) {
-    asmb::Output o = asmb::assembleText(src, "t.asm");
+    Built o = build(src, "t.asm");
     auto it = o.symbols.find(sym);
     if (!o.ok || it == o.symbols.end() || it->second != val) {
         ++g_fail;
@@ -64,14 +107,14 @@ static std::string symRow(const std::string &table, const std::string &name) {
 }
 
 static void chkErr(const char *desc, const std::string &src) {
-    asmb::Output o = asmb::assembleText(src, "t.asm");
+    Built o = build(src, "t.asm");
     if (o.ok) { ++g_fail; printf("  \033[31mFAIL\033[0m %s (aurait dû échouer)\n", desc); }
     else ++g_pass;
 }
 
 // Vérifie qu'un avertissement (bonne pratique) est bien émis, sans bloquer l'assemblage.
 static void chkWarn(const char *desc, const std::string &src, bool expectWarning) {
-    asmb::Output o = asmb::assembleText(src, "t.asm");
+    Built o = build(src, "t.asm");
     bool hasWarn = !o.warnings.empty();
     if (!o.ok || hasWarn != expectWarning) {
         ++g_fail;
@@ -83,7 +126,7 @@ static void chkWarn(const char *desc, const std::string &src, bool expectWarning
 // --- Banques (ADR 0005 / ADR 0006) ------------------------------------------
 static void chkBank(const char *desc, const std::string &src,
                     std::initializer_list<int> expectedExtra) {
-    asmb::Output o = asmb::assembleText(src, "t.asm");
+    Built o = build(src, "t.asm");
     std::vector<int> exp(expectedExtra);
     if (!o.ok || o.banksWritten != exp) {
         ++g_fail;
@@ -195,7 +238,7 @@ int main() {
 
     // --- coverage et chevauchement (ADR 0012) ------------------------------
     {
-        asmb::Output o = asmb::assembleText("  org #8000\n  db 0,0\n", "t.asm");
+        Built o = build("  org #8000\n  db 0,0\n", "t.asm");
         int n = 0;
         for (auto c : o.coverage) if (c) ++n;
         okc("coverage : deux zeros ecrits sont couverts", o.ok && n == 2 &&
@@ -206,7 +249,7 @@ int main() {
     {
         // deux ORG qui se recouvrent : un seul avertissement pour la plage, avec
         // les DEUX lignes en conflit nommees.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #8000\n  db 1,2,3,4\n  org #8001\n  db 9,9\n", "t.asm");
         bool one = o.warnings.size() == 1;
         std::string m = one ? o.warnings[0].message : std::string();
@@ -218,7 +261,7 @@ int main() {
             one && o.warnings[0].line == 4);
     }
     {
-        asmb::Output o = asmb::assembleText("  org #8000\n  db 1\n  org #9000\n  db 1\n", "t.asm");
+        Built o = build("  org #8000\n  db 1\n  org #9000\n  db 1\n", "t.asm");
         okc("chevauchement : deux ORG disjoints n'en produisent pas", o.warnings.empty());
     }
 
@@ -299,7 +342,7 @@ int main() {
     }
     {
         // Le refus de CHARSET nomme son remplacant, comme BANK ou TICKER.
-        asmb::Output o = asmb::assembleText("  org #8000\n  charset '0123',0\n", "t.asm");
+        Built o = build("  org #8000\n  charset '0123',0\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message.find("asset encoding") != std::string::npos;
         okc("refus : CHARSET nomme son remplacant", named);
@@ -353,7 +396,7 @@ int main() {
 
         // L'image porte les banques 0..7 a plat : (banque, offset) -> b*0x4000+o.
         {
-            asmb::Output o = asmb::assembleText("  org b5:#4000\n  db #AB\n", "t.asm");
+            Built o = build("  org b5:#4000\n  db #AB\n", "t.asm");
             okc("image : 128K", o.image.size() == 131072);
             okc("image : l'octet est en banque 5, offset 0", o.image[5 * 0x4000] == 0xAB);
             okc("image : la coverage suit", o.coverage[5 * 0x4000] != 0);
@@ -388,7 +431,7 @@ int main() {
     printf("\n-- ORG deplace (logique, rangement) --\n");
     {
         const char *src = "  org #2000,#3000\nstart:\n  ld hl,start\n";
-        asmb::Output o = asmb::assembleText(src, "t.asm");
+        Built o = build(src, "t.asm");
         okc("deplace : le label vaut l'adresse LOGIQUE", o.symbols["start"] == 0x2000);
         okc("deplace : l'octet est range a l'adresse de RANGEMENT",
             o.image[0x3000] == 0x21 && o.image[0x3001] == 0x00 && o.image[0x3002] == 0x20);
@@ -401,7 +444,7 @@ int main() {
            "  org #2000,#3000\n  nop\n  align 16\naligned:\n  nop\n", "aligned", 0x2010);
     // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero (comme l'assembleur de référence).
     {
-        asmb::Output o = asmb::assembleText("  org #2000,#3000\n  nop\n  org #5000\n  db #42\n", "t.asm");
+        Built o = build("  org #2000,#3000\n  nop\n  org #5000\n  db #42\n", "t.asm");
         okc("deplace : un ORG nu remet le deplacement a zero", o.image[0x5000] == 0x42);
         okc("deplace : et n'ecrit pas a l'ancien ecart", o.coverage[0x6000] == 0);
     }
@@ -419,7 +462,7 @@ int main() {
     // parametre. Sur le premier d'une forme a deux, il est refuse — le rangement
     // serait decrit de part et d'autre de l'adresse logique.
     {
-        asmb::Output o = asmb::assembleText("  org #4000,b4:#100\n  db #AB\n", "t.asm");
+        Built o = build("  org #4000,b4:#100\n  db #AB\n", "t.asm");
         okc("deplace : prefixe sur le rangement", o.ok && o.image[4 * 0x4000 + 0x100] == 0xAB);
     }
     chkErr("deplace : prefixe sur le premier parametre", "  org b4:#4000,#100\n  db 1\n");
@@ -441,8 +484,8 @@ int main() {
             "  org #4000,b4:#100\n"
             "far:\n"
             "  nop\n";
-        asmb::Output o = asmb::assembleText(src, "t.asm");
-        const std::string t = sym::format(o);
+        Built o = build(src, "t.asm");
+        const std::string t = sym::format(o.obj);
 
         // L'en-tete est une VRAIE ligne CSV : les noms de colonnes SONT la version.
         okc("sym : en-tete exacte", t.rfind("name,type,section,value,bank,store,file,line\n", 0) == 0);
@@ -478,16 +521,16 @@ int main() {
         // QUALIFIE : « .inner » sort en « top.inner ». Le cas MANGLE (« @retry__2 »)
         // se produit au preprocesseur, que `assembleText` ne fait pas tourner — il
         // se verifie de bout en bout au CLI, pas ici.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #8000\n@loop:\n  nop\ntop:\n.inner:\n  nop\n", "t.asm");
-        const std::string t = sym::format(o);
+        const std::string t = sym::format(o.obj);
         okc("sym : un label local sort qualifie", !symRow(t, "top.inner").empty());
     }
     {
         // Le champ fichier est guillemete SEULEMENT s'il en a besoin : sans ca, un
         // chemin a virgule produirait une ligne a huit champs dans un fichier a sept.
-        asmb::Output o = asmb::assembleText("  org #8000\nmain:\n  nop\n", "mon,brouillon.asm");
-        const std::string t = sym::format(o);
+        Built o = build("  org #8000\nmain:\n  nop\n", "mon,brouillon.asm");
+        const std::string t = sym::format(o.obj);
         okc("sym : un chemin a virgule est guillemete",
             t.find(",\"mon,brouillon.asm\",2\n") != std::string::npos);
     }
@@ -496,12 +539,12 @@ int main() {
     {
         // Un label habite la section courante, et la table le dit : c'est ce qui
         // permet a un consommateur de savoir de quelle unite relogeable il parle.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section tables_data, \"ro\"\n"
             "  org #8000\n"
             "my_table:\n"
             "  nop\n", "t.asm");
-        const std::string t = sym::format(o);
+        const std::string t = sym::format(o.obj);
         okc("sym : un label porte sa section",
             symRow(t, "my_table") == "my_table,label,tables_data,0x8000,2,0x8000,t.asm,3");
     }
@@ -509,12 +552,12 @@ int main() {
         // Une constante n'habite nulle part — c'est deja ce que disent `bank` et
         // `store`. Declaree dans une section, elle n'en herite donc PAS : elle
         // n'est pas une adresse, et rien ne la reloge.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section tables_data, \"ro\"\n"
             "  org #8000\n"
             "WIDTH equ 80\n"
             "  nop\n", "t.asm");
-        const std::string t = sym::format(o);
+        const std::string t = sym::format(o.obj);
         okc("sym : une constante n'herite pas de la section",
             symRow(t, "WIDTH") == "WIDTH,const,-,0x50,-,-,t.asm,3");
     }
@@ -566,7 +609,7 @@ int main() {
     {
         // Le diagnostic cite l'instruction et NOMME la section fautive : celui qui
         // le lit doit savoir laquelle des deux corriger.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section tables_data, \"ro\"\n  org #8000\nmon_tableau:\n  db 1\n"
             "  ld (mon_tableau + 1), hl\n", "t.asm");
         bool named = !o.errors.empty() &&
@@ -580,7 +623,7 @@ int main() {
     // nomme la section et donne les deux tailles : celui qui le lit doit savoir
     // de combien il deborde, pas seulement qu'il deborde.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section audio, \"ro\", 4\n  org #8000\n  db 1, 2, 3, 4, 5\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
@@ -646,7 +689,7 @@ int main() {
     // Une place reservee COMPTE : c'est la seule information qu'une section
     // "uninit" donne au linker, et sans elle son plafond ne servirait a rien.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section vars, \"uninit\", 8\n  org #8000\n  ds 16\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
@@ -656,7 +699,7 @@ int main() {
     // Le refus nomme le TYPE de la section, qui est la raison ; la ligne citee
     // dit deja laquelle des directives corriger.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section vars, \"uninit\"\n  org #8000\n  db 1\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
@@ -670,7 +713,7 @@ int main() {
            "  section vars, \"uninit\"\n  org #8000\n  ld a, 5\n");
     // Une ligne qui emet cent octets n'a qu'une faute a corriger.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  section vars, \"uninit\"\n  org #8000\n  db \"bonjour\"\n", "t.asm");
         okc("uninit : le refus est dit une fois par ligne, pas une fois par octet",
             o.errors.size() == 1);
@@ -690,7 +733,7 @@ int main() {
     // label » se lirait aussi bien, mais un label insere au milieu changerait ce
     // qui est mesure sans que personne l'ait demande.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #8000\n  assert_size 2\ntable:\n  db 1, 2, 3\n  end_assert_size\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
@@ -700,7 +743,7 @@ int main() {
     // Sans label, la zone est designee par son adresse : il faut bien pouvoir la
     // retrouver.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #8000\n  assert_size 2\n  db 1, 2, 3\n  end_assert_size\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
@@ -725,7 +768,7 @@ int main() {
     // Une mesure de BOUNDARY repasse sur les lignes du bloc : le controle ne doit
     // pas y etre fait deux fois.
     {
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #8000\n  boundary 256\n  assert_size 1\n  db 1, 2\n"
             "  end_assert_size\n  end_boundary\n", "t.asm");
         okc("assert_size : dans un BOUNDARY, le controle n'est fait qu'une fois",
@@ -806,7 +849,7 @@ int main() {
     {
         // Le diagnostic NOMME le bloc et ses deux tailles, et pointe la ligne du
         // BOUNDARY : c'est la seule que son auteur peut corriger.
-        asmb::Output o = asmb::assembleText(
+        Built o = build(
             "  org #2F00\n"
             "  BOUNDARY 256\n"
             "my_table:\n"
