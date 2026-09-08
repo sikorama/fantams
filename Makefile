@@ -88,6 +88,12 @@ test: $(TESTS) fantams
 	@$(T)/accept_profile.sh
 	@$(T)/accept_banked.sh
 	@$(T)/no_machine_names.sh
+	@# Le verrou natif == WASM. Il se SAUTE (code 77) quand l'artefact WASM ou
+	@# node manquent : ici comme sous ctest, un saut est bruyant et n'est pas un
+	@# succes.
+	@$(T)/accept_wasm_equiv.sh; rc=$$?; \
+	 if [ $$rc = 77 ]; then echo "   (saute — la suite n'a PAS verifie natif == WASM)"; \
+	 elif [ $$rc != 0 ]; then exit $$rc; fi
 
 clean:
 	rm -f $(TESTS) ppdump fantams

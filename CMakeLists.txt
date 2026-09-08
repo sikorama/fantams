@@ -152,3 +152,19 @@ set_tests_properties(accept_separate PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 add_test(NAME beautify COMMAND beautify_test)
 add_test(NAME sna COMMAND sna_test)
+
+# LE VERROU : le meme argv, a travers l'adaptateur natif et a travers
+# l'adaptateur WASM, rend les memes octets. C'est ce qu'un artefact perime
+# viole, et c'est ce que le critere precedent — signature du snapshot plus
+# drapeau de succes — laissait passer sans broncher.
+#
+# SKIP_RETURN_CODE : deux dependances vivent hors de l'outillage de construction
+# de fantams — l'artefact WASM, produit par un conteneur emsdk, et node. Le
+# script rend 77 quand l'une manque, et ctest le rapporte « Skipped », distinct
+# d'un « Passed ». Un test saute n'est pas un test reussi.
+add_test(NAME accept_wasm_equiv
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_wasm_equiv.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_wasm_equiv PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>"
+                     SKIP_RETURN_CODE 77)

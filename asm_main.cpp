@@ -49,6 +49,7 @@
 #include "pp.h"
 #include "sna.h"
 #include "sym.h"
+#include "version.h"
 
 #include <cstdio>
 #include <fstream>
@@ -84,6 +85,17 @@ int main(int argc, char **argv) {
     // l'honore, et pas avant : un `-T` qui accepterait un script sans l'appliquer
     // laisserait croire un placement qui n'a pas eu lieu.
     std::string scriptPath;
+    // --version : la seule option qui ne demande aucun fichier. Elle sort avant
+    // tout le reste — un artefact qui ne sait plus assembler doit encore savoir
+    // dire son age, puisque c'est ce qui distingue « fantams a un bug » de « cet
+    // artefact a trois etages ». Etant sur la surface argv, elle est atteignable
+    // par l'adaptateur WASM sans que celui-ci ajoute quoi que ce soit.
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--version") {
+            printf("%s\n", version::line().c_str());
+            return 0;
+        }
+    }
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) outPath = argv[++i];
@@ -216,6 +228,7 @@ int main(int argc, char **argv) {
         return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
     };
     if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]]\n"
+                                     "  --version  : la date de version et la date de compilation, a lire\n"
                                      "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
                                      "  file.fo... : des objets deja assembles, a linker\n"
                                      "  --target N : profil de cible livre (au choix : %s)\n"
