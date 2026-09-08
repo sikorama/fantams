@@ -26,6 +26,7 @@
 #include "script.h"
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -97,6 +98,20 @@ struct Image {
 Image build(const std::vector<asmb::Object> &objects,
             const script::Script &script = script::Script(),
             const profile::Profile &profile = profile::Profile());
+
+// Les SYMBOLES DE COMMUTATION du §12.3 — `__port_`, `__val_`, `__mask_` — tirés
+// du script et du profil, et de rien d'autre.
+//
+// Ils ne dépendent d'aucune adresse : un port, une valeur bornée aux bits de son
+// axe et un masque se calculent dès que l'état, son argument et sa banque sont
+// connus. C'est ce qui les rend calculables AVANT d'assembler, et c'est ce qui
+// leur donne l'arithmétique que le §12.2 emploie — `ld bc, __port_x + __val_x`
+// est alors une somme de deux CONSTANTES, et non de deux inconnues.
+//
+// Le linker les offre AUSSI à ses `EXTERN`, pour l'unité qui a été assemblée
+// sans script. Les deux chemins lisent la même fonction, donc la même valeur.
+std::map<std::string, int64_t> switchSymbols(const script::Script &script,
+                                             const profile::Profile &profile);
 
 // L'image PLATE des banques 0..7 — l'octet (banque b, offset o) en b*0x4000+o —
 // et sa coverage, telles que `sna::build` les attend.

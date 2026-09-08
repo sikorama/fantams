@@ -105,8 +105,8 @@ SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE
 // mode ecran (bits 1-0) et le compteur d'interruption (bit 4). Y sortir la
 // seule valeur de l'axe de ROM ecraserait le mode, en silence — la faute
 // exacte que le §12.3 combat.
-CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo    } }
-CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on [CODE 0] { w3 rom_hi<n> } }
+CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo } }
+CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on<n> [CODE 0] { w3 rom_hi<n> } }
 
 SELECT rom_lower = OUT 0x7F00, MASK %00000100, CODE << 2
 

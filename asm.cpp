@@ -78,11 +78,21 @@ std::string formatValue(int64_t v, const std::string &fmt) {
 // ---------------------------------------------------------------------------
 class Assembler : public z80::IAsmContext {
 public:
+    Constants given_;   // les constantes que le linker a calculees (§12.3)
+
     Object run(const std::vector<SourceLine> &lines) {
         sites_.clear();
         symbols_.clear();
         ciIndex_.clear();
         symInfo_.clear();
+
+        // Les constantes du linker entrent AVANT la passe 1, et par `setSymbol`
+        // et non par `defineSymbol` : ce sont des noms `__`, que le refus de
+        // definition doit continuer de proteger contre la SOURCE, et qu'il ne
+        // doit pas empecher le linker de poser. Elles ne vont pas dans la table
+        // exportable : elles n'habitent nulle part, et un desassembleur n'en
+        // ferait rien.
+        for (const auto &kv : given_) setSymbol(kv.first, (double)kv.second);
 
         pass_ = 1; pc_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
@@ -1476,12 +1486,14 @@ private:
 
 } // namespace
 
-Object assemble(const std::vector<SourceLine> &lines) {
+Object assemble(const std::vector<SourceLine> &lines, const Constants &given) {
     Assembler a;
+    a.given_ = given;
     return a.run(lines);
 }
 
-Object assembleText(const std::string &source, const std::string &file) {
+Object assembleText(const std::string &source, const std::string &file,
+                    const Constants &given) {
     std::vector<SourceLine> lines;
     std::string cur; int ln = 1;
     for (size_t i = 0; i <= source.size(); ++i) {
@@ -1492,7 +1504,7 @@ Object assembleText(const std::string &source, const std::string &file) {
         else cur += c;
     }
     if (!lines.empty() && lines.back().text.empty()) lines.pop_back();
-    return assemble(lines);
+    return assemble(lines, given);
 }
 
 } // namespace asmb

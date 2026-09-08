@@ -212,7 +212,21 @@ struct Object {
     std::vector<Diagnostic> prints;            // sorties de PRINT (diagnostic de build, ni erreur ni avertissement)
 };
 
-Object assemble(const std::vector<SourceLine> &lines);
-Object assembleText(const std::string &source, const std::string &file);
+// Les constantes que le LINKER a calculées et que l'assembleur reçoit — les
+// symboles de commutation du §12.3, quand un script et un profil étaient là.
+//
+// Ce ne sont pas des adresses : ce sont des nombres, et les recevoir ainsi leur
+// donne l'arithmétique et l'usage sur un octet qu'un `EXTERN` ne peut pas leur
+// donner. L'assembleur ne CONNAÎT toujours aucune machine — il reçoit des
+// chiffres, comme un compilateur C reçoit ses `-D`.
+//
+// Sans eux, une source qui les nomme les déclare par `EXTERN` et c'est le linker
+// qui les résout : la compilation séparée reste possible, au prix de l'usage
+// arithmétique dans cette unité-là.
+using Constants = std::map<std::string, int64_t>;
+
+Object assemble(const std::vector<SourceLine> &lines, const Constants &given = Constants());
+Object assembleText(const std::string &source, const std::string &file,
+                    const Constants &given = Constants());
 
 } // namespace asmb

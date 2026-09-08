@@ -941,6 +941,35 @@ int main() {
         okc("et il demande sa relocalisation", asked);
     }
 
+    {
+        // Les constantes que le LINKER a calculees. Ce ne sont pas des adresses :
+        // les recevoir ainsi leur donne l'arithmetique du §12.2 et l'usage sur un
+        // octet, qu'un EXTERN ne peut pas leur donner puisqu'un EXTERN est une
+        // adresse. L'assembleur ne CONNAIT toujours aucune machine — il recoit
+        // des chiffres.
+        asmb::Constants given = {{"__port_ram_audio", 0x7F00}, {"__val_ram_audio", 0xC5}};
+        asmb::Object o = asmb::assembleText(
+            "  org #8000\n  ld bc,__port_ram_audio + __val_ram_audio\n"
+            "  ld c,__val_ram_audio\n", "t.asm", given);
+        okc("une constante du linker s'additionne a une autre", o.ok);
+        std::vector<uint8_t> got;
+        for (const auto &f : o.fragments) for (uint8_t b : f.bytes) got.push_back(b);
+        okc("et la somme est calculee a l'assemblage",
+            got == std::vector<uint8_t>{0x01, 0xC5, 0x7F, 0x0E, 0xC5});
+        okc("aucune relocalisation n'est demandee", o.relocs.empty());
+    }
+    {
+        // Sans elles, le meme source les declare par EXTERN et c'est le linker
+        // qui resout : la compilation separee reste possible, au prix de l'usage
+        // arithmetique dans cette unite-la.
+        asmb::Object o = asmb::assembleText(
+            "  extern __val_ram_audio\n  org #8000\n  ld hl,__val_ram_audio\n", "t.asm");
+        okc("sans constantes, l'EXTERN prend le relais", o.ok && o.relocs.size() == 1);
+        okc("et la source ne peut plus en additionner deux",
+            !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
+                                "  ld hl,__a + __b\n", "t.asm").ok);
+    }
+
     // --- PUBLIC / EXTERN : la portee entre objets (§4.4) ---------------------
     printf("\n-- PUBLIC / EXTERN --\n");
     {

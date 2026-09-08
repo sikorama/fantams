@@ -360,8 +360,8 @@ SELECT ram.all_ext  STACK OUTSIDE [0x0000..0xFFFF]   // les quatre basculent
 
 // --- Les ROMs : deux axes indépendants, qui recouvrent en LECTURE -------
 // Polarité écrite ici, et ici seulement : 0 active, 1 inhibe (§7, §12.3)
-CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo    } }
-CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on [CODE 0] { w3 rom_hi<n> } }
+CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on    [CODE 0] { w0 rom_lo    } }
+CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on<n> [CODE 0] { w3 rom_hi<n> } }
 
 // MASK : les bits du port qui appartiennent à l'axe. Le même registre porte
 // le mode écran ; y sortir la seule valeur de l'axe l'écraserait (§12.3).
@@ -370,6 +370,15 @@ SELECT rom_upper = OUT 0x7F00, MASK %00001000, CODE << 3
                    OUT 0xDF00, MASK %11111111, PAGE
 ```
 
+> **Correction, écrite à l'étape C1.8.** L'état s'écrivait `on { w3 rom_hi<n> }`,
+> avec un `<n>` que **rien ne liait**, et le script fournissait le nombre par un
+> qualificatif — `CONFIG rom_upper.on, ROM 15`. C'est deux mécanismes pour une
+> chose : `ext_w1<b>` montrait déjà que **le paramètre appartient à l'état**, et
+> son argument se dit dans la référence. D'où `on<n>` et `CONFIG rom_upper.on<15>`,
+> et un `ROM 15` qui n'est plus consommé par rien — donc refusé, en nommant la
+> forme paramétrique, plutôt qu'ignoré. L'analyseur refuse aussi, dans un profil,
+> un paramètre de slot que l'état ne déclare pas.
+>
 > **Correction, écrite à l'étape C1.2.** Ces deux dernières lignes s'écrivaient
 > `SELECT rom_lower = OUT 0x7F00, RMR.BIT2 = (on ? 0 : 1)`, et cette forme avait
 > **deux défauts que le §13.1 condamne lui-même**.
@@ -405,7 +414,7 @@ MEMORY_MAP {
 
     // Une ROM de 16 K découpée en deux blocs de 8 K : c'est un découpage de
     // placement à l'intérieur d'une banque, pas une banque de 8 K (§13.1).
-    CONFIG rom_upper.on, ROM 15 {
+    CONFIG rom_upper.on<15> {
         w3 [OFFSET 0x0000, SIZE 0x2000] { SECTION audio_rom     }
         w3 [OFFSET 0x2000, SIZE 0x2000] { SECTION graphics_data
                                           SECTION menu_text     }

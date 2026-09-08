@@ -193,6 +193,20 @@ int main(int argc, char **argv) {
     // raison se dit completement ; le CLI n'a pas a la dupliquer.
     (void)hasProfile;
 
+    // Les SYMBOLES DE COMMUTATION du §12.3, calcules ICI, avant d'assembler.
+    //
+    // Ils ne dependent d'aucune adresse : un port, une valeur bornee aux bits de
+    // son axe et un masque se calculent des que l'etat, son argument et sa banque
+    // sont connus. Les passer a l'assembleur comme des CONSTANTES leur donne
+    // l'arithmetique que le §12.2 emploie — `ld bc, __port_x + __val_x` devient
+    // une somme de deux nombres — et l'usage sur un octet, qu'un EXTERN ne peut
+    // pas leur donner puisqu'un EXTERN est une adresse.
+    //
+    // L'assembleur ne CONNAIT toujours aucune machine : il recoit des chiffres,
+    // comme un compilateur C recoit ses `-D`. Et le linker les offre AUSSI a ses
+    // EXTERN, par la meme fonction, pour l'unite qui a ete assemblee sans script.
+    const asmb::Constants given = link::switchSymbols(scr, prof);
+
     if (!inputs.empty()) path = inputs.front();
     // Un `.fo` en ENTREE est un objet deja assemble : on le relit au lieu de
     // l'assembler. Un `.fo` en SORTIE demande l'inverse — assembler seul, et
@@ -382,7 +396,7 @@ int main(int argc, char **argv) {
     // 2) assembler (2 passes) on the flat text
     std::vector<asmb::SourceLine> lines;
     for (auto &l : pre.lines) lines.push_back({l.text, l.file, l.line, l.col0});
-    out = asmb::assemble(lines);
+    out = asmb::assemble(lines, given);
     out.name = path;
     objects.push_back(out);
     // PRINT n'est ni une erreur ni un avertissement : c'est ce que la source a

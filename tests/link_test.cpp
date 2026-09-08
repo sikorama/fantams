@@ -1164,6 +1164,71 @@ int main() {
         ok("sans script, bankof suit l'adresse", img.ok);
     }
 
+    // --- C1.8 : __off_, __romnum_, et les deux ecritures d'un axe -----------
+    {
+        // Un axe qui demande DEUX ecritures : la premiere dit « cette banque-la
+        // apparait », la seconde dit LAQUELLE. C'est le §12.3, ou `__romnum_` est
+        // « la seconde ecriture d'un SELECT qui en compte deux ».
+        //
+        // Et `rom_hi<n>` n'est pas `ext<b>` : la premiere designe UNE banque
+        // declaree parametriquement, dont le parametre est un numero que le
+        // materiel lui donne ; la seconde choisit parmi des banques reellement
+        // declarees. Les deux formes coexistent sans un mot de vocabulaire de
+        // plus, parce que la resolution cherche la banque concatenee d'abord.
+        profile::Profile pr = profile::parse(
+            "WINDOW w3 [0xC000..0xFFFF]\n"
+            "BANK rom_hi<n> SIZE 0x4000 ro STORE 9\n"
+            "CONFIG SET rom { on<n> [CODE 0] { w3 rom_hi<n> } }\n"
+            "SELECT rom = OUT 0x7F00, MASK %00001000, CODE << 3\n"
+            "             OUT 0xDF00, MASK %11111111, PAGE\n", "m.prof");
+        auto ask = [&](const char *sym) {
+            asmb::Object o = secObj("a.fo", {{"menu", {0, 0}}});
+            asmb::Reloc r;
+            r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = sym;
+            o.relocs.push_back(r);
+            link::Image img = link::build({o},
+                scr("MEMORY_MAP { CONFIG rom.on<15> { w3 { SECTION menu } } }"), pr);
+            if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+            std::vector<uint8_t> got;
+            for (const link::Block &b : img.blocks) if (b.bank == 9) got = b.bytes;
+            return got;
+        };
+        okBytes("la premiere ecriture donne le port", ask("__port_rom_menu"), {0x00, 0x7F});
+        okBytes("et la valeur, bornee au bit de l'axe", ask("__val_rom_menu"), {0x00, 0x00});
+        okBytes("la seconde donne son port", ask("__port2_rom_menu"), {0x00, 0xDF});
+        okBytes("et le NUMERO, que PAGE vaut ici", ask("__romnum_rom_menu"), {0x0F, 0x00});
+    }
+    {
+        // `__off_<section>` : son offset DANS sa banque, pour un loader ou une
+        // recopie (§12.3). Celui-la depend du PLACEMENT, donc il ne peut pas etre
+        // une constante calculee avant d'assembler — c'est la seule difference
+        // de nature entre les deux familles.
+        asmb::Object o = secObj("a.fo", {{"un", {1, 2, 3}}, {"deux", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 1; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__off_deux";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION un  SECTION deux } } }"), prof());
+        ok("__off_ se resout", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        // `deux` suit `un` : offset 3 dans la banque, et non l'adresse &4003.
+        std::vector<uint8_t> got;
+        for (const link::Block &b : img.blocks) if (b.addr == 0x4003) got = b.bytes;
+        okBytes("et vaut l'offset dans la banque, non l'adresse", got, {0x03, 0x00});
+    }
+    {
+        // Un qualificatif que rien ne consomme est REFUSE plutot qu'ignore :
+        // l'auteur croirait avoir dit quelque chose. Le nombre d'un etat
+        // parametrique se dit dans son argument, comme partout ailleurs.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear, ROM 15 { w1 { SECTION main } } }"), prof());
+        ok("un qualificatif inconsomme est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus donne la forme juste",
+           m.find("is not consumed") != std::string::npos &&
+           m.find("linear<n>") != std::string::npos);
+    }
+
     // --- Le point d'entree passe par la base de sa section -------------------
     {
         // Un `run` qui nomme un label d'une section RELOCALISABLE. Le defaut

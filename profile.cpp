@@ -397,6 +397,17 @@ struct Parser : lex::Cursor {
                 if (!want(">")) return false;
                 sl.hasParam = true;
             }
+            // Un paramètre de slot doit être CELUI DE L'ÉTAT. Un `<n>` que rien
+            // ne lie serait un nombre que personne ne fournit, et le placement
+            // le découvrirait trop tard — c'est l'état qui porte l'argument, et
+            // `ext_w1<b>` le montre déjà.
+            if (sl.hasParam && !sl.literal &&
+                (!s.hasParam || sl.param != s.param)) {
+                err("CONFIG SET '" + a.name + "', state '" + s.name + "': '<" + sl.param +
+                    ">' is bound to nothing — declare the parameter on the state, as in '" +
+                    s.name + "<" + sl.param + ">'");
+                return false;
+            }
             // Une banque paramétrique est déclarée sous son nom nu — `ext<b>`
             // renvoie à `BANK ext0..ext3` —, donc l'existence se vérifie sur le
             // nom résolu quand il est littéral, et sur le préfixe sinon.

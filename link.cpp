@@ -13,6 +13,10 @@
 #include <set>
 
 namespace link {
+
+std::map<std::string, int64_t> switchSymbols(const script::Script &script,
+                                             const profile::Profile &profile);
+
 namespace {
 
 // Le nom d'un objet tel qu'un diagnostic doit le citer.
@@ -67,6 +71,43 @@ struct Merged {
     // comparer à une autre ici ferait dire deux choses à un même `max`.
     int64_t declaredSize = 0;
 };
+
+// Quelle banque un slot désigne, et quel nombre elle porte.
+//
+// Deux formes partagent la notation `<>`, et elles ne veulent pas dire la même
+// chose. `ext<b>` renvoie à des banques RÉELLEMENT DÉCLARÉES — `ext0..ext3` —
+// et le paramètre en choisit une. `rom_hi<n>` renvoie à UNE banque déclarée
+// paramétriquement, et le paramètre est un numéro que le matériel lui donne, non
+// un indice dans une liste.
+//
+// Le premier cas se reconnaît à ce que la banque concaténée existe ; le second à
+// ce que la banque nue existe et se déclare paramétrique. Chercher dans cet
+// ordre est ce qui permet aux deux de coexister sans un mot de vocabulaire de
+// plus.
+const profile::Bank *resolveBank(const profile::Profile &pr, const profile::Slot &sl,
+                                 int64_t arg, std::string &name, int64_t &page) {
+    auto find = [&](const std::string &n) -> const profile::Bank * {
+        for (const profile::Bank &b : pr.banks) if (b.name == n) return &b;
+        return nullptr;
+    };
+    page = 0;
+    if (!sl.hasParam) {
+        name = sl.bank;
+        const profile::Bank *b = find(name);
+        if (b && b->hasPage) page = b->page;
+        return b;
+    }
+    const int64_t v = sl.literal ? sl.value : arg;
+    name = sl.bank + std::to_string(v);
+    if (const profile::Bank *b = find(name)) {
+        if (b->hasPage) page = b->page;
+        return b;
+    }
+    if (const profile::Bank *b = find(sl.bank)) {
+        if (b->hasPage) { name = sl.bank; page = v; return b; }
+    }
+    return nullptr;
+}
 
 // L'état d'un linkage. Une structure et non des paramètres qui circulent : la
 // détection de recouvrement porte de la mémoire d'un octet à l'autre.
@@ -321,6 +362,16 @@ struct Linker {
             const std::string configLabel =
                 axisName + "." + cb.config.state +
                 (cb.config.hasArg ? "<" + std::to_string(cb.config.arg) + ">" : "");
+            // Un qualificatif que rien ne consomme est refusé plutôt qu'ignoré :
+            // l'auteur croirait avoir dit quelque chose. Le nombre d'un état
+            // paramétrique se dit dans son argument, comme partout ailleurs.
+            if (!cb.qualifiers.empty()) {
+                out.errors.push_back({cb.file, cb.line,
+                    "'" + cb.qualifiers.front().name + "' is not consumed: a "
+                    "configuration's number goes in its argument, as in '" +
+                    cb.config.state + "<n>'"});
+                continue;
+            }
             for (const script::Placement &p : cb.placements) {
                 const profile::Window *win = windowNamed(pr, p.window);
                 if (!win) {
@@ -341,18 +392,15 @@ struct Linker {
                         p.window + "': it cannot place a section there"});
                     continue;
                 }
-                std::string bankName = slot->bank;
-                if (slot->hasParam) {
-                    if (slot->literal) bankName += std::to_string(slot->value);
-                    else if (cb.config.hasArg) bankName += std::to_string(cb.config.arg);
-                    else {
-                        out.errors.push_back({p.file, p.line,
-                            "configuration '" + configLabel + "' takes a parameter, and the "
-                            "script gave none: write '" + cb.config.state + "<n>'"});
-                        continue;
-                    }
+                if (slot->hasParam && !slot->literal && !cb.config.hasArg) {
+                    out.errors.push_back({p.file, p.line,
+                        "configuration '" + configLabel + "' takes a parameter, and the "
+                        "script gave none: write '" + cb.config.state + "<n>'"});
+                    continue;
                 }
-                const profile::Bank *bk = bankNamed(pr, bankName);
+                std::string bankName;
+                int64_t bankPage = 0;
+                const profile::Bank *bk = resolveBank(pr, *slot, cb.config.arg, bankName, bankPage);
                 if (!bk) {
                     out.errors.push_back({p.file, p.line,
                         "configuration '" + configLabel + "' puts bank '" + bankName +
@@ -440,125 +488,12 @@ struct Linker {
         return plan;
     }
 
-    // --- Les symboles de commutation (§12.3) --------------------------------
-    // Évaluer une expression de `SELECT`. Les noms qu'elle porte — `CODE`,
-    // `PAGE`, et le paramètre de l'état — ne valent quelque chose qu'ICI : au
-    // moment où une section est placée, donc où l'état, son argument et sa
-    // banque sont tous connus. C'est la raison pour laquelle l'analyseur du
-    // profil en rend un ARBRE et non un nombre.
-    bool evalSel(const profile::Expr &e, const std::map<std::string, int64_t> &bind,
-                 int64_t &v, std::string &missing) const {
-        switch (e.kind) {
-            case profile::Expr::Num: v = e.num; return true;
-            case profile::Expr::Name: {
-                auto it = bind.find(e.name);
-                if (it == bind.end()) { missing = e.name; return false; }
-                v = it->second;
-                return true;
-            }
-            case profile::Expr::Unary: {
-                int64_t a = 0;
-                if (e.args.size() != 1 || !evalSel(e.args[0], bind, a, missing)) return false;
-                v = e.op == "~" ? ~a : -a;
-                return true;
-            }
-            case profile::Expr::Binary: {
-                int64_t a = 0, b = 0;
-                if (e.args.size() != 2) return false;
-                if (!evalSel(e.args[0], bind, a, missing)) return false;
-                if (!evalSel(e.args[1], bind, b, missing)) return false;
-                if (e.op == "|") v = a | b;
-                else if (e.op == "&") v = a & b;
-                else if (e.op == "^") v = a ^ b;
-                else if (e.op == "<<") v = a << b;
-                else if (e.op == ">>") v = a >> b;
-                else if (e.op == "+") v = a + b;
-                else if (e.op == "-") v = a - b;
-                else if (e.op == "*") v = a * b;
-                else if (e.op == "/") { if (b == 0) return false; v = a / b; }
-                else return false;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Les symboles que le linker OFFRE, et qu'aucun objet n'exporte : le triplet
-    // par axe du §12.3.
-    //
-    // Un symbole ne peut pas être « l'octet » du port : sur une machine où un
-    // même port porte quatre axes, y sortir la seule valeur de l'axe de
-    // pagination écraserait les trois autres, en silence. D'où un port, une
-    // valeur BORNÉE AUX BITS DE L'AXE, et le masque de ces bits.
-    void switchSymbols(const script::Script &sc, const profile::Profile &pr,
-                       const std::map<std::string, Slotting> &plan) {
-        // Combien de fois chaque état est nommé : la graphie « par état » n'est
-        // offerte que si elle désigne une seule chose. Un état paramétrique
-        // nommé deux fois avec deux arguments n'en désigne pas une.
-        std::map<std::string, int> named;
-        for (const script::ConfigBlock &cb : sc.map) ++named[cb.config.state];
-
-        for (const script::ConfigBlock &cb : sc.map) {
-            std::string axisName;
-            const profile::State *st = stateOf(pr, cb.config, cb.file, cb.line, axisName);
-            if (!st) continue;
-            const profile::Select *sel = nullptr;
-            for (const profile::Select &sl : pr.selects)
-                for (const std::string &ax : sl.axes)
-                    if (ax == axisName) sel = &sl;
-            if (!sel || sel->writes.empty()) continue;
-            const profile::Write &w = sel->writes.front();
-
-            for (const script::Placement &p : cb.placements) {
-                const profile::Slot *slot = nullptr;
-                for (const profile::Slot &sl : st->slots)
-                    if (sl.window == p.window) slot = &sl;
-                if (!slot) continue;
-                std::string bankName = slot->bank;
-                if (slot->hasParam)
-                    bankName += std::to_string(slot->literal ? slot->value : cb.config.arg);
-                const profile::Bank *bk = bankNamed(pr, bankName);
-
-                // Les liaisons : le paramètre de l'état, puis `CODE` qui s'en
-                // déduit, puis `PAGE`, qui est le nombre que porte la banque.
-                std::map<std::string, int64_t> bind;
-                if (st->hasParam && cb.config.hasArg) bind[st->param] = cb.config.arg;
-                bind["PAGE"] = bk && bk->hasPage ? bk->page : 0;
-                std::string missing;
-                int64_t code = 0;
-                if (st->hasCode && !evalSel(st->code, bind, code, missing)) continue;
-                bind["CODE"] = code;
-
-                int64_t port = 0, val = 0, mask = 0;
-                if (!evalSel(w.port, bind, port, missing)) continue;
-                if (!evalSel(w.value, bind, val, missing)) continue;
-                const bool hasMask = w.hasMask && evalSel(w.mask, bind, mask, missing);
-                // La valeur est BORNÉE AUX BITS DE L'AXE dès qu'un masque les
-                // nomme : c'est ce qui permet au source d'écrire
-                // `(état & ~masque) | valeur` sans toucher aux axes voisins.
-                if (hasMask) val &= mask;
-
-                std::vector<std::string> keys(p.sections.begin(), p.sections.end());
-                if (named[cb.config.state] == 1) keys.push_back(cb.config.state);
-                for (const std::string &k : keys) {
-                    offer("__port_" + axisName + "_" + k, port);
-                    offer("__val_" + axisName + "_" + k, val);
-                }
-                if (hasMask) offer("__mask_" + axisName, mask);
-            }
-        }
-        (void)plan;
-    }
-
-    // Offrir un symbole. Une seconde offre du même nom avec une AUTRE valeur le
-    // retire : un symbole qui vaudrait deux choses selon l'ordre de lecture est
-    // pire qu'un symbole absent, et l'absence a déjà son diagnostic — celui de
-    // l'`EXTERN` non résolu.
-    std::set<std::string> ambiguous_;
-    void offer(const std::string &name, int64_t v) {
-        auto it = exported_.find(name);
-        if (it == exported_.end()) { exported_[name] = v; return;  }
-        if (it->second != v) { ambiguous_.insert(name); exported_.erase(it); }
+    // Les symboles de commutation, offerts aux `EXTERN`. Le calcul lui-même est
+    // une fonction PURE, hors de cette structure, parce que le CLI l'appelle
+    // AVANT d'assembler : c'est ce qui donne à ces symboles l'arithmétique que
+    // le §12.2 emploie. Les deux chemins lisent donc la même valeur.
+    void offerSwitchSymbols(const script::Script &sc, const profile::Profile &pr) {
+        for (const auto &kv : switchSymbols(sc, pr)) exported_[kv.first] = kv.second;
     }
 
     // Deux régions qui se disputent les mêmes octets d'un même emplacement.
@@ -725,7 +660,14 @@ struct Linker {
             // est décidé : un `EXTERN` sur `__val_...` doit se résoudre au même
             // temps que les autres, et il ne peut pas l'être avant que la
             // configuration de chaque section soit connue.
-            switchSymbols(sc, pr, plan);
+            offerSwitchSymbols(sc, pr);
+            // `__off_<section>` : son offset DANS sa banque. Celui-là dépend du
+            // placement — pour un loader, ou pour une recopie (§12.3) — et il ne
+            // peut donc pas être une constante calculée avant d'assembler. C'est
+            // la seule différence de nature entre les deux familles, et elle est
+            // dans la fenêtre : l'offset est une adresse moins une base.
+            for (const auto &kv : plan)
+                exported_["__off_" + kv.first] = kv.second.base & 0x3FFF;
         }
         // Un script qui place une section qu'aucune unité ne porte, ou qui en
         // place une que son `org` a déjà placée : deux fautes que seul cet
@@ -1009,6 +951,168 @@ struct Linker {
     }
 };
 
+
+// --- Les symboles de commutation (§12.3), calcules sans une adresse ---------
+// Retrouver l'etat qu'une reference de script designe, SANS diagnostic : cette
+// fonction sert aussi au CLI, avant qu'aucun objet existe, et un refus s'y dirait
+// deux fois.
+const profile::State *findState(const profile::Profile &pr, const script::ConfigRef &ref,
+                                std::string &axisName) {
+    const profile::State *found = nullptr;
+    int matches = 0;
+    for (const profile::Axis &a : pr.axes) {
+        if (!ref.axis.empty() && a.name != ref.axis) continue;
+        for (const profile::State &st : a.states)
+            if (st.name == ref.state) {
+                if (!found) { found = &st; axisName = a.name; }
+                ++matches;
+            }
+    }
+    return matches == 1 ? found : nullptr;
+}
+
+    // --- Les symboles de commutation (§12.3) --------------------------------
+    // Évaluer une expression de `SELECT`. Les noms qu'elle porte — `CODE`,
+    // `PAGE`, et le paramètre de l'état — ne valent quelque chose qu'ICI : au
+    // moment où une section est placée, donc où l'état, son argument et sa
+    // banque sont tous connus. C'est la raison pour laquelle l'analyseur du
+    // profil en rend un ARBRE et non un nombre.
+bool evalSel(const profile::Expr &e, const std::map<std::string, int64_t> &bind,
+             int64_t &v, std::string &missing) {
+        switch (e.kind) {
+            case profile::Expr::Num: v = e.num; return true;
+            case profile::Expr::Name: {
+                auto it = bind.find(e.name);
+                if (it == bind.end()) { missing = e.name; return false; }
+                v = it->second;
+                return true;
+            }
+            case profile::Expr::Unary: {
+                int64_t a = 0;
+                if (e.args.size() != 1 || !evalSel(e.args[0], bind, a, missing)) return false;
+                v = e.op == "~" ? ~a : -a;
+                return true;
+            }
+            case profile::Expr::Binary: {
+                int64_t a = 0, b = 0;
+                if (e.args.size() != 2) return false;
+                if (!evalSel(e.args[0], bind, a, missing)) return false;
+                if (!evalSel(e.args[1], bind, b, missing)) return false;
+                if (e.op == "|") v = a | b;
+                else if (e.op == "&") v = a & b;
+                else if (e.op == "^") v = a ^ b;
+                else if (e.op == "<<") v = a << b;
+                else if (e.op == ">>") v = a >> b;
+                else if (e.op == "+") v = a + b;
+                else if (e.op == "-") v = a - b;
+                else if (e.op == "*") v = a * b;
+                else if (e.op == "/") { if (b == 0) return false; v = a / b; }
+                else return false;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Les symboles que le linker OFFRE, et qu'aucun objet n'exporte : le triplet
+    // par axe du §12.3.
+    //
+    // Un symbole ne peut pas être « l'octet » du port : sur une machine où un
+    // même port porte quatre axes, y sortir la seule valeur de l'axe de
+    // pagination écraserait les trois autres, en silence. D'où un port, une
+    // valeur BORNÉE AUX BITS DE L'AXE, et le masque de ces bits.
+std::map<std::string, int64_t> compute(const script::Script &sc,
+                                       const profile::Profile &pr) {
+    std::map<std::string, int64_t> out;
+    std::set<std::string> ambiguous;
+    // Offrir un symbole. Une seconde offre du même nom avec une AUTRE valeur le
+    // retire : un symbole qui vaudrait deux choses selon l'ordre de lecture est
+    // pire qu'un symbole absent, et l'absence a déjà son diagnostic — celui de
+    // l'`EXTERN` non résolu.
+    auto offer = [&](const std::string &name, int64_t v) {
+        if (ambiguous.count(name)) return;
+        auto it = out.find(name);
+        if (it == out.end()) { out[name] = v; return; }
+        if (it->second != v) { ambiguous.insert(name); out.erase(it); }
+    };
+        // Combien de fois chaque état est nommé : la graphie « par état » n'est
+        // offerte que si elle désigne une seule chose. Un état paramétrique
+        // nommé deux fois avec deux arguments n'en désigne pas une.
+        std::map<std::string, int> named;
+        for (const script::ConfigBlock &cb : sc.map) ++named[cb.config.state];
+
+        for (const script::ConfigBlock &cb : sc.map) {
+            std::string axisName;
+            const profile::State *st = findState(pr, cb.config, axisName);
+            if (!st) continue;
+            const profile::Select *sel = nullptr;
+            for (const profile::Select &sl : pr.selects)
+                for (const std::string &ax : sl.axes)
+                    if (ax == axisName) sel = &sl;
+            if (!sel || sel->writes.empty()) continue;
+            const profile::Write &w = sel->writes.front();
+            // Un axe peut demander DEUX ecritures, et la seconde porte alors le
+            // numero que le §12.3 nomme `__romnum_` : la premiere dit « cette
+            // banque-la apparait », la seconde dit LAQUELLE.
+            const profile::Write *second = sel->writes.size() > 1 ? &sel->writes[1] : nullptr;
+
+            for (const script::Placement &p : cb.placements) {
+                const profile::Slot *slot = nullptr;
+                for (const profile::Slot &sl : st->slots)
+                    if (sl.window == p.window) slot = &sl;
+                if (!slot) continue;
+                std::string bankName;
+                int64_t bankPage = 0;
+                const profile::Bank *bk = resolveBank(pr, *slot, cb.config.arg, bankName, bankPage);
+
+                // Les liaisons : le paramètre de l'état, puis `CODE` qui s'en
+                // déduit, puis `PAGE`, qui est le nombre que porte la banque —
+                // l'indice d'une banque déclarée en plage, ou le numéro que
+                // l'argument donne à une banque paramétrique.
+                std::map<std::string, int64_t> bind;
+                if (st->hasParam && cb.config.hasArg) bind[st->param] = cb.config.arg;
+                bind["PAGE"] = bk ? bankPage : 0;
+                std::string missing;
+                int64_t code = 0;
+                if (st->hasCode && !evalSel(st->code, bind, code, missing)) continue;
+                bind["CODE"] = code;
+
+                int64_t port = 0, val = 0, mask = 0;
+                if (!evalSel(w.port, bind, port, missing)) continue;
+                if (!evalSel(w.value, bind, val, missing)) continue;
+                const bool hasMask = w.hasMask && evalSel(w.mask, bind, mask, missing);
+                // La valeur est BORNÉE AUX BITS DE L'AXE dès qu'un masque les
+                // nomme : c'est ce qui permet au source d'écrire
+                // `(état & ~masque) | valeur` sans toucher aux axes voisins.
+                if (hasMask) val &= mask;
+
+                std::vector<std::string> keys(p.sections.begin(), p.sections.end());
+                if (named[cb.config.state] == 1) keys.push_back(cb.config.state);
+                int64_t port2 = 0, val2 = 0, mask2 = 0;
+                bool has2 = false, has2Mask = false;
+                if (second) {
+                    has2 = evalSel(second->port, bind, port2, missing) &&
+                           evalSel(second->value, bind, val2, missing);
+                    has2Mask = has2 && second->hasMask &&
+                               evalSel(second->mask, bind, mask2, missing);
+                    if (has2Mask) val2 &= mask2;
+                }
+                for (const std::string &k : keys) {
+                    offer("__port_" + axisName + "_" + k, port);
+                    offer("__val_" + axisName + "_" + k, val);
+                    if (has2) {
+                        offer("__port2_" + axisName + "_" + k, port2);
+                        offer("__romnum_" + axisName + "_" + k, val2);
+                    }
+                }
+                if (hasMask) offer("__mask_" + axisName, mask);
+                if (has2Mask) offer("__mask2_" + axisName, mask2);
+            }
+        }
+    return out;
+}
+
+
 } // namespace
 
 Image build(const std::vector<asmb::Object> &objects,
@@ -1166,6 +1270,13 @@ Image build(const std::vector<asmb::Object> &objects,
 
     lk.out.ok = lk.out.errors.empty();
     return lk.out;
+}
+
+// Le calcul du §12.3, expose : le CLI l'appelle AVANT d'assembler, et le linker
+// s'en sert pour ses `EXTERN`. Une seule fonction, donc une seule valeur.
+std::map<std::string, int64_t> switchSymbols(const script::Script &script,
+                                             const profile::Profile &profile) {
+    return compute(script, profile);
 }
 
 Flat flatten(const Image &img) {

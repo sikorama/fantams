@@ -47,7 +47,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
 | C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
 | C1.7 | Les symboles de commutation, `bankof()` et `BankOf` | C1.2, C1.4 | **faite** |
-| C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | à faire |
+| C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | **faite** |
 | C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | à faire |
 | C1.10 | L'ADR de clôture, et l'ADR 0005 relu | tout | à faire |
 | C1.V | Les sources de vérification sur machine réelle *(autonome)* | — | à faire |
@@ -418,19 +418,63 @@ Deux conséquences :
   sur blanc, est refusé : deux inconnues ne se somment pas dans une
   relocalisation qui n'en porte qu'une.
 
-Chacun **seul** fonctionne — `ld bc, __port_ram_audio` sort `&7F00`, `ld hl,
-__val_ram_audio` sort `&C5`. Ce qui manque est la notion d'un **externe
-absolu** : un symbole dont le linker connaît la valeur et qui n'est pas une
-adresse. C'est une décision de conception, pas un oubli, et elle est posée avant
-C1.8 — qui ajoute `__off_` et `__romnum_`, donc les mêmes questions.
+Chacun **seul** fonctionnait déjà — `ld bc, __port_ram_audio` sort `&7F00`.
+
+**La limite est levée**, et par le geste le plus économe : quand un script et un
+profil sont donnés à la même invocation, le CLI **calcule ces symboles avant
+d'assembler** et les passe comme des **constantes**. Aucun mécanisme nouveau,
+aucun genre de relocalisation de plus : ce sont des nombres, et l'arithmétique
+sur des nombres est ordinaire.
+
+```
+        ld   bc, __port_ram_audio + __val_ram_audio   →  01 C5 7F
+        out  (c), c
+        ld   c,  __val_ram_linear                    →  0E C0
+```
+
+Trois choses que ce dessin tient :
+
+- **l'assembleur ne connaît toujours aucune machine.** Il reçoit des chiffres,
+  comme un compilateur C reçoit ses `-D`. Le §1 est intact ;
+- **le calcul est une fonction pure**, `link::switchSymbols(script, profile)`,
+  et le linker l'appelle par le même chemin pour ses `EXTERN`. Une fonction,
+  donc une valeur : la faute de deux porteurs ne peut pas se produire ;
+- **la compilation séparée reste possible.** Une unité assemblée sans script les
+  déclare par `EXTERN` et le linker les résout, au prix de l'arithmétique dans
+  cette unité-là. Et l'unité qui commute est précisément, par le §13.4, le seul
+  morceau non portable d'un programme — celle qu'on assemble avec sa carte.
 
 ## C1.8 — `__off_`, `__romnum_`, et les deux refus
 
-- [ ] `__off_<section>` : l'offset dans sa banque
-- [ ] `__romnum_<nom>` : le numéro de ROM haute — la **seconde** écriture d'un `SELECT` qui en compte deux
-- [ ] `COMPRESS` dans un script : refusé **en nommant l'enveloppe du §8** — `SECTION blob, "ro", 0x2000` —, pas en nommant un étage futur
-- [ ] `MIRROR` dans un script : refusé en nommant C2
-- [ ] L'ordre forcé *placer → compresser → résoudre* et le refus de non-convergence sont **écrits** dans la spec de C1, et vérifiés le jour où le compresseur arrive (D9)
+- [x] `__off_<section>` : l'offset dans sa banque
+- [x] `__romnum_<axe>_<clé>` : le numéro — la **seconde** écriture d'un `SELECT` qui en compte deux
+- [x] `COMPRESS` dans un script : refusé **en nommant l'enveloppe du §8** — `SECTION blob, "ro", 0x2000` —, pas en nommant un étage futur *(livré dès C1.1, avec le message définitif)*
+- [x] `MIRROR` dans un script : refusé en nommant C2 *(idem)*
+- [x] L'ordre forcé *placer → compresser → résoudre* et le refus de non-convergence sont **écrits** dans la spec de C1, et vérifiés le jour où le compresseur arrive (D9)
+
+Quatre choses décidées en cours de route, à relire en C1.10 :
+
+- **`__off_` est la seule de la famille qui ne peut pas être une constante.** Sa
+  valeur dépend de ce qui la précède dans son bloc, donc de toutes les unités :
+  elle se résout au linkage, et une source la déclare par `EXTERN`. C'est la
+  seule différence de nature entre les deux familles, et elle est dans la
+  définition — un offset est une adresse moins une base.
+- **Un axe à deux écritures reçoit `__port2_` et `__mask2_`**, en plus du
+  `__romnum_` que le §12.3 nomme. Sans le port de la seconde écriture, le numéro
+  serait un nombre que la source ne saurait où envoyer.
+- **`rom_hi<n>` n'est pas `ext<b>`, et les deux coexistent sans un mot de plus.**
+  La première désigne **une** banque déclarée paramétriquement, dont le paramètre
+  est un numéro que le matériel lui donne ; la seconde choisit parmi des banques
+  **réellement déclarées**. La résolution cherche la banque concaténée d'abord,
+  la banque nue paramétrique ensuite — et `PAGE` vaut, selon le cas, l'attribut
+  de la banque ou l'argument de l'état.
+- **Le §6 est amendé une seconde fois** : son état s'écrivait `on { w3 rom_hi<n> }`
+  avec un `<n>` que **rien ne liait**, et le script fournissait le nombre par un
+  qualificatif — `CONFIG rom_upper.on, ROM 15`. Deux mécanismes pour une chose,
+  alors qu'`ext_w1<b>` montrait déjà que le paramètre appartient à l'**état**.
+  D'où `on<n>` et `CONFIG rom_upper.on<15>` ; un qualificatif que rien ne
+  consomme est **refusé** en nommant la forme paramétrique, et un paramètre de
+  slot que l'état ne déclare pas est refusé dans le profil.
 
 ## C1.9 — l'exemple d'acceptation du §12.2
 

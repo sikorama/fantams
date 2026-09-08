@@ -145,10 +145,27 @@ profile and the link script:
 | `__port_<axis>_<key>` | the address to write — a port for an `OUT`, a memory address for a `POKE` |
 | `__val_<axis>_<key>` | the value, **bounded to the bits of that axis** |
 | `__mask_<axis>` | which bits of the port belong to that axis, so a source can write `(state & ~mask) \| val` |
+| `__port2_<axis>_<key>`, `__romnum_<axis>_<key>`, `__mask2_<axis>` | the same three, for an axis that needs a **second** write — the one that says *which* bank, not *that* one appears |
+| `__off_<section>` | its offset inside its bank, for a loader or a copy |
 
 `<key>` is either a **section** name — the section whose configuration you want
 to switch to — or a **state** name from the profile, when the script names that
 state only once.
+
+When a **link script and a profile are given to the same invocation**, all of
+these except `__off_` are handed to the assembler as plain **constants**: they
+depend on no address, so arithmetic on them is ordinary arithmetic.
+
+```
+        ld   bc, __port_ram_audio + __val_ram_audio   ; one number, computed here
+        out  (c), c
+        ld   c,  __val_ram_linear                     ; and it fits in a byte
+```
+
+`__off_<section>` is the exception: its value depends on where the section
+landed, so it is resolved at link time and a source must declare it with
+`EXTERN`. A unit assembled **without** a script does the same for all of them —
+the linker still resolves them — at the price of no arithmetic in that unit.
 
 They are **reserved**: declaring one with `EXTERN` is how you use it, and
 defining one is refused. Defining one would silence the symbol the linker was

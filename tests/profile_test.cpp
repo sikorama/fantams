@@ -281,6 +281,25 @@ int main() {
         ok("et le refus dit qu'il doit venir avant", says(p, "declared before it"));
     }
 
+    {
+        // Un parametre de slot doit etre CELUI DE L'ETAT. Un `<n>` que rien ne
+        // lie serait un nombre que personne ne fournit, et le placement le
+        // decouvrirait trop tard.
+        profile::Profile p = parse(with("BANK r<n> SIZE 0x4000 ro STORE 9\n"
+                                        "CONFIG SET rom { on { w0 r<n> } }\n"
+                                        "SELECT rom = OUT 0, CODE\n"));
+        ok("un parametre de slot que rien ne lie est refuse", !p.ok);
+        ok("et le refus donne la forme juste",
+           says(p, "bound to nothing") && says(p, "'on<n>'"));
+    }
+    {
+        profile::Profile p = parse(with("BANK r<n> SIZE 0x4000 ro STORE 9\n"
+                                        "CONFIG SET rom { on<n> [CODE 0] { w0 r<n> } }\n"
+                                        "SELECT rom = OUT 0, CODE\n"));
+        ok("lie a l'etat, il est accepte", p.ok);
+        if (!p.ok) firstError(p);
+    }
+
     // --- Ce qui est reconnu et refuse en nommant l'etage --------------------
     {
         profile::Profile p = parse(with("PAGING LOCKS ON 0x7FFD BIT 5\n"));
