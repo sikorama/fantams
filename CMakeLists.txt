@@ -36,7 +36,8 @@ target_include_directories(sna PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # il vit avec l'assembleur parce qu'il ne rend que son Object.
 # asm.cpp rend un OBJET, link.cpp en fait une IMAGE : les deux moities de la
 # meme chaine, et la seule facon d'obtenir un octet.
-add_library(asmlib STATIC asm.cpp link.cpp fo.cpp script.cpp sym.cpp)
+add_library(asmlib STATIC asm.cpp link.cpp fo.cpp lex.cpp script.cpp
+                          profile.cpp profiles.cpp sym.cpp)
 target_include_directories(asmlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asmlib PUBLIC parser z80 pp sna keywords)
 
@@ -71,6 +72,9 @@ target_link_libraries(fo_test PRIVATE asmlib)
 add_executable(script_test tests/script_test.cpp)
 target_link_libraries(script_test PRIVATE asmlib)
 
+add_executable(profile_test tests/profile_test.cpp)
+target_link_libraries(profile_test PRIVATE asmlib)
+
 add_executable(beautify_test tests/beautify_test.cpp)
 target_link_libraries(beautify_test PRIVATE beautify asmlib)
 
@@ -91,9 +95,14 @@ add_test(NAME assembler COMMAND asm_test)
 add_test(NAME linker COMMAND link_test)
 add_test(NAME object_file COMMAND fo_test)
 add_test(NAME link_script COMMAND script_test)
+add_test(NAME target_profile COMMAND profile_test)
 # L'acceptation de l'etage B : deux sources assemblees separement puis linkees
 # donnent le meme binaire que la version monolithique. Un script, parce que le
 # fait porte sur le CLI et sur des FICHIERS.
+# L'invariant mecanique du §13.2 : aucun nom de machine dans le code du linker.
+add_test(NAME no_machine_names
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_machine_names.sh)
+
 add_test(NAME accept_separate
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_separate.sh
          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

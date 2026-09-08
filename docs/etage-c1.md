@@ -41,7 +41,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 |---|-------|-----------|------|
 | C1.0 | La section fusionnée par nom à travers les objets *(préfacteur)* | — | **faite** |
 | C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | **faite** |
-| C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | à faire |
+| C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | **faite** |
 | C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | à faire |
 | C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | à faire |
 | C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
@@ -174,16 +174,70 @@ ses valeurs prises dans `docs/recherche/` et ses citations en commentaires ; et
 le lexeur partagé, extrait **maintenant** parce que c'est maintenant qu'il a deux
 consommateurs.
 
-- [ ] `WINDOW`, y compris plusieurs grilles superposées
-- [ ] `BANK … SIZE …`, `ro` / `rw`, `VIDEO`, `CONTENDED` — les trois porteurs du §13.1
-- [ ] `CONFIG SET`, `CONFIG`, `OVER`, et la forme paramétrique `ext_w1<b> [CODE %1bb]`
-- [ ] `SELECT <axe> = OUT|POKE <port>, <valeur>` — **les nombres seulement**
-- [ ] Les mots de C2 — `STACK OUTSIDE`, fenêtre d'exécution interdite, `LOCKS`, séquences, préconditions — sont refusés **en nommant l'étage C2** (D2)
-- [ ] `SHADOWS` et `ALWAYS` ne sont pas des mots du langage
-- [ ] Refusés : une fenêtre déclarée deux fois, une banque sans `SIZE`, une configuration nommant une banque inconnue, un axe sans `SELECT`
-- [ ] Le lexeur et la grammaire à blocs sont **partagés** avec C1.1, et l'extraction ne change pas un diagnostic de script
-- [ ] Le profil CPC porte, par valeur, ce qui est *attesté par la documentation* et ce qui est *non tranché* — les trois contradictions du §12.3 sont visibles dans le texte
-- [ ] Se teste seul : texte → `Profile`
+- [x] `WINDOW`, y compris plusieurs grilles superposées
+- [x] `BANK … SIZE …`, `ro` / `rw`, `VIDEO`, `CONTENDED` — les trois porteurs du §13.1
+- [x] `CONFIG SET`, `CONFIG`, `OVER`, et la forme paramétrique `ext_w1<b> [CODE %1bb]`
+- [x] `SELECT <axe> = OUT|POKE <port>, <valeur>` — **les nombres seulement**
+- [x] Les mots de C2 — `STACK OUTSIDE`, `CLOBBERS`, `PAGING LOCKS`, `PAGING WRITE_ONLY`, `MIRROR` — sont refusés **en nommant l'étage C2** (D2)
+- [x] `SHADOWS` et `ALWAYS` ne sont pas des mots du langage
+- [x] Refusés : une fenêtre déclarée deux fois, une banque sans `SIZE`, une configuration nommant une banque inconnue, un axe sans `SELECT`
+- [x] Le lexeur et la grammaire à blocs sont **partagés** avec C1.1, et l'extraction ne change pas un diagnostic de script
+- [x] Le profil CPC porte, par valeur, ce qui est *attesté par la documentation* et ce qui est *non tranché* — les trois contradictions du §12.3 sont visibles dans le texte
+- [x] Se teste seul : texte → `Profile`
+
+Deux étapes du §13.2 sont livrées ici, et non plus tard : ce chapitre pose trois
+**tests d'acceptation du modèle**, dont deux « à C1 », et le troisième dit de
+l'inscrire *maintenant, et non après, parce qu'un invariant écrit après le code
+est un invariant qu'on affaiblit pour le faire passer*.
+
+- [x] **Test n°2** — la suite charge **chaque profil livré** par `builtinNames()`
+      et vérifie qu'il se lit, sans qu'aucune ligne de code ne connaisse son nom.
+- [x] **Test n°3** — `tests/no_machine_names.sh`, dans les deux listes : aucun
+      nom de machine dans les huit fichiers du linker et de ses deux langages.
+      **Le périmètre est nommé dans le script**, ce qui est ce qui le distingue
+      d'un grep décoratif : `profiles.cpp` est exempt parce qu'il est une donnée
+      (D1) ; le builder en est dehors, un format de snapshot ayant toutes les
+      raisons de connaître sa machine ; et les tests en sont dehors, leur travail
+      étant justement de nommer des machines.
+
+Il a mordu au premier passage, sur un commentaire de `profile.cpp` qui citait un
+registre. C'est le meilleur argument pour l'avoir écrit avec le code.
+
+Cinq choses décidées en cours de route, à relire en C1.10 :
+
+- **`RMR.BIT2 = (on ? 0 : 1)` disparaît, remplacé par `MASK` + `[CODE …]`.** Le
+  §6 est amendé sur place avec les deux raisons : cette forme mettait le nom d'un
+  registre d'une machine **dans la grammaire** — que le test n°3 interdit — et
+  elle disait deux choses à la fois, alors que le §12.3 exige déjà les deux
+  séparément sous les noms `__mask_<axe>` et `__val_<axe>_<config>`. `MASK` n'est
+  donc pas une invention : c'est le mot qui manquait à `__mask_`. Le ternaire est
+  refusé **en nommant les deux formes qui le remplacent**.
+- **Une ligne `BANK` sans `SIZE` AMENDE des banques déjà déclarées**, au lieu
+  d'être refusée sur place. C'est ce qui permet de poser `CONTENDED` sur quatre
+  banques d'un lot de huit sans répéter leur taille — la forme dont une autre
+  machine a besoin. Le refus « une banque sans `SIZE` » se prononce donc **à la
+  fin**, sur une banque qu'*aucune* ligne n'a dimensionnée : c'est là seulement
+  qu'on peut le savoir.
+- **Une plage `base0..base3` déclare N banques, jamais une banque de N × 16 K.**
+  Elle n'est qu'un raccourci d'écriture, et le refus de tout ce qui ne s'énumère
+  pas est délibéré : un intervalle qu'on ne sait pas énumérer n'est pas un
+  intervalle.
+- **`OVER` exige que l'axe recouvert soit déclaré AVANT.** Le §13.1 dit que lire
+  cette priorité à l'envers ferait déclarer conforme un octet écrit dans le
+  vide ; l'ordre de déclaration est la façon la moins coûteuse de la rendre non
+  ambiguë.
+- **Le profil livré s'appelle `cpc6128` et décrit les huit banques**, sans
+  `+ RAM128` : sur cette machine les 64 K étendus ne sont pas une extension, ils
+  font partie du modèle. Le `+ <extension>` du script reste analysé, pour les
+  machines où il en est réellement une.
+
+Et un défaut de C1.1 que ce second consommateur a révélé, ce qui est la raison
+d'avoir attendu le second : **une fenêtre est NOMMÉE, pas numérotée.**
+`Placement::window` était un `int` lu depuis `w<chiffres>` — la grille d'une
+machine câblée dans le langage, la faute exacte que le §13.1 reproche à un 16 K
+câblé dans le linker. C'est un `std::string`, et un test place désormais dans
+`m0`. Au passage, une `SECTION` écrite directement dans un `CONFIG` reçoit un
+meilleur refus qu'avant : il donne la forme juste et dit d'où vient l'`ORG`.
 
 ## C1.3 — `--target`, `-P`, `--dump-profile`
 

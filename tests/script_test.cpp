@@ -68,9 +68,9 @@ int main() {
         ok("trois fenetres dans la premiere", s.map.size() == 2 && s.map[0].placements.size() == 3);
         ok("chaque fenetre porte son numero et sa section",
            s.map.size() == 2 && s.map[0].placements.size() == 3 &&
-           s.map[0].placements[0].window == 1 &&
+           s.map[0].placements[0].window == "w1" &&
            s.map[0].placements[0].sections == std::vector<std::string>{"main"} &&
-           s.map[0].placements[2].window == 3 &&
+           s.map[0].placements[2].window == "w3" &&
            s.map[0].placements[2].sections == std::vector<std::string>{"unpacked"});
         ok("un etat parametrique porte son argument",
            s.map.size() == 2 && s.map[1].config.state == "ext_w1" &&
@@ -129,7 +129,18 @@ int main() {
         ok("l'analyseur ne resout rien, et ne s'en plaint pas", s.ok);
         ok("il porte quand meme ce qu'il a lu",
            s.map.size() == 1 && s.map[0].placements.size() == 1 &&
-           s.map[0].placements[0].window == 42);
+           s.map[0].placements[0].window == "w42");
+    }
+
+    {
+        // Une fenetre est NOMMEE, non numerotee : un script MSX place dans
+        // `page1` ou dans `m0`, et les deux grilles y sont actives en meme temps
+        // (§13.1). Un `w<n>` cable aurait rendu cette machine indescriptible.
+        script::Script s = parse("MEMORY_MAP { CONFIG mapper1 { m0 { SECTION seg } } }\n");
+        ok("une fenetre d'une autre grille est un nom comme un autre", s.ok);
+        ok("et il est porte tel quel",
+           s.map.size() == 1 && s.map[0].placements.size() == 1 &&
+           s.map[0].placements[0].window == "m0");
     }
 
     // --- Un mot inconnu est une ERREUR, jamais un silence -------------------
@@ -148,7 +159,8 @@ int main() {
     {
         script::Script s = parse("MEMORY_MAP { CONFIG linear { SECTION main } }\n");
         ok("une section hors d'une fenetre est refusee", !s.ok);
-        ok("le refus nomme ce qu'on attendait", says(s, "w1"));
+        ok("le refus nomme la forme juste", says(s, "w1 { SECTION main }"));
+        ok("et il dit d'ou vient l'ORG", says(s, "gives the section its ORG"));
     }
 
     // --- Ce qui est reconnu, et refuse --------------------------------------

@@ -359,14 +359,35 @@ SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE
 SELECT ram.all_ext  STACK OUTSIDE [0x0000..0xFFFF]   // les quatre basculent
 
 // --- Les ROMs : deux axes indépendants, qui recouvrent en LECTURE -------
-CONFIG SET rom_lower OVER ram { off { }  on { w0 rom_lo    } }
-CONFIG SET rom_upper OVER ram { off { }  on { w3 rom_hi<n> } }
-
 // Polarité écrite ici, et ici seulement : 0 active, 1 inhibe (§7, §12.3)
-SELECT rom_lower = OUT 0x7F00, RMR.BIT2 = (on ? 0 : 1)
-SELECT rom_upper = OUT 0x7F00, RMR.BIT3 = (on ? 0 : 1)
-                   OUT 0xDF00, n
+CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo    } }
+CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on [CODE 0] { w3 rom_hi<n> } }
+
+// MASK : les bits du port qui appartiennent à l'axe. Le même registre porte
+// le mode écran ; y sortir la seule valeur de l'axe l'écraserait (§12.3).
+SELECT rom_lower = OUT 0x7F00, MASK %00000100, CODE << 2
+SELECT rom_upper = OUT 0x7F00, MASK %00001000, CODE << 3
+                   OUT 0xDF00, MASK %11111111, PAGE
 ```
+
+> **Correction, écrite à l'étape C1.2.** Ces deux dernières lignes s'écrivaient
+> `SELECT rom_lower = OUT 0x7F00, RMR.BIT2 = (on ? 0 : 1)`, et cette forme avait
+> **deux défauts que le §13.1 condamne lui-même**.
+>
+> Elle mettait le **nom d'un registre d'une machine dans la grammaire** :
+> `RMR.BIT<n>` n'est pas du vocabulaire générique, c'est une convention de
+> nommage d'une machine, et le §13.2 fait de « aucun nom de machine dans le code
+> du linker » un invariant mécanique. Un profil devait alors écrire des noms que
+> l'analyseur reconnaît, ce qui est exactement le couplage que ce chapitre
+> combat.
+>
+> Et elle disait **deux choses à la fois** : quels bits du port appartiennent à
+> l'axe, et quelle valeur chaque état y met. Or le §12.3 exige déjà les deux
+> séparément — `__mask_<axe>` et `__val_<axe>_<config>` —, et il n'y avait pas de
+> mot pour le premier. `MASK` est donc l'explicitation de ce que `__mask_`
+> réclamait, et le `[CODE …]` d'un état, qui existait déjà pour l'axe de RAM,
+> porte le second. Le ternaire disparaît avec le nom du registre, et l'analyseur
+> le refuse **en nommant `MASK` et `[CODE …]`**.
 
 Le script, tel que l'auteur l'écrit — et le §12.2 montre qu'il tient en dix
 lignes pour un programme banqué réel :

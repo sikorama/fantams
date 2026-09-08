@@ -4,7 +4,8 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 
 .PHONY: all test clean
 
-CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp script.cpp beautify.cpp sna.cpp sym.cpp
+CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp \
+       lex.cpp script.cpp profile.cpp profiles.cpp beautify.cpp sna.cpp sym.cpp
 
 # Les tests vivent dans tests/, binaire compris : la racine ne porte que le code
 # et les deux outils. Leurs « #include "asm.h" » se résolvent par -I. — la
@@ -12,7 +13,7 @@ CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp s
 T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
         $(T)/asm_test $(T)/link_test $(T)/fo_test $(T)/script_test \
-        $(T)/beautify_test $(T)/sna_test
+        $(T)/profile_test $(T)/beautify_test $(T)/sna_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
 all: $(TESTS) ppdump fantams
@@ -47,9 +48,15 @@ $(T)/fo_test: fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywor
 
 # Le script de linkage : un TEXTE entre, une valeur sort. Aucun profil, aucun
 # objet, aucun octet — c'est ce qui le rend testable seul, et c'est pour cela
-# que cette suite ne se lie qu'a script.cpp.
-$(T)/script_test: script.cpp $(T)/script_test.cpp script.h asm.h
-	$(TCXX) script.cpp $(T)/script_test.cpp -o $@
+# que ces deux suites ne se lient qu'a leur analyseur et au lexeur partage.
+$(T)/script_test: lex.cpp script.cpp $(T)/script_test.cpp script.h lex.h asm.h
+	$(TCXX) lex.cpp script.cpp $(T)/script_test.cpp -o $@
+
+# Le profil de cible, et les profils LIVRES : la suite charge chaque profil
+# embarque et verifie qu'il se lit, sans qu'aucun code de linker connaisse son
+# nom (§13.2, test d'acceptation n°2 du modele).
+$(T)/profile_test: lex.cpp profile.cpp profiles.cpp $(T)/profile_test.cpp profile.h lex.h asm.h
+	$(TCXX) lex.cpp profile.cpp profiles.cpp $(T)/profile_test.cpp -o $@
 
 # Le beautify n'a besoin que du parseur et du vocabulaire réservé : ni adresse,
 # ni octet, ni assemblage (ADR 0013).
@@ -70,6 +77,7 @@ fantams: $(CORE) asm_main.cpp asm.h pp.h sym.h
 test: $(TESTS) fantams
 	@for t in $(TESTS); do ./$$t || exit 1; done
 	@$(T)/accept_separate.sh
+	@$(T)/no_machine_names.sh
 
 clean:
 	rm -f $(TESTS) ppdump fantams

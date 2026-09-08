@@ -46,7 +46,12 @@ struct Qualifier {
 // dans l'ORDRE DU SCRIPT : c'est celui que le placement rejoue, et le seul que
 // son auteur peut prévoir.
 struct Placement {
-    int window = -1;
+    // Le NOM de la fenêtre, et non son numéro. `w1` n'est qu'un nom, celui
+    // qu'un profil donné emploie ; d'autres machines nomment leurs fenêtres
+    // autrement, et y font vivre DEUX GRILLES SUPERPOSÉES à la fois (§13.1). Un
+    // `w<n>` câblé ici en aurait rendu certaines indescriptibles — la faute
+    // exacte que le §13.1 reproche à un 16 K câblé dans le linker.
+    std::string window;
     // Un découpage de placement À L'INTÉRIEUR de la banque (§13.1) — et non une
     // banque plus petite : les deux moitiés apparaissent ensemble ou pas du tout.
     bool hasRange = false;
@@ -95,8 +100,8 @@ struct Output {
 struct Script {
     bool ok = true;
     bool hasTarget = false;
-    std::string target;                      // `cpc6128`
-    std::vector<std::string> extensions;     // `RAM128`, …
+    std::string target;                      // le nom d'un profil
+    std::vector<std::string> extensions;     // ce que `+ <nom>` a ajouté
     std::vector<ConfigBlock> map;
     Output output;
     std::vector<asmb::Diagnostic> errors;

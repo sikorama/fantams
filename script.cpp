@@ -1,167 +1,24 @@
 // script.cpp - Le script de linkage, analysé (voir script.h)
 //
-// Un découpeur de jetons, puis une descente récursive. Le découpeur est LOCAL à
-// ce fichier, et c'est délibéré : le profil de cible emploiera la même grammaire
-// à blocs, et c'est à ce moment-là — quand il aura deux consommateurs — qu'il
-// sera extrait. L'extraire maintenant serait une couture hypothétique, celle que
-// `coutures-de-la-chaine.md` §4 apprend à ne pas fabriquer.
+// Une descente récursive sur le curseur partagé de `lex`. Le découpeur de jetons
+// et la forme à blocs vivaient ici jusqu'à ce que le profil de cible leur donne
+// un second consommateur ; ils sont maintenant dans `lex.h`, et l'extraction n'a
+// changé aucun diagnostic de cette suite.
 #include "script.h"
 
+#include "lex.h"
+
 #include <cctype>
-#include <cstdio>
 #include <cstdlib>
 
 namespace script {
 namespace {
 
-// --- Les jetons -------------------------------------------------------------
-// Une seule subtilité dans ce découpage : `..` est un jeton, et non deux points.
-// Sans quoi `[0x3F00..0x3FFF]` et `[ext0..ext3]` demanderaient au parseur de
-// deviner, et `rom_upper.on` cesserait d'être lisible.
-struct Tok {
-    enum Kind { End, Name, Number, Text, Punct } kind = End;
-    std::string s;        // le texte, pour Name / Text / Punct
-    int64_t n = 0;        // la valeur, pour Number
-    int line = 0;
-};
-
-bool nameStart(char c) { return std::isalpha((unsigned char)c) || c == '_'; }
-bool nameChar(char c) { return std::isalnum((unsigned char)c) || c == '_'; }
-
-// Les quatre notations de nombre que ce projet emploie déjà : `0x`, `&` et `#`
-// pour l'hexadécimal, `%` pour le binaire, et le décimal nu. En refuser une
-// serait demander à l'auteur d'un `.asm` d'écrire ses adresses autrement dans
-// son script que dans sa source.
-bool number(const std::string &t, size_t &i, Tok &out, std::string &err) {
-    int base = 10;
-    size_t a = i;
-    if (t[i] == '&' || t[i] == '#') { base = 16; a = ++i; }
-    else if (t[i] == '%') { base = 2; a = ++i; }
-    else if (t[i] == '0' && i + 1 < t.size() && (t[i + 1] == 'x' || t[i + 1] == 'X')) {
-        base = 16; i += 2; a = i;
-    }
-    while (i < t.size() && std::isalnum((unsigned char)t[i])) ++i;
-    if (i == a) { err = "a number was expected"; return false; }
-    const std::string digits = t.substr(a, i - a);
-    char *end = nullptr;
-    const long long v = std::strtoll(digits.c_str(), &end, base);
-    if (!end || *end != '\0') { err = "'" + digits + "' is not a number"; return false; }
-    out.kind = Tok::Number;
-    out.n = (int64_t)v;
-    out.s = digits;
-    return true;
-}
-
-// Un `//` ou un `;` hors guillemets ouvre un commentaire — les deux, parce que
-// le §6 écrit ses exemples avec `//` et qu'un source fantams commente avec `;`.
-bool tokenize(const std::string &text, std::vector<Tok> &out, std::string &err, int &errLine) {
-    int line = 1;
-    for (size_t i = 0; i < text.size();) {
-        const char c = text[i];
-        if (c == '\n') { ++line; ++i; continue; }
-        if (std::isspace((unsigned char)c)) { ++i; continue; }
-        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/') {
-            while (i < text.size() && text[i] != '\n') ++i;
-            continue;
-        }
-        if (c == ';') {
-            while (i < text.size() && text[i] != '\n') ++i;
-            continue;
-        }
-        Tok t;
-        t.line = line;
-        if (c == '"') {
-            ++i;
-            for (;;) {
-                if (i >= text.size() || text[i] == '\n') {
-                    err = "unterminated string"; errLine = line; return false;
-                }
-                if (text[i] == '"') { ++i; break; }
-                t.s += text[i++];
-            }
-            t.kind = Tok::Text;
-            out.push_back(std::move(t));
-            continue;
-        }
-        if (nameStart(c)) {
-            size_t a = i;
-            while (i < text.size() && nameChar(text[i])) ++i;
-            t.kind = Tok::Name;
-            t.s = text.substr(a, i - a);
-            out.push_back(std::move(t));
-            continue;
-        }
-        if (std::isdigit((unsigned char)c) || c == '&' || c == '#' || c == '%') {
-            if (!number(text, i, t, err)) { errLine = line; return false; }
-            out.push_back(std::move(t));
-            continue;
-        }
-        if (c == '.' && i + 1 < text.size() && text[i + 1] == '.') {
-            t.kind = Tok::Punct; t.s = ".."; i += 2;
-            out.push_back(std::move(t));
-            continue;
-        }
-        if (std::string("{}[]<>,=.+").find(c) != std::string::npos) {
-            t.kind = Tok::Punct; t.s = std::string(1, c); ++i;
-            out.push_back(std::move(t));
-            continue;
-        }
-        err = std::string("unexpected character '") + c + "'";
-        errLine = line;
-        return false;
-    }
-    Tok end;
-    end.line = line;
-    out.push_back(end);
-    return true;
-}
+using lex::Tok;
 
 // --- La descente ------------------------------------------------------------
-struct Parser {
-    std::vector<Tok> t;
-    size_t i = 0;
-    std::string file;
+struct Parser : lex::Cursor {
     Script out;
-
-    const Tok &cur() const { return t[i]; }
-    bool atEnd() const { return t[i].kind == Tok::End; }
-    bool isName(const char *w) const { return cur().kind == Tok::Name && cur().s == w; }
-    bool isPunct(const char *w) const { return cur().kind == Tok::Punct && cur().s == w; }
-    void next() { if (!atEnd()) ++i; }
-
-    void err(const std::string &msg) { err(cur().line, msg); }
-    void err(int line, const std::string &msg) {
-        out.ok = false;
-        out.errors.push_back({file, line, msg});
-    }
-
-    // Ce que le jeton courant est, dit comme un diagnostic doit le dire : citer
-    // « fin de fichier » plutôt que rien du tout est ce qui distingue une
-    // accolade oubliée d'une faute de frappe.
-    std::string got() const {
-        switch (cur().kind) {
-            case Tok::End:    return "end of file";
-            case Tok::Number: return "'" + cur().s + "'";
-            case Tok::Text:   return "a string";
-            default:          return "'" + cur().s + "'";
-        }
-    }
-
-    bool want(const char *p) {
-        if (isPunct(p)) { next(); return true; }
-        err(std::string("expected '") + p + "', got " + got());
-        return false;
-    }
-    bool wantNumber(int64_t &v) {
-        if (cur().kind == Tok::Number) { v = cur().n; next(); return true; }
-        err("expected a number, got " + got());
-        return false;
-    }
-    bool wantName(std::string &v) {
-        if (cur().kind == Tok::Name) { v = cur().s; next(); return true; }
-        err("expected a name, got " + got());
-        return false;
-    }
 
     // La reprise après une faute : on avance jusqu'à ce qui peut recommencer une
     // instruction, ou jusqu'à une accolade fermante. Sans elle, une virgule
@@ -180,31 +37,8 @@ struct Parser {
         }
     }
 
-    // Sauter jusqu'à la fin du bloc courant, accolades comptées. Après une faute
-    // DANS un bloc, reprendre à l'instruction suivante du même bloc produirait
-    // une cascade de diagnostics dont seul le premier est vrai — et, si la
-    // reprise retombe sur le jeton fautif, une boucle.
-    void skipBlock() {
-        int depth = 0;
-        for (; !atEnd(); next()) {
-            if (isPunct("{")) ++depth;
-            else if (isPunct("}") && --depth <= 0) { next(); return; }
-        }
-    }
 
-    // `w<n>` — le nom d'une fenêtre. Rendu comme un entier, parce que c'est le
-    // profil qui dira ce que cette fenêtre couvre.
-    bool windowIndex(int &n) {
-        const std::string &w = cur().s;
-        if (cur().kind != Tok::Name || w.size() < 2 || w[0] != 'w') return false;
-        for (size_t k = 1; k < w.size(); ++k)
-            if (!std::isdigit((unsigned char)w[k])) return false;
-        n = std::atoi(w.c_str() + 1);
-        next();
-        return true;
-    }
-
-    // --- TARGET cpc6128 + RAM128 --------------------------------------------
+    // --- TARGET <machine> [+ <extension>] -----------------------------------
     void target() {
         const int line = cur().line;
         next();
@@ -249,10 +83,21 @@ struct Parser {
     bool placement(Placement &p) {
         p.file = file;
         p.line = cur().line;
-        if (!windowIndex(p.window)) {
-            err("expected a window name such as 'w1', got " + got());
+        // Un NOM, et le profil dira ce que cette fenêtre couvre. Reconnaître
+        // ici un `w<chiffres>` aurait câblé UNE grille dans le langage : sur
+        // d'autres machines les fenêtres portent d'autres noms, et deux grilles
+        // superposées y sont actives en même temps (§13.1).
+        //
+        // `SECTION` est un nom recevable pour le découpeur, et c'est la faute la
+        // plus probable à cet endroit : la nommer vaut mieux que de laisser
+        // l'analyseur se plaindre d'une accolade manquante deux jetons plus loin.
+        if (isName("SECTION")) {
+            err("a SECTION goes inside a window: write 'w1 { SECTION main }' — it is "
+                "the configuration that says which bank appears in which window, and "
+                "the window that gives the section its ORG");
             return false;
         }
+        if (!wantName(p.window)) return false;
         if (isPunct("[")) {
             next();
             // Les deux clés dans l'ordre du §6, et l'ordre est imposé : un
@@ -447,13 +292,15 @@ Script parse(const std::string &text, const std::string &file) {
     p.file = file;
     std::string err;
     int line = 0;
-    if (!tokenize(text, p.t, err, line)) {
+    if (!lex::tokenize(text, p.t, err, line)) {
         Script s;
         s.ok = false;
         s.errors.push_back({file, line, err});
         return s;
     }
     p.run();
+    p.out.ok = p.ok;
+    p.out.errors = std::move(p.errors);
     return p.out;
 }
 
