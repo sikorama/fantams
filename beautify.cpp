@@ -181,6 +181,24 @@ std::string line(const std::string &ln, kw::Phase ph, bool detachLabels,
     bool sawColon = true;
     kw::peelLabel(body, label, rest, ph, &sawColon);
 
+    // ADR 0015 — un mot réservé ne nomme pas un label, deux-points ou pas. Le ':'
+    // qui suit un mot réservé SÉPARE deux instructions : « ldi:ldi », « ei: ret ».
+    // Le préprocesseur le dit déjà (« is read as two statements, not as a label »),
+    // et `peelLabel` ne consulte `isReservedWord` que dans sa branche SANS
+    // deux-points — d'où le trou.
+    //
+    // Sans ce garde-fou, la mise en forme détachait « ldi:ldi » en un label
+    // « ldi: » et une instruction, c'est-à-dire qu'elle fabriquait un label que
+    // l'assembleur refuse, et posait l'instruction restante en colonne 1, où il
+    // avertit à son tour. Une mise en forme qui fait naître un avertissement va
+    // exactement à l'envers de sa raison d'être.
+    //
+    // On indente, et rien d'autre : déplacer une ligne horizontalement ne peut
+    // changer aucun octet. C'est le refus de deviner de l'ADR 0013 applique au
+    // seul endroit où il manquait.
+    if (!label.empty() && kw::isReservedWord(upper(label), ph))
+        return rstrip(indent + ln.substr(ind));
+
     if (!label.empty()) {
         // Règle 1 — le deux-points. Le garde-fou n'est plus « seul sur sa ligne »
         // (un appel de macro sans argument a cette forme) mais `looksLikeLabel`,

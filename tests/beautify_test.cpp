@@ -146,6 +146,23 @@ int main() {
     chk("commentaire de fin conservé (décalé d'un cran)",
         "start ; entree\n", "start: ; entree\n");
 
+    // ADR 0015 — un mot réservé ne nomme pas un label, DEUX-POINTS OU PAS. Le ':'
+    // qui le suit sépare deux instructions, ce que le préprocesseur avertit déjà :
+    // « 'ldi:' is read as two statements, not as a label ». La mise en forme
+    // détachait « ldi:ldi » en un label « ldi: » et une instruction — elle
+    // fabriquait un label que l'assembleur refuse, et posait le reste en colonne 1,
+    // où il avertit à son tour. Une mise en forme qui FAIT NAÎTRE un avertissement
+    // va à l'envers de sa raison d'être.
+    chk("mot réservé + ':' collé : deux instructions, pas un label",
+        "ldi:ldi\n", "    ldi:ldi\n");
+    chk("mot réservé + ':' espacé : idem", "ei: ret\n", "    ei: ret\n");
+    chk("mot réservé + ':' seul : une instruction, indentée", "ldi:\n", "    ldi:\n");
+    keep("déjà indenté : rien à faire", "    ldi:ldi\n");
+    // Et le contre-exemple qui borne la règle : un nom NON réservé garde son
+    // statut de label, deux-points et détachement compris.
+    chk("nom non réservé + ':' collé : c'est bien un label",
+        "boucle:ldi\n", "boucle:\n    ldi\n");
+
     // Ce que la règle 1 REFUSE de faire : deviner.
     chk("appel de macro : pas de ':', mais indenté", "sprite 4,12\n", "    sprite 4,12\n");
     chk("nom + argument non réservé : pas de ':'", "cls 0\n", "    cls 0\n");
