@@ -235,6 +235,34 @@ struct Linker {
         int line = 0;
     };
 
+    // Une RÉGION de placement : un intervalle d'adresses logiques dans un
+    // emplacement de rangement, et de qui il tient.
+    //
+    // Les trois provenances ne se valent pas, et c'est ce qui décide de qui se
+    // compare à qui : deux régions ABSOLUES qui se recouvrent sont l'affaire du
+    // contrôle octet par octet, qui sait déjà distinguer une réécriture — un
+    // idiome, à l'intérieur d'un fichier — d'un heurt entre deux unités. Cet
+    // étage n'ajoute un refus que là où le SCRIPT est en cause.
+    struct Region {
+        enum Origin { Script, Derived, Absolute } origin = Script;
+        int store = 0;
+        int64_t lo = 0, hi = 0;      // adresses logiques, `hi` exclus
+        std::string what;            // la section, ou le bloc du script
+        std::string bank, window, config;
+        std::string file;
+        int line = 0;
+    };
+    std::vector<Region> regions_;
+    // Les BLOCS que le script a écrits, comparés entre eux et à rien d'autre.
+    // Une section vit DANS son bloc : les mêler ferait de tout placement un
+    // recouvrement de lui-même. Et deux blocs disjoints ont des sections
+    // disjointes, si bien que ce contrôle-ci suffit à couvrir le heurt entre
+    // deux sections que le script place toutes les deux.
+    std::vector<Region> blocks_;
+    // Les emplacements dont la disposition en sections a déjà été refusée : tout
+    // ce que leurs octets diront ensuite est du bruit en aval.
+    std::set<int> spoiled_;
+
     const profile::Window *windowNamed(const profile::Profile &pr, const std::string &n) const {
         for (const profile::Window &w : pr.windows) if (w.name == n) return &w;
         return nullptr;
@@ -349,6 +377,21 @@ struct Linker {
                     origin += p.offset;
                     room = p.size;
                 }
+                Region reg;
+                reg.origin = Region::Script;
+                reg.store = (int)bk->store;
+                reg.lo = origin;
+                reg.hi = origin + room;
+                reg.what = p.hasRange
+                    ? "the block at [OFFSET " + hexSize(p.offset) + ", SIZE " + hexSize(p.size) + "]"
+                    : "window '" + p.window + "'";
+                reg.bank = bankName;
+                reg.window = p.window;
+                reg.config = configLabel;
+                reg.file = p.file;
+                reg.line = p.line;
+                blocks_.push_back(reg);
+
                 int64_t used = 0;
                 for (const std::string &name : p.sections) {
                     auto prev = plan.find(name);
@@ -380,9 +423,98 @@ struct Linker {
                     plan[name] = std::move(s);
                     used += need;
                 }
+                // LE MOU, chiffré. C'est le nombre dont l'auteur a besoin pour
+                // arbitrer, et que personne ne calcule à la main (§11). Il n'est
+                // dit que là où le script a placé : la banque d'une source qui
+                // n'écrit pas de carte n'a pas de budget, et le crier partout
+                // ferait du bruit sur l'immense majorité des sources.
+                if (used < room) {
+                    char at[24];
+                    snprintf(at, sizeof at, "&%04X", (unsigned)((origin + used) & 0xFFFF));
+                    out.prints.push_back({p.file, p.line,
+                        hexSize(room - used) + " bytes unused at " + at + " in bank '" +
+                        bankName + "'"});
+                }
             }
         }
         return plan;
+    }
+
+    // Deux régions qui se disputent les mêmes octets d'un même emplacement.
+    //
+    // C'est le refus que seul un placement CALCULÉ peut prononcer, et il nomme
+    // des SECTIONS là où le contrôle octet par octet nomme des lignes : personne
+    // ne réécrit une section avec une autre, donc il n'y a pas d'idiome à
+    // épargner ici.
+    void refuseOverlap(const Region &blamed, const Region &other, int64_t lo, int64_t hi) {
+        char range[40];
+        snprintf(range, sizeof range, "&%04X-&%04X",
+                 (unsigned)(lo & 0xFFFF), (unsigned)((hi - 1) & 0xFFFF));
+        out.errors.push_back({blamed.file, blamed.line,
+            blamed.what + " and " + other.what + " overlap at " + range +
+            " in bank '" + (blamed.bank.empty() ? other.bank : blamed.bank) + "'"});
+        spoiled_.insert(blamed.store);
+    }
+
+    void checkOverlaps() {
+        auto meet = [](const Region &x, const Region &y, int64_t &lo, int64_t &hi) {
+            if (x.store != y.store) return false;
+            if (x.hi <= y.lo || y.hi <= x.lo) return false;
+            lo = x.lo > y.lo ? x.lo : y.lo;
+            hi = x.hi < y.hi ? x.hi : y.hi;
+            return true;
+        };
+        // Les blocs du script, entre eux. C'est ce qui refuse deux découpages
+        // `[OFFSET, SIZE]` qui se chevauchent dans une banque, et aussi deux
+        // configurations qui donnent la même banque à la même fenêtre.
+        int64_t lo = 0, hi = 0;
+        for (size_t a = 0; a < blocks_.size(); ++a)
+            for (size_t b = a + 1; b < blocks_.size(); ++b)
+                if (meet(blocks_[a], blocks_[b], lo, hi))
+                    refuseOverlap(blocks_[b], blocks_[a], lo, hi);
+        // Puis les grilles superposées. Deux fenêtres d'un MÊME état peuvent se
+        // recouvrir dans l'espace adressable tout en désignant des banques
+        // différentes : sur une machine à mapper, une grille de 8 K redécoupe une
+        // page de 16 K, et les deux sont actives ensemble. Les deux sections se
+        // croient alors à la même adresse.
+        //
+        // À l'intérieur d'un état, la carte est FIXE : le recouvrement se décide
+        // sans rien savoir de ce que le programme exécute. C'est ce qui distingue
+        // ce contrôle de la co-visibilité entre états, qui est l'affaire de C2.
+        for (size_t a = 0; a < blocks_.size(); ++a)
+            for (size_t b = a + 1; b < blocks_.size(); ++b) {
+                const Region &x = blocks_[a], &y = blocks_[b];
+                if (x.store == y.store) continue;      // déjà dit, s'il y avait à dire
+                if (x.config != y.config) continue;    // deux états : c'est C2
+                if (x.hi <= y.lo || y.hi <= x.lo) continue;
+                const int64_t l = x.lo > y.lo ? x.lo : y.lo;
+                const int64_t h = x.hi < y.hi ? x.hi : y.hi;
+                char range[40];
+                snprintf(range, sizeof range, "&%04X-&%04X",
+                         (unsigned)(l & 0xFFFF), (unsigned)((h - 1) & 0xFFFF));
+                out.errors.push_back({y.file, y.line,
+                    "windows '" + x.window + "' and '" + y.window +
+                    "' overlap at " + range + " in configuration '" + y.config +
+                    "': banks '" + x.bank + "' and '" + y.bank +
+                    "' are both visible there, and two sections cannot share the address"});
+                spoiled_.insert(x.store);
+                spoiled_.insert(y.store);
+            }
+
+        // Puis les sections, mais SEULEMENT là où le script rencontre autre chose
+        // que lui-même. Deux sections que le script place toutes les deux sont
+        // déjà couvertes par leurs blocs ; deux régions absolues sont l'affaire
+        // du contrôle octet par octet, qui sait y distinguer un idiome d'un
+        // heurt.
+        for (size_t a = 0; a < regions_.size(); ++a)
+            for (size_t b = a + 1; b < regions_.size(); ++b) {
+                const Region &x = regions_[a], &y = regions_[b];
+                const bool one = (x.origin == Region::Script) != (y.origin == Region::Script);
+                if (!one) continue;
+                if (!meet(x, y, lo, hi)) continue;
+                const Region &blamed = y.origin == Region::Script ? y : x;
+                refuseOverlap(blamed, &blamed == &y ? x : y, lo, hi);
+            }
     }
 
     // Où poser les sections que personne n'a placées.
@@ -509,7 +641,44 @@ struct Linker {
                 where += e->second;
             }
             if (placed == plan.end()) cursor = (int)where;
+            // La région de cette section, pour le contrôle de recouvrement. Une
+            // section que le script ne place pas en est une aussi : c'est
+            // justement le heurt entre les deux qui n'est visible que d'ici.
+            const int64_t start = placed == plan.end() ? cursor - total[merged[mi].name]
+                                                       : placed->second.base;
+            if (total[merged[mi].name] > 0) {
+                Region reg;
+                reg.origin = placed == plan.end() ? Region::Derived : Region::Script;
+                reg.store = placed == plan.end() ? (int)((start >> 14) & 3)
+                                                 : placed->second.store;
+                reg.lo = start;
+                reg.hi = start + total[merged[mi].name];
+                reg.what = "section '" + merged[mi].name + "'";
+                reg.bank = placed == plan.end() ? std::string() : placed->second.bank;
+                reg.file = placed == plan.end() ? merged[mi].file : placed->second.file;
+                reg.line = placed == plan.end() ? merged[mi].line : placed->second.line;
+                regions_.push_back(std::move(reg));
+            }
         }
+
+        // Les fragments ABSOLUS, pour que le heurt entre un `org` et un
+        // placement calculé se dise en nommant les deux. Un fragment et non une
+        // section : une section à plusieurs `org` n'occupe pas un intervalle.
+        for (const asmb::Object &obj : objects)
+            for (const asmb::Fragment &f : obj.fragments) {
+                if (f.relocSection >= 0 || f.bytes.empty()) continue;
+                Region reg;
+                reg.origin = Region::Absolute;
+                reg.store = f.bank < 0 ? (int)((f.addr >> 14) & 3) : f.bank;
+                reg.lo = f.addr;
+                reg.hi = f.addr + (int64_t)f.bytes.size();
+                reg.what = f.section.empty() ? std::string("bytes outside any section")
+                                             : "section '" + f.section + "', placed by its 'org'";
+                reg.file = obj.name;
+                regions_.push_back(std::move(reg));
+            }
+
+        checkOverlaps();
 
         // 4. Le plafond, sur la SOMME. Chaque unité tient, leur somme non : c'est
         // le refus que l'assembleur ne pouvait pas prononcer, puisqu'il ne voit
@@ -626,6 +795,10 @@ struct Linker {
                 Space &sp = spaces_[bank];
                 std::vector<int> &own = owner_[bank];
                 if (own.empty()) own.assign(0x4000, -1);
+                // Un emplacement dont la disposition en sections a déjà été
+                // refusée ne dira plus rien de ses octets : deux diagnostics
+                // pour un seul fait en valent zéro.
+                if (spoiled_.count(bank)) { sp.bytes[off] = f.bytes[k]; continue; }
                 const int prevOwner = own[(size_t)off];
                 own[(size_t)off] = curObject_;
                 if (prevOwner >= 0 && prevOwner != curObject_) {
@@ -787,9 +960,25 @@ Image build(const std::vector<asmb::Object> &objects,
         if (!obj.entry.has) continue;
         lk.relocBase_ = lk.bases_[oi];
         lk.relocStore_ = lk.stores_[oi];
+        // Le point d'entrée passe par `symbolAddress`, et non par la table crue
+        // `obj.symbols` : dans une section RELOCALISABLE, celle-ci ne porte qu'un
+        // OFFSET, et prendre cet offset pour une adresse faisait démarrer le PC à
+        // l'offset zéro de la section.
+        //
+        // Le défaut existait depuis l'étage B, où il ne se voyait pas : les
+        // sections relocalisables s'y posaient après le dernier octet absolu,
+        // donc à la base zéro pour une source qui n'en a aucun. Le placement
+        // calculé le rend certain.
         int run = (int)obj.entry.value;
-        auto it = obj.symbols.find(obj.entry.name);
-        if (!obj.entry.name.empty() && it != obj.symbols.end()) run = (int)it->second;
+        if (!obj.entry.name.empty()) {
+            bool found = false;
+            for (const asmb::Symbol &s : obj.symbolTable)
+                if (s.name == obj.entry.name) { run = (int)lk.symbolAddress(obj, s); found = true; break; }
+            if (!found) {
+                auto it = obj.symbols.find(obj.entry.name);
+                if (it != obj.symbols.end()) run = (int)it->second;
+            }
+        }
         // Deux `run` : refusé. En choisir un ferait dépendre le point d'entrée
         // de l'ordre des fichiers, ce qu'aucun auteur n'a écrit.
         if (entryFrom >= 0) {

@@ -77,6 +77,15 @@ struct Image {
     // La table exportable, avec des adresses définitives. Dans l'ordre des noms ;
     // le tri du fichier (banque, rangement, nom) appartient au format, pas ici.
     std::vector<Symbol> symbolTable;
+    // Ce que le placement a À DIRE, et qui n'est ni une faute ni un reproche :
+    // le mou qui reste dans chaque banque remplie. Le §11 en fait le gain du
+    // linker — remplir au plus juste une ROM de 16 K est un enfer à la main — et
+    // ce chiffre est celui dont l'auteur a besoin pour arbitrer.
+    //
+    // Même canal que `Object::prints` : un diagnostic de build, ni erreur ni
+    // avertissement. Un mou n'est pas un défaut, et le crier en avertissement
+    // apprendrait à ignorer les avertissements.
+    std::vector<asmb::Diagnostic> prints;
 };
 
 // Lie N objets en une image.

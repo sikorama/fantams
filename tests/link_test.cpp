@@ -831,6 +831,206 @@ int main() {
         ok("elle occupe la place sans emettre un octet", found);
     }
 
+    // --- C1.5 : le chevauchement inter-sections, et le mou -------------------
+    {
+        // Deux configurations qui donnent LA MEME banque a LA MEME fenetre : les
+        // deux sections atterrissent aux memes octets. C'est le refus que seul un
+        // placement calcule peut prononcer — aucune des deux lignes du script
+        // n'est fautive en elle-meme, c'est leur conjonction qui l'est.
+        link::Image img = link::build({secObj("a.fo", {{"un", {1}}, {"deux", {2}}})},
+            scr("MEMORY_MAP { CONFIG linear   { w1 { SECTION un   } }\n"
+                "             CONFIG ext_high { w1 { SECTION deux } } }"),
+            prof("CONFIG SET ram2 { ext_high [CODE 1] { w1 base1 } }\n"
+                 "SELECT ram2 = OUT 0, CODE\n"));
+        ok("deux blocs sur la meme banque sont refuses", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le refus nomme la plage et la banque",
+           m.find("overlap at &4000-&7FFF") != std::string::npos &&
+           m.find("in bank 'base1'") != std::string::npos);
+    }
+    {
+        // DEUX GRILLES SUPERPOSEES. Les banques diffèrent, les adresses non : sur
+        // une machine a mapper, une grille de 8 K redecoupe une page de 16 K, et
+        // les deux sont actives ensemble. Le refus est CALCULE — aucun `SHADOWS`
+        // n'a ete ecrit, donc il n'y avait aucune occasion de l'ecrire faux.
+        //
+        // A l'interieur d'un etat la carte est fixe, ce qui distingue ce controle
+        // de la co-visibilite entre etats, qui est l'affaire de C2.
+        profile::Profile mapper = profile::parse(
+            "WINDOW page1 [0x4000..0x7FFF]\n"
+            "WINDOW m0 [0x4000..0x5FFF]\n"
+            "BANK big SIZE 0x4000 ro STORE 0\n"
+            "BANK seg SIZE 0x2000 ro STORE 1\n"
+            "CONFIG SET slot { s [CODE 0] { page1 big  m0 seg } }\n"
+            "SELECT slot = POKE 0x6000, CODE\n", "m.prof");
+        link::Image img = link::build({secObj("a.fo", {{"gros", {1}}, {"petit", {2}}})},
+            scr("MEMORY_MAP { CONFIG s { page1 { SECTION gros }\n"
+                "                        m0    { SECTION petit } } }"), mapper);
+        ok("deux grilles superposees sont refusees", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le refus nomme les deux fenetres et la plage",
+           m.find("windows 'page1' and 'm0'") != std::string::npos &&
+           m.find("&4000-&5FFF") != std::string::npos);
+        ok("et les deux banques qui y sont visibles ensemble",
+           m.find("'big' and 'seg' are both visible") != std::string::npos);
+    }
+    {
+        // Un `org` d'un cote, un placement calcule de l'autre : le heurt n'est
+        // visible que d'ici, et il nomme les deux facons de placer.
+        asmb::Object o = secObj("a.fo", {{"calculee", {1, 2, 3}}, {"orgee", {9}}});
+        o.sections[1].relocatable = false;
+        o.fragments[1].placed = true;
+        o.fragments[1].relocSection = -1;
+        o.fragments[1].addr = o.fragments[1].logical = 0x4001;
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION calculee } } }"), prof());
+        ok("un org qui tombe dans une section placee est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus nomme les deux facons de placer",
+           m.find("placed by its 'org'") != std::string::npos &&
+           m.find("section 'calculee'") != std::string::npos);
+        ok("un seul diagnostic : l'emplacement refuse se tait ensuite",
+           img.errors.size() == 1 && img.warnings.empty());
+    }
+    {
+        // LE MOU, chiffre. Ni erreur ni avertissement : meme canal que PRINT,
+        // parce qu'un mou n'est pas un defaut.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1, 2, 3}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main } } }"), prof());
+        ok("le placement est vert", img.ok && img.errors.empty() && img.warnings.empty());
+        ok("et le mou est dit", img.prints.size() == 1);
+        const std::string m = img.prints.empty() ? std::string() : img.prints[0].message;
+        ok("chiffre, situe, et nomme",
+           m.find("0x3FFD bytes unused") != std::string::npos &&
+           m.find("at &4003") != std::string::npos &&
+           m.find("in bank 'base1'") != std::string::npos);
+    }
+    {
+        // Une banque remplie EXACTEMENT ne dit rien : un mou nul n'est pas une
+        // information, et le dire quand meme ferait du bruit a chaque build.
+        asmb::Object o = secObj("a.fo", {{"pleine", {1}}});
+        o.fragments[0].bytes.assign(0x4000, 0xAA);
+        o.fragments[0].prov.assign(0x4000, 1);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION pleine } } }"), prof());
+        ok("une banque pleine se place", img.ok);
+        ok("et ne dit rien de son mou", img.prints.empty());
+    }
+    {
+        // Sans script, aucun mou n'est dit : la banque d'une source qui n'ecrit
+        // pas de carte n'a pas de budget.
+        link::Image img = link::build({obj1(frag(0x8000, {1, 2, 3}))});
+        ok("le cas simple ne dit rien du mou", img.ok && img.prints.empty());
+    }
+
+    // --- C1.6 : OFFSET / SIZE, un decoupage DANS une banque ------------------
+    {
+        // Deux blocs de 8 K dans une banque de 16 K. Ce n'est PAS une banque de
+        // 8 K : les deux moities se rangent au meme endroit.
+        link::Image img = link::build(
+            {secObj("a.fo", {{"bas", {1, 2}}, {"haut", {3}}})},
+            scr("MEMORY_MAP { CONFIG linear {\n"
+                "  w1 [OFFSET 0x0000, SIZE 0x2000] { SECTION bas  }\n"
+                "  w1 [OFFSET 0x2000, SIZE 0x2000] { SECTION haut }\n"
+                "} }"), prof());
+        ok("deux blocs cohabitent dans une banque", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("le premier est base sur la fenetre",
+           img.blocks.size() == 2 && img.blocks[0].addr == 0x4000);
+        ok("le second sur la fenetre plus son offset",
+           img.blocks.size() == 2 && img.blocks[1].addr == 0x6000);
+        ok("et les deux moities sont dans LA MEME banque — ce n'est pas une banque de 8 K",
+           img.blocks.size() == 2 && img.blocks[0].bank == 1 && img.blocks[1].bank == 1);
+        ok("chaque bloc dit son propre mou", img.prints.size() == 2);
+    }
+    {
+        // Plusieurs sections dans un meme bloc s'y concatenent, dans l'ordre du
+        // script, et le mou est celui du bloc et non celui de la banque.
+        link::Image img = link::build(
+            {secObj("a.fo", {{"a", {1}}, {"b", {2}}})},
+            scr("MEMORY_MAP { CONFIG linear {\n"
+                "  w1 [OFFSET 0x0000, SIZE 0x100] { SECTION b  SECTION a }\n"
+                "} }"), prof());
+        ok("deux sections dans un bloc", img.ok);
+        okBytes("concatenees dans l'ordre du script", img.bin, {2, 1});
+        const std::string m = img.prints.empty() ? std::string() : img.prints[0].message;
+        ok("le mou est celui du BLOC, non celui de la banque",
+           m.find("0xFE bytes unused") != std::string::npos);
+    }
+    {
+        link::Image img = link::build(
+            {secObj("a.fo", {{"trop", {1, 2, 3}}})},
+            scr("MEMORY_MAP { CONFIG linear {\n"
+                "  w1 [OFFSET 0x0000, SIZE 0x2] { SECTION trop }\n"
+                "} }"), prof());
+        ok("un debordement du SIZE declare est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et il est chiffre", m.find("by 0x1 bytes") != std::string::npos);
+    }
+    {
+        link::Image img = link::build(
+            {secObj("a.fo", {{"a", {1}}, {"b", {2}}})},
+            scr("MEMORY_MAP { CONFIG linear {\n"
+                "  w1 [OFFSET 0x0000, SIZE 0x2000] { SECTION a }\n"
+                "  w1 [OFFSET 0x1000, SIZE 0x2000] { SECTION b }\n"
+                "} }"), prof());
+        ok("deux blocs qui se recouvrent sont refuses", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le refus nomme les deux decoupages et la plage",
+           m.find("[OFFSET 0x1000, SIZE 0x2000]") != std::string::npos &&
+           m.find("[OFFSET 0x0, SIZE 0x2000]") != std::string::npos &&
+           m.find("&5000-&5FFF") != std::string::npos);
+    }
+    {
+        link::Image img = link::build(
+            {secObj("a.fo", {{"a", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear {\n"
+                "  w1 [OFFSET 0x3000, SIZE 0x2000] { SECTION a }\n"
+                "} }"), prof());
+        ok("un decoupage qui sort de sa banque est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus donne la place reelle",
+           m.find("does not fit in bank 'base1'") != std::string::npos &&
+           m.find("0x4000 bytes") != std::string::npos);
+    }
+
+    // --- Le point d'entree passe par la base de sa section -------------------
+    {
+        // Un `run` qui nomme un label d'une section RELOCALISABLE. Le defaut
+        // existait depuis l'etage B, ou il ne se voyait pas : les sections
+        // relocalisables s'y posaient a la base zero pour une source sans octet
+        // absolu, si bien qu'un offset passait pour une adresse. Le placement
+        // calcule le rend certain.
+        asmb::Object o = secObj("a.fo", {{"main", {1, 2, 3}}});
+        asmb::Symbol sy;
+        sy.name = "start"; sy.frag = 0; sy.offset = 1; sy.section = "main";
+        o.symbolTable.push_back(sy);
+        o.symbols["start"] = 1;          // l'OFFSET, tel que l'assembleur le sait
+        o.entry.has = true;
+        o.entry.name = "start";
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main } } }"), prof());
+        ok("le run est resolu", img.ok);
+        ok("il vaut la BASE de sa section plus son offset, non son offset seul",
+           img.runAddress == 0x4001);
+    }
+    {
+        // Le meme, sans script : la base vient du placement derivable, et le run
+        // la suit. C'est le cas ou le defaut se cachait.
+        asmb::Object o = secObj("a.fo", {{"main", {1, 2, 3}}});
+        asmb::Symbol sy;
+        sy.name = "start"; sy.frag = 0; sy.offset = 2; sy.section = "main";
+        o.symbolTable.push_back(sy);
+        o.symbols["start"] = 2;
+        o.entry.has = true;
+        o.entry.name = "start";
+        asmb::Object abs = obj1(frag(0x8000, {0xAA}), "b.asm", 1);
+        abs.name = "b.fo";
+        link::Image img = link::build({abs, o});
+        ok("sans script non plus, le run ne perd pas sa base",
+           img.ok && img.runAddress == 0x8003);
+    }
+
     // --- Rien a lier --------------------------------------------------------
     {
         link::Image img = link::build({});

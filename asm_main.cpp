@@ -426,6 +426,11 @@ int main(int argc, char **argv) {
     const link::Image img = link::build(objects, scr, prof);
     for (auto &w : out.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     for (auto &w : img.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
+    // Le mou de chaque banque remplie : ni erreur ni avertissement, meme canal
+    // que PRINT. Un mou n'est pas un defaut, et le crier en avertissement
+    // apprendrait a ignorer les avertissements. Il sort AVANT le refus, et donc
+    // aussi quand tout va bien : c'est le cas ou il sert.
+    for (auto &e : img.prints) fprintf(stderr, "%s:%d: %s\n", e.file.c_str(), e.line, e.message.c_str());
     if (!out.ok || !img.ok) {
         for (auto &e : out.errors) fprintf(stderr, "%s:%d: error: %s\n", e.file.c_str(), e.line, e.message.c_str());
         for (auto &e : img.errors) fprintf(stderr, "%s:%d: error: %s\n", e.file.c_str(), e.line, e.message.c_str());

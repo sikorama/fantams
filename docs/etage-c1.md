@@ -345,11 +345,21 @@ chiffre dont l'auteur a besoin pour arbitrer.
 **Ce qu'il livre.** Le découpage de placement **à l'intérieur** d'une banque, et
 non une banque plus petite (§13.1).
 
-- [ ] `w3 [OFFSET 0x0000, SIZE 0x2000]` et `w3 [OFFSET 0x2000, SIZE 0x2000]` cohabitent dans une banque de 16 K
-- [ ] Plusieurs sections dans le même bloc s'y concatènent, dans l'ordre du script
-- [ ] Un débordement du `SIZE` déclaré est refusé, chiffré
-- [ ] Deux blocs qui se recouvrent dans la même banque sont refusés
-- [ ] Ce n'est pas une banque de 8 K : les deux moitiés apparaissent ensemble ou pas du tout, et un test le pose
+- [x] `w3 [OFFSET 0x0000, SIZE 0x2000]` et `w3 [OFFSET 0x2000, SIZE 0x2000]` cohabitent dans une banque de 16 K
+- [x] Plusieurs sections dans le même bloc s'y concatènent, dans l'ordre du script
+- [x] Un débordement du `SIZE` déclaré est refusé, chiffré
+- [x] Deux blocs qui se recouvrent dans la même banque sont refusés
+- [x] Ce n'est pas une banque de 8 K : les deux moitiés apparaissent ensemble ou pas du tout, et un test le pose
+
+Deux choses que cette étape a rendues nettes :
+
+- **Le mou est celui du BLOC, non celui de la banque**, dès qu'un `[OFFSET,
+  SIZE]` est écrit. C'est ce que l'auteur a demandé en le bornant : lui rendre
+  le mou de la banque entière serait lui rendre un chiffre dont il ne peut rien
+  faire.
+- **Un découpage qui sort de sa banque est refusé avant toute section**, avec la
+  place réelle. La place disponible reste la plus petite des trois bornes du
+  §13.1 — la fenêtre, la banque, le découpage.
 
 ## C1.7 — les symboles de commutation, `bank()` et `BankOf`
 
