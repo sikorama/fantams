@@ -11,7 +11,7 @@ MANIFEST = sources.manifest
 # (le « \# » est pour make, qui couperait la ligne sur un dièse nu ; awk le
 # recoit par -v, donc sans echappement.)
 HASH := \#
-CORE = $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(MANIFEST))
+CORE := $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(MANIFEST))
 
 # Les tests vivent dans tests/, binaire compris : la racine ne porte que le code
 # et les deux outils. Leurs « #include "asm.h" » se résolvent par -I. — la
