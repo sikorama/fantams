@@ -52,7 +52,7 @@ int main() {
             "}\n"
             "\n"
             "OUTPUT_FORMAT {\n"
-            "    TARGET      = \"SNA_V2\"\n"
+            "    CONTAINER   = \"SNA_V2\"\n"
             "    ENTRY_POINT = 0x8000\n"
             "    STACK       = [0x3F00..0x3FFF]\n"
             "    INT_VECTOR  = 0x0038\n"
@@ -76,7 +76,7 @@ int main() {
            s.map.size() == 2 && s.map[1].config.state == "ext_w1" &&
            s.map[1].config.hasArg && s.map[1].config.arg == 1);
         ok("le conteneur, le point d'entree et le vecteur",
-           s.output.hasFormat && s.output.format == "SNA_V2" &&
+           s.output.hasContainer && s.output.container == "SNA_V2" &&
            s.output.hasEntry && s.output.entry == 0x8000 &&
            s.output.hasIntVector && s.output.intVector == 0x0038);
         ok("la pile est une PLAGE",
@@ -227,7 +227,16 @@ int main() {
            s.ok && !s.hasTarget && s.map.empty() && !s.output.hasEntry);
     }
     {
-        script::Script s = parse("OUTPUT_FORMAT { TARGET = \"SNA_V2\n");
+        // `TARGET` nomme LA MACHINE, et le §6 l'employait aussi pour le
+        // conteneur. Le bloc fautif a circule : le refus le nomme plutot que de
+        // le traiter comme un mot inconnu.
+        script::Script s = parse("OUTPUT_FORMAT { TARGET = \"SNA_V2\" }\n");
+        ok("TARGET dans OUTPUT_FORMAT est refuse", !s.ok);
+        ok("et le refus nomme CONTAINER",
+           says(s, "CONTAINER") && says(s, "names the machine"));
+    }
+    {
+        script::Script s = parse("OUTPUT_FORMAT { CONTAINER = \"SNA_V2\n");
         ok("une chaine non terminee est refusee", !s.ok);
         ok("et le refus nomme sa ligne", !s.errors.empty() && s.errors[0].line == 1);
     }

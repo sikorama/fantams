@@ -71,8 +71,14 @@ struct ConfigBlock {
 // Chaque champ dit s'il a été DÉCLARÉ, et non seulement sa valeur : le script
 // ne l'emporte sur le `run` du source que s'il le nomme aussi.
 struct Output {
-    bool hasFormat = false;
-    std::string format;            // "SNA_V2", "CRO", …
+    // Le CONTENEUR : « SNA_V2 », « CRO », … C'est le mot du projet — le §2 parle
+    // de conteneurs, le §3.3 en fait un pilote de sortie, et
+    // `coutures-de-la-chaine.md` §2.3 écrit `package(image, container)`.
+    //
+    // Le §6 écrivait `TARGET` ici, mot qui nomme déjà la MACHINE au premier
+    // niveau du script ; l'analyseur refuse cette graphie en nommant celle-ci.
+    bool hasContainer = false;
+    std::string container;
     bool hasEntry = false;
     int64_t entry = 0;
     // Une PLAGE, parce que `SP` bouge et qu'une adresse unique ne dit rien de

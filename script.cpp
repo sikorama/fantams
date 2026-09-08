@@ -364,14 +364,23 @@ struct Parser {
             const int line = cur().line;
             next();
             if (!want("=")) { sync(); continue; }
-            // `TARGET` désigne ici le CONTENEUR, et au premier niveau la MACHINE.
-            // Le §6 emploie le même mot pour les deux ; l'analyseur les distingue
-            // par leur place, et le nom est à revoir en C1.10.
-            if (key == "TARGET") {
-                if (cur().kind != Tok::Text) { err("TARGET: expected a string, got " + got()); sync(); continue; }
-                out.output.hasFormat = true;
-                out.output.format = cur().s;
+            if (key == "CONTAINER") {
+                if (cur().kind != Tok::Text) {
+                    err("CONTAINER: expected a string, got " + got());
+                    sync();
+                    continue;
+                }
+                out.output.hasContainer = true;
+                out.output.container = cur().s;
                 next();
+            } else if (key == "TARGET") {
+                // `TARGET` nomme LA MACHINE, au premier niveau du script. Le §6
+                // l'employait aussi pour le conteneur ; ce bloc a circulé, et un
+                // refus muet le laisserait recopier. Il est donc nommé, avec sa
+                // graphie de remplacement.
+                err(line, "TARGET names the machine, at the top level of a script: "
+                          "write 'CONTAINER = ...' for the output container");
+                sync();
             } else if (key == "ENTRY_POINT") {
                 if (!wantNumber(out.output.entry)) { sync(); continue; }
                 out.output.hasEntry = true;
@@ -408,7 +417,7 @@ struct Parser {
                 out.output.hasStack = true;
             } else {
                 err(line, "unknown OUTPUT_FORMAT key '" + key +
-                          "' (TARGET, ENTRY_POINT, STACK, INT_VECTOR, CRO_ROM_NUMBER)");
+                          "' (CONTAINER, ENTRY_POINT, STACK, INT_VECTOR, CRO_ROM_NUMBER)");
                 sync();
             }
         }

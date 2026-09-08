@@ -392,14 +392,24 @@ MEMORY_MAP {
 }
 
 OUTPUT_FORMAT {
-    TARGET      = "SNA_V2"
+    CONTAINER   = "SNA_V2"
     ENTRY_POINT = 0x8000                 // le `run` du source, s'il n'est pas ici
     STACK       = [0x3F00..0x3FFF]       // une plage, pas une adresse
     INT_VECTOR  = 0x0038                 // déclaré, jamais déduit
     // ou, pour une ROM :
-    // TARGET = "CRO"  ;  CRO_ROM_NUMBER = 15
+    // CONTAINER = "CRO"  ;  CRO_ROM_NUMBER = 15
 }
 ```
+
+> **Correction, écrite à l'étape C1.1.** Ce bloc écrivait `TARGET = "SNA_V2"`,
+> alors que `TARGET` nomme déjà **la machine** au premier niveau du script. Un
+> même mot pour la machine et pour le conteneur oblige tout lecteur — et tout
+> analyseur — à trancher par la place, là où le vocabulaire du projet portait
+> déjà le bon mot : le §2 parle de « conteneurs », le §3.3 dit que « le
+> conteneur final n'est qu'un pilote de sortie », et `coutures-de-la-chaine.md`
+> §2.3 écrit `package(image, container)`. C'est donc `CONTAINER`, et l'analyseur
+> refuse `TARGET` à cet endroit **en nommant `CONTAINER`** — le bloc fautif a
+> circulé, et un refus muet le laisserait recopier.
 
 Trois valeurs qui ne sont pas du décor : le §13.3 en fait dépendre un contrôle
 de correction.

@@ -121,7 +121,7 @@ l'auteur. Et il se teste seul, sans profil, sans objet et sans un octet.
 
 - [x] `TARGET`, `MEMORY_MAP`, `CONFIG <nom>[<param>]`, `w<n> { SECTION <nom> … }`
 - [x] `w<n> [OFFSET x, SIZE y] { … }` est **analysé** ici, employé en C1.6
-- [x] `OUTPUT_FORMAT { TARGET, ENTRY_POINT, STACK, INT_VECTOR }` — analysé et porté ; `STACK` et `INT_VECTOR` ne servent qu'à C2, et un champ analysé mais non lu est préférable à un champ que C2 devra rétro-insérer
+- [x] `OUTPUT_FORMAT { CONTAINER, ENTRY_POINT, STACK, INT_VECTOR }` — analysé et porté ; `STACK` et `INT_VECTOR` ne servent qu'à C2, et un champ analysé mais non lu est préférable à un champ que C2 devra rétro-insérer
 - [x] Un mot-clé inconnu est **refusé**, jamais ignoré
 - [x] `COMPRESS` et `MIRROR` sont reconnus et refusés en nommant l'étage (les messages définitifs sont en C1.8)
 - [x] Se teste seul : texte → `Script`, une suite à part entière
@@ -140,10 +140,13 @@ Six choses décidées en cours de route, à relire en C1.10 :
 - **L'analyseur ne résout rien**, et un test l'épingle : une configuration, une
   fenêtre et une section qu'aucun profil ne porte passent sans un mot. C'est ce
   qui permet à la suite de ne se lier qu'à `script.cpp`.
-- **`TARGET` désigne deux choses** : la machine au premier niveau, le conteneur
-  dans `OUTPUT_FORMAT`. C'est le §6 qui emploie le même mot pour les deux ;
-  l'analyseur les distingue par leur place, et le nom est à revoir — le champ
-  s'appelle déjà `format` dans la structure.
+- **`TARGET` désignait deux choses** : la machine au premier niveau, le conteneur
+  dans `OUTPUT_FORMAT`. C'est **corrigé**, et sans inventer un mot : le §2 parle
+  de « conteneurs », le §3.3 en fait un pilote de sortie, et
+  `coutures-de-la-chaine.md` §2.3 écrit déjà `package(image, container)`. La clé
+  est `CONTAINER`, le §6 est amendé, et l'analyseur **refuse `TARGET` à cet
+  endroit en nommant `CONTAINER`** — le bloc fautif a circulé, et un refus muet
+  le laisserait recopier.
 - **Les quatre notations de nombre du projet sont acceptées** — `0x`, `&`, `#`,
   `%` et le décimal. En refuser une demanderait à l'auteur d'un `.asm` d'écrire
   ses adresses autrement dans son script que dans sa source. Idem pour les deux
