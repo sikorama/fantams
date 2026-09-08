@@ -893,6 +893,54 @@ int main() {
            "  db 2\n"
            "  END_BOUNDARY\n");
 
+    // --- C1.7 : bankof(), et les noms qui appartiennent au linker ------------
+    printf("\n-- bankof() et les noms du linker --\n");
+    {
+        // `bankof(x)` produit la QUATRIEME relocalisation : ni une adresse, ni un
+        // de ses octets, mais l'emplacement de rangement de la section visee —
+        // que seul le linker connait (ADR 0027, reserve a C1).
+        Built o = build("  section main,\"ro\"\n  ld a,bankof(cible)\n"
+                        "  section s2,\"ro\"\ncible: ret\n", "t.asm");
+        okc("bankof() s'assemble", o.ok);
+        bool found = false;
+        for (const auto &r : o.obj.relocs)
+            if (r.kind == asmb::Reloc::BankOf) found = true;
+        okc("et demande une relocalisation BankOf", found);
+    }
+    {
+        // Les noms prefixes de `__` appartiennent au linker (§12.3) : les DEFINIR
+        // est refuse. En definir un ferait taire le symbole que le linker
+        // offrait, et le programme sortirait avec la valeur de l'auteur au lieu
+        // de celle du placement — silencieusement.
+        chkErr("un label __ est refuse", "  section main,\"ro\"\n__val_ram_x: db 0\n");
+        chkErr("un EQU __ aussi", "  section main,\"ro\"\n__val_ram_x equ 1\n  db 0\n");
+        Built o = build("  section main,\"ro\"\n__val_ram_x: db 0\n", "t.asm");
+        bool says = false;
+        for (const auto &e : o.errors)
+            if (e.message.find("belongs to the linker") != std::string::npos &&
+                e.message.find("declare it with EXTERN") != std::string::npos) says = true;
+        okc("et le refus dit a qui ils appartiennent, et par quoi les declarer", says);
+    }
+    {
+        // Les DECLARER, en revanche, est la seule facon de s'en servir :
+        // `extern __val_ram_audio` dit « c'est ailleurs », et l'ailleurs est le
+        // linker.
+        Built o = build("  extern __val_ram_audio\n  section main,\"ro\"\n"
+                        "  ld hl,__val_ram_audio\n", "t.asm");
+        // L'ASSEMBLEUR ne le refuse pas. Le linkage, lui, echoue ici — aucun
+        // script n'a ete donne, donc personne n'offre ce symbole — et c'est le
+        // diagnostic juste : « unresolved EXTERN ». Ce test porte sur ce que
+        // l'assembleur en fait, pas sur ce que le linker en trouve.
+        bool refused = false;
+        for (const auto &e : o.errors)
+            if (e.message.find("belongs to the linker") != std::string::npos) refused = true;
+        okc("declarer un nom __ n'est pas refuse", !refused);
+        bool asked = false;
+        for (const auto &r : o.obj.relocs)
+            if (r.symbol == "__val_ram_audio") asked = true;
+        okc("et il demande sa relocalisation", asked);
+    }
+
     // --- PUBLIC / EXTERN : la portee entre objets (§4.4) ---------------------
     printf("\n-- PUBLIC / EXTERN --\n");
     {

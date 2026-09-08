@@ -123,8 +123,44 @@ has chosen where the section goes.
 | `label >> 8` | **refused**, naming `high()` |
 | `label & 255` | **refused**, naming `low()` |
 | `high(label)`, `low(label)` | the byte, resolved at link time |
+| `bankof(label)` | the **storage slot** its section was placed in, resolved at link time |
+| `bankof(#1234)` | **refused**: an absolute address carries no linker decision to report |
 | `label + 0.5` | **refused**: an address is an integer |
 | `db label` | **refused**: an address does not fit in one byte — use `high()` / `low()` |
+
+`bankof()` asks a **question** — where did the linker put this? — and that is
+why it is spelled differently from `BANK`, which stays a refused word: `BANK`
+named a placement the source does not make. `bankof(label + 3)` is
+`bankof(label)`: a section's bank does not move with an offset, and keeping the
+offset would suggest that a `+1` can change bank.
+
+### Names the linker owns
+
+Names starting with `__` belong to the linker. They carry the port, the value
+and the mask of a memory switch, and the linker computes them from the target
+profile and the link script:
+
+| Name | What it is |
+|---|---|
+| `__port_<axis>_<key>` | the address to write — a port for an `OUT`, a memory address for a `POKE` |
+| `__val_<axis>_<key>` | the value, **bounded to the bits of that axis** |
+| `__mask_<axis>` | which bits of the port belong to that axis, so a source can write `(state & ~mask) \| val` |
+
+`<key>` is either a **section** name — the section whose configuration you want
+to switch to — or a **state** name from the profile, when the script names that
+state only once.
+
+They are **reserved**: declaring one with `EXTERN` is how you use it, and
+defining one is refused. Defining one would silence the symbol the linker was
+offering, and the program would ship with the author's value instead of the
+placement's — without a word.
+
+```
+        extern __port_ram_audio
+        extern __val_ram_audio
+        ld   bc, __port_ram_audio    ; the port the profile declares
+        ld   hl, __val_ram_audio     ; the value that switches to audio's bank
+```
 
 Comparisons, boolean operators and the real functions (`sin`, `abs`, `min`, …)
 are refused on a relocatable value for the same reason. So is an index

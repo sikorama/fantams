@@ -122,13 +122,16 @@ struct Section {
 //   Rel8   le déplacement d'un saut relatif, depuis l'octet SUIVANT
 //   High8  l'octet de poids fort d'une adresse — ce que `high()` produit
 //   Low8   son octet de poids faible — ce que `low()` produit
+//   BankOf l'EMPLACEMENT DE RANGEMENT de sa section — ce que `bankof()`
+//          produit. Réservé à C1 par l'ADR 0027, parce que seul le linker qui
+//          calcule le placement connaît la banque.
 //
 // L'octet émis à cet endroit ne porte que l'addend ; c'est le linker qui écrit
 // la valeur finale, et non qui l'additionne à ce qui s'y trouve. Un objet faux
 // se lit alors à l'œil, ce qui vaut plus que tout à l'étage qui introduit la
 // relocalisation.
 struct Reloc {
-    enum Kind { Abs16, Rel8, High8, Low8 };
+    enum Kind { Abs16, Rel8, High8, Low8, BankOf };
     int frag = -1;           // le fragment où elle s'applique
     int offset = 0;          // son offset dans ce fragment
     Kind kind = Abs16;

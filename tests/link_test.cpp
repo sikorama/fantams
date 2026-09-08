@@ -994,6 +994,176 @@ int main() {
            m.find("0x4000 bytes") != std::string::npos);
     }
 
+    // --- C1.7 : les symboles de commutation, et bankof() --------------------
+    {
+        // Les trois valeurs du §12.3, au chiffre pres. Elles se CALCULENT :
+        // `%11000000 | (PAGE << 3) | CODE`, avec CODE = %100 | 1 pour
+        // `ext_w1<1>` et PAGE = 0 sur une machine a une seule page etendue.
+        auto pal = [] {
+            return profile::parse(
+                "WINDOW w1 [0x4000..0x7FFF]\n"
+                "BANK base1 SIZE 0x4000 rw STORE 1\n"
+                "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+                "CONFIG SET ram {\n"
+                "  linear    [CODE %000]     { w1 base1  }\n"
+                "  ext_w1<b> [CODE %100 | b] { w1 ext<b> }\n"
+                "}\n"
+                "SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE\n", "m.prof");
+        };
+        // Un objet qui DEMANDE les trois symboles, et que rien n'exporte.
+        auto asker = [](std::initializer_list<const char *> names) {
+            asmb::Object o = secObj("a.fo", {{"main", {0, 0}}, {"audio", {9}}});
+            int off = 0;
+            for (const char *n : names) {
+                asmb::Reloc r;
+                r.frag = 0; r.offset = off; r.kind = asmb::Reloc::Abs16; r.symbol = n;
+                o.relocs.push_back(r);
+                off = 0;   // toutes au meme endroit : seule leur resolution nous interesse
+            }
+            return o;
+        };
+        link::Image img = link::build({asker({"__port_ram_audio"})},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
+        ok("un EXTERN sur un symbole du linker se resout, sans qu'aucun objet ne l'exporte",
+           img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("et il vaut le port du profil", img.bin, {0x00, 0x7F});
+
+        link::Image v = link::build({asker({"__val_ram_audio"})},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
+        okBytes("la valeur se calcule : %11000000 | (0 << 3) | %101 = &C5", v.bin, {0xC5, 0x00});
+
+        link::Image l = link::build({asker({"__val_ram_linear"})},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
+        okBytes("et la graphie PAR ETAT vaut &C0", l.bin, {0xC0, 0x00});
+
+        link::Image m = link::build({asker({"__val_ram_main"})},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
+        okBytes("la graphie PAR SECTION vaut la meme chose", m.bin, {0xC0, 0x00});
+    }
+    {
+        // La valeur est BORNEE AUX BITS DE L'AXE des qu'un masque les nomme :
+        // c'est ce qui permet au source d'ecrire `(etat & ~masque) | valeur`
+        // sans toucher aux axes voisins. Un symbole qui vaudrait « l'octet »
+        // ecraserait les autres axes en silence (D7).
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "BANK rom_lo SIZE 0x4000 ro STORE 8\n"
+            "CONFIG SET rom { on [CODE 0] { w0 rom_lo } }\n"
+            "SELECT rom = OUT 0x7F00, MASK %00000100, %11111111\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"boot", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_rom_boot";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG on { w0 { SECTION boot } } }"), pr);
+        ok("l'axe masque se resout", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        // `bin` ne couvre que les 64 K de base ; hors d'elles c'est le BLOC
+        // qu'on interroge, et c'est plus juste : un octet range en banque 8
+        // n'a rien a faire dans un binaire plat.
+        okBytes("et la valeur est bornee au masque, non l'octet entier",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x04, 0x00});
+        asmb::Object k = secObj("a.fo", {{"boot", {0, 0}}});
+        asmb::Reloc r2;
+        r2.frag = 0; r2.offset = 0; r2.kind = asmb::Reloc::Abs16; r2.symbol = "__mask_rom";
+        k.relocs.push_back(r2);
+        link::Image mi = link::build({k},
+            scr("MEMORY_MAP { CONFIG on { w0 { SECTION boot } } }"), pr);
+        okBytes("et le masque est offert tel quel",
+                mi.blocks.empty() ? std::vector<uint8_t>() : mi.blocks[0].bytes, {0x04, 0x00});
+    }
+    {
+        // LE PORT PEUT ETRE FONCTION DE LA BANQUE (§13.1) : sur une machine assez
+        // grande, une partie du numero est dans l'ADRESSE du port. Le langage
+        // l'exprime, le profil livre ne l'emploie pas, et ce profil de test
+        // l'exerce — ce qui est le seul moyen de savoir qu'il l'exprime.
+        profile::Profile pr = profile::parse(
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK big0..big3 SIZE 0x4000 rw STORE 0..3\n"
+            "BANK big4 SIZE 0x4000 rw STORE 4 PAGE 2\n"
+            "CONFIG SET pg { p<n> [CODE n] { w1 big<n> } }\n"
+            "SELECT pg = OUT 0x7F00 - (PAGE << 8), CODE\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"loin", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__port_pg_loin";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG p<4> { w1 { SECTION loin } } }"), pr);
+        ok("un port fonction de la banque se calcule", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("&7F00 - (2 << 8) = &7D00",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x00, 0x7D});
+    }
+    {
+        // Un etat PARAMETRIQUE nomme deux fois avec deux arguments ne designe pas
+        // une seule chose : la graphie par etat n'est alors PAS offerte, et celle
+        // par section reste la bonne. C'est exactement le tableau du §12.3, ou
+        // `__val_ram_music_lz` et `__val_ram_audio` coexistent.
+        profile::Profile pr = profile::parse(
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+            "CONFIG SET ram { ext_w1<b> [CODE %100 | b] { w1 ext<b> } }\n"
+            "SELECT ram = OUT 0x7F00, %11000000 | CODE\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"un", {0, 0}}, {"deux", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_ext_w1";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<0> { w1 { SECTION un   } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION deux } } }"), pr);
+        ok("une graphie par etat ambigue n'est pas offerte", !img.ok);
+        const std::string msg = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et l'EXTERN non resolu le dit",
+           msg.find("unresolved EXTERN symbol '__val_ram_ext_w1'") != std::string::npos);
+        asmb::Object k = secObj("a.fo", {{"un", {0, 0}}, {"deux", {0, 0}}});
+        asmb::Reloc r2;
+        r2.frag = 0; r2.offset = 0; r2.kind = asmb::Reloc::Abs16; r2.symbol = "__val_ram_deux";
+        k.relocs.push_back(r2);
+        link::Image ok2 = link::build({k},
+            scr("MEMORY_MAP { CONFIG ext_w1<0> { w1 { SECTION un   } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION deux } } }"), pr);
+        // La relocalisation est PORTEE par `un`, qui vit en banque 4 ; c'est la
+        // valeur de `deux` qu'elle y ecrit.
+        std::vector<uint8_t> got;
+        for (const link::Block &b : ok2.blocks) if (b.bank == 4) got = b.bytes;
+        okBytes("la graphie par SECTION, elle, est sans ambiguite", got, {0xC5, 0x00});
+    }
+    {
+        // `bankof(x)` : la relocalisation `BankOf` vaut l'EMPLACEMENT DE
+        // RANGEMENT de la section visee, et non un octet de son adresse.
+        asmb::Object o = secObj("a.fo", {{"main", {0}}, {"audio", {9}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::BankOf; r.section = 1;
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), prof());
+        ok("bankof se resout", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("et vaut le STORE de la banque que la configuration donne",
+           !img.blocks.empty() && img.blocks[0].bytes == std::vector<uint8_t>{5});
+    }
+    {
+        // Sans script, `bankof` vaut la derivation historique par l'adresse
+        // (ADR 0005) : le cas simple ne paie rien, ici non plus.
+        asmb::Object o = secObj("a.fo", {{"main", {0}}});
+        o.sections[0].relocatable = false;
+        o.fragments[0].placed = true;
+        o.fragments[0].relocSection = -1;
+        o.fragments[0].addr = o.fragments[0].logical = 0x8000;
+        asmb::Object t = secObj("b.fo", {{"cible", {7}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::BankOf; r.section = 0;
+        o.relocs.push_back(r);
+        link::Image img = link::build({o, t});
+        ok("sans script, bankof suit l'adresse", img.ok);
+    }
+
     // --- Le point d'entree passe par la base de sa section -------------------
     {
         // Un `run` qui nomme un label d'une section RELOCALISABLE. Le defaut

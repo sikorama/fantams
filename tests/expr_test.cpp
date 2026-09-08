@@ -216,6 +216,21 @@ int main() {
     chkAbs("low() absolu", "low(#1234)", 0x34);
     chkAbs("high() se calcule ensuite", "high(#1234) + 1", 0x13);
 
+    // --- bankof() : une QUESTION, non un placement --------------------------
+    // Elle rend l'emplacement de rangement de la SECTION, ce que seul le linker
+    // connait. La graphie est distincte de `BANK`, qui reste un mot REFUSE parce
+    // qu'il nommait un placement que la source ne fait pas ; et elle se lit a
+    // cote de `sizeof()`.
+    chkReloc("bankof() d'une adresse", "bankof(debut)", S1, 1, 0, expr::Byte::Bank);
+    // L'offset ne survit PAS : la banque d'une section ne bouge pas avec un
+    // decalage, et laisser un addend traîner ferait croire qu'un `+1` peut
+    // changer de banque.
+    chkReloc("l'offset ne survit pas", "bankof(debut + 3)", S1, 1, 0, expr::Byte::Bank);
+    chkErr("bankof() d'une valeur absolue est refuse", "bankof(#1234)");
+    chkErrSays("et le refus dit pourquoi", "bankof(#1234)", "no linker decision");
+    chkErr("rien ne se calcule apres", "bankof(debut) + 1");
+    chkErr("ni deux fois de suite", "bankof(high(debut))");
+
     // --- les deux idiomes refuses NOMMENT leur remplacant -------------------
     chkErrSays("label >> 8 nomme high()", "debut >> 8", "high()");
     chkErrSays("label & 255 nomme low()", "debut & 255", "low()");

@@ -314,6 +314,11 @@ struct Parser {
     bool callBuiltin(const std::string &upperName, Value &out) {
         static const std::set<std::string> unary1 = {
             "SIN", "COS", "ABS", "HI", "LO", "HIGH", "LOW",
+            // `bankof(x)` : dans quelle banque le linker a-t-il rangé x ? Une
+            // QUESTION, et non un placement — d'où une graphie distincte de
+            // `BANK`, qui reste un mot REFUSE parce qu'il nommait un placement
+            // que la source ne fait pas. Elle se lit à côté de `sizeof()`.
+            "BANKOF",
             // Arrondis explicites. FLOOR vaut 99 usages dans le corpus — de loin le
             // plus gros manque mesuré — parce que '/' est une division flottante :
             // qui veut tronquer doit l'écrire. ROUND délègue à toInt(), donc il suit
@@ -333,16 +338,28 @@ struct Parser {
         const std::string self = "'" + lower(upperName) + "()'";
         const bool isHigh = (upperName == "HIGH" || upperName == "HI");
         const bool isLow  = (upperName == "LOW"  || upperName == "LO");
-        if ((isHigh || isLow) && va.relocatable()) {
+        const bool isBank = (upperName == "BANKOF");
+        if ((isHigh || isLow || isBank) && va.relocatable()) {
             if (va.byte != Byte::Whole) refuseReloc(self, va);
             if (va.coeff != 1)
                 fail(lower(upperName) + "() takes an address, not its negation");
             if (va.real != std::floor(va.real))
                 fail("a relocatable value cannot carry a fractional offset");
             out = va;
-            out.byte = isHigh ? Byte::High : Byte::Low;
+            out.byte = isHigh ? Byte::High : isLow ? Byte::Low : Byte::Bank;
+            // La banque d'une adresse ne bouge pas avec le décalage : `bankof`
+            // rend l'emplacement de la SECTION, et laisser un addend traîner
+            // ferait croire qu'un `+1` peut changer de banque.
+            if (isBank) out.real = 0;
             return true;
         }
+        // `bankof()` sur une valeur ABSOLUE : refusé. Une adresse écrite en
+        // clair ne porte aucune décision de linker à rapporter, et dériver sa
+        // banque de ses bits de poids fort serait rendre un chiffre que rien
+        // n'a décidé.
+        if (isBank)
+            fail("bankof() takes a relocatable address: an absolute one carries no "
+                 "linker decision to report");
 
         const double a = known(va, self);
         const double b = is2 ? known(vb, self) : 0;

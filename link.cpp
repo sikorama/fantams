@@ -440,6 +440,127 @@ struct Linker {
         return plan;
     }
 
+    // --- Les symboles de commutation (§12.3) --------------------------------
+    // Évaluer une expression de `SELECT`. Les noms qu'elle porte — `CODE`,
+    // `PAGE`, et le paramètre de l'état — ne valent quelque chose qu'ICI : au
+    // moment où une section est placée, donc où l'état, son argument et sa
+    // banque sont tous connus. C'est la raison pour laquelle l'analyseur du
+    // profil en rend un ARBRE et non un nombre.
+    bool evalSel(const profile::Expr &e, const std::map<std::string, int64_t> &bind,
+                 int64_t &v, std::string &missing) const {
+        switch (e.kind) {
+            case profile::Expr::Num: v = e.num; return true;
+            case profile::Expr::Name: {
+                auto it = bind.find(e.name);
+                if (it == bind.end()) { missing = e.name; return false; }
+                v = it->second;
+                return true;
+            }
+            case profile::Expr::Unary: {
+                int64_t a = 0;
+                if (e.args.size() != 1 || !evalSel(e.args[0], bind, a, missing)) return false;
+                v = e.op == "~" ? ~a : -a;
+                return true;
+            }
+            case profile::Expr::Binary: {
+                int64_t a = 0, b = 0;
+                if (e.args.size() != 2) return false;
+                if (!evalSel(e.args[0], bind, a, missing)) return false;
+                if (!evalSel(e.args[1], bind, b, missing)) return false;
+                if (e.op == "|") v = a | b;
+                else if (e.op == "&") v = a & b;
+                else if (e.op == "^") v = a ^ b;
+                else if (e.op == "<<") v = a << b;
+                else if (e.op == ">>") v = a >> b;
+                else if (e.op == "+") v = a + b;
+                else if (e.op == "-") v = a - b;
+                else if (e.op == "*") v = a * b;
+                else if (e.op == "/") { if (b == 0) return false; v = a / b; }
+                else return false;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Les symboles que le linker OFFRE, et qu'aucun objet n'exporte : le triplet
+    // par axe du §12.3.
+    //
+    // Un symbole ne peut pas être « l'octet » du port : sur une machine où un
+    // même port porte quatre axes, y sortir la seule valeur de l'axe de
+    // pagination écraserait les trois autres, en silence. D'où un port, une
+    // valeur BORNÉE AUX BITS DE L'AXE, et le masque de ces bits.
+    void switchSymbols(const script::Script &sc, const profile::Profile &pr,
+                       const std::map<std::string, Slotting> &plan) {
+        // Combien de fois chaque état est nommé : la graphie « par état » n'est
+        // offerte que si elle désigne une seule chose. Un état paramétrique
+        // nommé deux fois avec deux arguments n'en désigne pas une.
+        std::map<std::string, int> named;
+        for (const script::ConfigBlock &cb : sc.map) ++named[cb.config.state];
+
+        for (const script::ConfigBlock &cb : sc.map) {
+            std::string axisName;
+            const profile::State *st = stateOf(pr, cb.config, cb.file, cb.line, axisName);
+            if (!st) continue;
+            const profile::Select *sel = nullptr;
+            for (const profile::Select &sl : pr.selects)
+                for (const std::string &ax : sl.axes)
+                    if (ax == axisName) sel = &sl;
+            if (!sel || sel->writes.empty()) continue;
+            const profile::Write &w = sel->writes.front();
+
+            for (const script::Placement &p : cb.placements) {
+                const profile::Slot *slot = nullptr;
+                for (const profile::Slot &sl : st->slots)
+                    if (sl.window == p.window) slot = &sl;
+                if (!slot) continue;
+                std::string bankName = slot->bank;
+                if (slot->hasParam)
+                    bankName += std::to_string(slot->literal ? slot->value : cb.config.arg);
+                const profile::Bank *bk = bankNamed(pr, bankName);
+
+                // Les liaisons : le paramètre de l'état, puis `CODE` qui s'en
+                // déduit, puis `PAGE`, qui est le nombre que porte la banque.
+                std::map<std::string, int64_t> bind;
+                if (st->hasParam && cb.config.hasArg) bind[st->param] = cb.config.arg;
+                bind["PAGE"] = bk && bk->hasPage ? bk->page : 0;
+                std::string missing;
+                int64_t code = 0;
+                if (st->hasCode && !evalSel(st->code, bind, code, missing)) continue;
+                bind["CODE"] = code;
+
+                int64_t port = 0, val = 0, mask = 0;
+                if (!evalSel(w.port, bind, port, missing)) continue;
+                if (!evalSel(w.value, bind, val, missing)) continue;
+                const bool hasMask = w.hasMask && evalSel(w.mask, bind, mask, missing);
+                // La valeur est BORNÉE AUX BITS DE L'AXE dès qu'un masque les
+                // nomme : c'est ce qui permet au source d'écrire
+                // `(état & ~masque) | valeur` sans toucher aux axes voisins.
+                if (hasMask) val &= mask;
+
+                std::vector<std::string> keys(p.sections.begin(), p.sections.end());
+                if (named[cb.config.state] == 1) keys.push_back(cb.config.state);
+                for (const std::string &k : keys) {
+                    offer("__port_" + axisName + "_" + k, port);
+                    offer("__val_" + axisName + "_" + k, val);
+                }
+                if (hasMask) offer("__mask_" + axisName, mask);
+            }
+        }
+        (void)plan;
+    }
+
+    // Offrir un symbole. Une seconde offre du même nom avec une AUTRE valeur le
+    // retire : un symbole qui vaudrait deux choses selon l'ordre de lecture est
+    // pire qu'un symbole absent, et l'absence a déjà son diagnostic — celui de
+    // l'`EXTERN` non résolu.
+    std::set<std::string> ambiguous_;
+    void offer(const std::string &name, int64_t v) {
+        auto it = exported_.find(name);
+        if (it == exported_.end()) { exported_[name] = v; return;  }
+        if (it->second != v) { ambiguous_.insert(name); exported_.erase(it); }
+    }
+
     // Deux régions qui se disputent les mêmes octets d'un même emplacement.
     //
     // C'est le refus que seul un placement CALCULÉ peut prononcer, et il nomme
@@ -598,7 +719,14 @@ struct Linker {
             total[merged[mi].name] = t;
         }
         std::map<std::string, Slotting> plan;
-        if (!sc.map.empty()) plan = planFrom(sc, pr, total);
+        if (!sc.map.empty()) {
+            plan = planFrom(sc, pr, total);
+            // Les symboles de commutation sont offerts ICI, dès que le placement
+            // est décidé : un `EXTERN` sur `__val_...` doit se résoudre au même
+            // temps que les autres, et il ne peut pas l'être avant que la
+            // configuration de chaque section soit connue.
+            switchSymbols(sc, pr, plan);
+        }
         // Un script qui place une section qu'aucune unité ne porte, ou qui en
         // place une que son `org` a déjà placée : deux fautes que seul cet
         // endroit voit, parce que lui seul a les deux côtés sous les yeux.
@@ -735,6 +863,17 @@ struct Linker {
                     put((size_t)r.offset + 1, (uint8_t)((target >> 8) & 0xFF));
                     break;
                 case asmb::Reloc::High8: put((size_t)r.offset, (uint8_t)((target >> 8) & 0xFF)); break;
+                case asmb::Reloc::BankOf: {
+                    // L'EMPLACEMENT DE RANGEMENT de la section visée. C'est la
+                    // seule relocalisation dont la valeur ne se déduit d'aucune
+                    // adresse : elle vient de ce que le script a décidé, et elle
+                    // vaut la dérivation historique quand aucun script n'a rien
+                    // dit (ADR 0005).
+                    const int store = storeOf(r.section);
+                    const int bank = store >= 0 ? store : (int)((target >> 14) & 3);
+                    put((size_t)r.offset, (uint8_t)(bank & 0xFF));
+                    break;
+                }
                 case asmb::Reloc::Low8:  put((size_t)r.offset, (uint8_t)(target & 0xFF)); break;
                 case asmb::Reloc::Rel8: {
                     // Le déplacement se compte depuis l'octet SUIVANT celui qui

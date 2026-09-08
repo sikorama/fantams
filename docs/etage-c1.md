@@ -46,7 +46,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | **faite** |
 | C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
 | C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
-| C1.7 | Les symboles de commutation, `bank()` et `BankOf` | C1.2, C1.4 | à faire |
+| C1.7 | Les symboles de commutation, `bankof()` et `BankOf` | C1.2, C1.4 | **faite** |
 | C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | à faire |
 | C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | à faire |
 | C1.10 | L'ADR de clôture, et l'ADR 0005 relu | tout | à faire |
@@ -361,19 +361,68 @@ Deux choses que cette étape a rendues nettes :
   place réelle. La place disponible reste la plus petite des trois bornes du
   §13.1 — la fenêtre, la banque, le découpage.
 
-## C1.7 — les symboles de commutation, `bank()` et `BankOf`
+## C1.7 — les symboles de commutation, `bankof()` et `BankOf`
 
 **Ce qu'il livre.** Le triplet par axe de D7, et la fonction qui manquait à
 l'assembleur.
 
-- [ ] `__port_<axe>_<config>`, `__val_<axe>_<config>`, `__mask_<axe>`
-- [ ] Un `EXTERN` sur un de ces noms se résout **sans qu'aucun objet ne l'exporte**
-- [ ] La valeur est **bornée aux bits de l'axe** — jamais l'octet global (D7)
-- [ ] Les noms préfixés de `__` sont réservés : une source qui en définit un est refusée (ADR 0015)
-- [ ] `bank(label)` — nouvelle fonction, sur le modèle de `high()` / `low()` de l'ADR 0027 — produit une relocalisation `BankOf`
-- [ ] Le langage sait exprimer un port **fonction de la banque** (§13.1) ; le profil CPC de C1 ne l'emploie pas, et un profil de test l'exerce
-- [ ] `beautify` connaît `bank`
-- [ ] `docs/syntax.md` : `bank()`, et les noms `__` comme réservés
+- [x] `__port_<axe>_<clé>`, `__val_<axe>_<clé>`, `__mask_<axe>`
+- [x] Un `EXTERN` sur un de ces noms se résout **sans qu'aucun objet ne l'exporte**
+- [x] La valeur est **bornée aux bits de l'axe** — jamais l'octet global (D7)
+- [x] Les noms préfixés de `__` sont réservés : une source qui en définit un est refusée (ADR 0015)
+- [x] `bankof(label)` — nouvelle fonction — produit une relocalisation `BankOf`
+- [x] Le langage sait exprimer un port **fonction de la banque** (§13.1) ; le profil livré ne l'emploie pas, et un profil de test l'exerce
+- [x] `beautify` connaît `bankof`
+- [x] `docs/syntax.md` : `bankof()`, et les noms `__` comme réservés
+
+Les trois valeurs du §12.3 sortent au chiffre près, et elles se **calculent** :
+`__port_ram_audio` = `&7F00`, `__val_ram_audio` = `&C5` — soit
+`%11000000 | (PAGE << 3) | CODE` avec `CODE = %100 | 1` et `PAGE = 0` —, et
+`__val_ram_linear` = `&C0`.
+
+Cinq choses décidées en cours de route, à relire en C1.10 :
+
+- **La fonction s'appelle `bankof()`, non `bank()`.** `BANK` est **déjà** un mot
+  refusé — il nommait un placement que la source ne fait pas, et ce refus est
+  plus vrai que jamais maintenant que le script place. Donner à la même graphie
+  un second sens accepté aurait demandé de tenir deux règles pour un mot.
+  `bankof()` dit ce qu'elle est — une **question**, pas un placement — et se lit
+  à côté de `sizeof()`, qui existe déjà dans ce langage. C'est aussi le nom de la
+  relocalisation que l'ADR 0027 réservait.
+- **`bankof(label + 3)` vaut `bankof(label)`.** La banque d'une section ne bouge
+  pas avec un décalage ; laisser l'addend traîner aurait fait croire qu'un `+1`
+  peut changer de banque.
+- **`bankof()` sur une valeur absolue est refusé.** Une adresse écrite en clair
+  ne porte aucune décision de linker à rapporter, et dériver sa banque de ses
+  bits de poids fort aurait rendu un chiffre que rien n'a décidé.
+- **Deux graphies de clé, et chacune répond à un cas du §12.3** : par **section**
+  — toujours offerte, et sans ambiguïté — et par **état**, offerte seulement si
+  le script nomme cet état une seule fois. Un état paramétrique nommé deux fois
+  avec deux arguments ne désigne pas une chose, et c'est exactement la situation
+  du tableau du §12.3 où `__val_ram_audio` et `__val_ram_music_lz` coexistent.
+  Une offre ambiguë est **retirée** plutôt que tranchée : un symbole qui vaudrait
+  deux choses selon l'ordre de lecture est pire qu'un symbole absent, et
+  l'absence a déjà son diagnostic.
+- **Déclarer un nom `__` est licite, le définir est refusé.** `EXTERN` est la
+  seule façon de s'en servir, et le refus le dit. En définir un ferait taire le
+  symbole que le linker offrait, et le programme sortirait avec la valeur de
+  l'auteur au lieu de celle du placement — silencieusement.
+
+Et **une limite qu'il faut nommer plutôt que laisser découvrir.** Un symbole du
+linker traverse la couture comme un `EXTERN`, c'est-à-dire comme une **adresse**.
+Deux conséquences :
+
+- `ld c, __val_ram_audio` est refusé, en nommant `high()` / `low()` — un
+  diagnostic juste pour une adresse, trompeur pour une valeur ;
+- `ld bc, __port_ram_audio + __val_ram_audio`, l'idiome que le §12.3 écrit noir
+  sur blanc, est refusé : deux inconnues ne se somment pas dans une
+  relocalisation qui n'en porte qu'une.
+
+Chacun **seul** fonctionne — `ld bc, __port_ram_audio` sort `&7F00`, `ld hl,
+__val_ram_audio` sort `&C5`. Ce qui manque est la notion d'un **externe
+absolu** : un symbole dont le linker connaît la valeur et qui n'est pas une
+adresse. C'est une décision de conception, pas un oubli, et elle est posée avant
+C1.8 — qui ajoute `__off_` et `__romnum_`, donc les mêmes questions.
 
 ## C1.8 — `__off_`, `__romnum_`, et les deux refus
 

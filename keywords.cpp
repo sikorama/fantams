@@ -50,6 +50,9 @@ const std::set<std::string> &instructionWords() {
         // ne connait pas encore. Reservees pour la meme raison, et parce qu'un
         // label nomme « high » rendrait « high(x) » indechiffrable.
         "HIGH", "LOW",
+        // `bankof(x)` : la banque ou le linker a range x. Meme raison, et une
+        // graphie distincte de BANK, qui reste refusee plus bas.
+        "BANKOF",
         // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.
@@ -243,6 +246,21 @@ bool isMachineWord(const std::string &upperTok) {
 }
 
 std::string reservedName(const std::string &name, const std::string &position) {
+    // Les noms prefixes de « __ » APPARTIENNENT AU LINKER (§12.3) : ce sont eux
+    // qui portent le port, la valeur et le masque d'une commutation, et ils sont
+    // reserves au meme titre que les mots de la machine (ADR 0015). En definir
+    // un dans une source ferait taire le symbole que le linker offrait, et le
+    // programme sortirait avec la valeur de l'auteur au lieu de celle du
+    // placement — silencieusement.
+    //
+    // DECLARER un tel nom est licite, et c'est meme la seule facon de s'en
+    // servir : `extern __val_ram_audio` dit « c'est ailleurs », et l'ailleurs
+    // est le linker. C'est le DEFINIR qui est refuse.
+    if (name.size() >= 2 && name[0] == '_' && name[1] == '_' &&
+        position.find("EXTERN") == std::string::npos)
+        return "'" + name + "' starts with '__', which belongs to the linker: those "
+               "names carry the port, the value and the mask of a switch, and they "
+               "cannot name " + position + " — declare it with EXTERN, do not define it";
     const char *kind = reservedKind(upper(name));
     if (!kind) return {};
     return "'" + name + "' is " + kind + " and cannot name " + position +

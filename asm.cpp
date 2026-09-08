@@ -463,6 +463,7 @@ private:
                 // sont la reponse, et le refus les nomme (D3).
                 if (v.byte == expr::Byte::High) r.kind = Reloc::High8;
                 else if (v.byte == expr::Byte::Low) r.kind = Reloc::Low8;
+                else if (v.byte == expr::Byte::Bank) r.kind = Reloc::BankOf;
                 else { push("a relocatable address does not fit in one byte: use high() or low()"); return; }
                 break;
         }

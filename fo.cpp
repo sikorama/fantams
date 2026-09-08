@@ -42,6 +42,7 @@ const char *kindName(asmb::Reloc::Kind k) {
         case asmb::Reloc::Abs16: return "abs16";
         case asmb::Reloc::Rel8:  return "rel8";
         case asmb::Reloc::High8: return "high8";
+        case asmb::Reloc::BankOf: return "bankof";
         default:                 return "low8";
     }
 }
@@ -370,6 +371,7 @@ bool read(const std::string &text, asmb::Object &out, std::string &error) {
                 else if (f == "rel8") { r.kind = asmb::Reloc::Rel8; kindSeen = true; }
                 else if (f == "high8") { r.kind = asmb::Reloc::High8; kindSeen = true; }
                 else if (f == "low8") { r.kind = asmb::Reloc::Low8; kindSeen = true; }
+                else if (f == "bankof") { r.kind = asmb::Reloc::BankOf; kindSeen = true; }
             }
             if (!kindSeen) return fail("reloc: expected one of abs16, rel8, high8, low8");
             out.relocs.push_back(std::move(r));

@@ -21,7 +21,10 @@ constexpr SectionId NoSection = -1;
 // L'octet retenu d'une valeur relocalisable — ce que produisent `high()` et
 // `low()`. Sur une valeur ABSOLUE ces deux fonctions calculent tout de suite et
 // rendent `Whole` : il n'y a rien à reporter au linkage.
-enum class Byte { Whole, High, Low };
+// Quel octet d'une valeur relocalisable a été retenu. `Bank` n'en est pas un
+// octet d'adresse : c'est l'EMPLACEMENT DE RANGEMENT de la section, que seul le
+// linker connaît, et qui tient sur un octet comme les deux autres.
+enum class Byte { Whole, High, Low, Bank };
 
 // Une VALEUR d'expression : une partie connue, plus le coefficient d'une base
 // de section qu'on ne connaîtra qu'au linkage.
