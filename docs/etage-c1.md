@@ -43,7 +43,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | **faite** |
 | C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | **faite** |
 | C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | **faite** |
-| C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | à faire |
+| C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | **faite** |
 | C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
 | C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
 | C1.7 | Les symboles de commutation, `bank()` et `BankOf` | C1.2, C1.4 | à faire |
@@ -281,16 +281,53 @@ curseur : la fenêtre où la configuration fait apparaître la banque donne sa b
 
 `build` prend ses deux entrées de plus (D6) ; `Image` ne gagne pas un champ.
 
-- [ ] `Image build(objects, script, profile)` ; `Image`, `Block`, `Symbol` et `flatten` inchangés
-- [ ] Un script vide et un profil vide donnent **exactement** le placement de l'étage B, et un test le dit
-- [ ] Une section nommée dans `CONFIG c { wN { SECTION s } }` est basée à l'adresse de `wN`, et rangée dans la banque que `c` donne à `wN`
-- [ ] L'`ORG` vient de la fenêtre de **la grille à laquelle appartient la banque** (D5), et un test le pose sur deux grilles superposées
-- [ ] Refusés, en nommant les trois : une configuration inconnue, une fenêtre que la configuration ne concerne pas, une section que nul objet ne porte
-- [ ] Une section `"uninit"` occupe la place sans émettre un octet
-- [ ] Une section qui dépasse sa banque est refusée **avec le dépassement chiffré**
-- [ ] Une section relocalisable que le script ne place pas retombe sur le placement dérivable du §9
-- [ ] Le placement passe par le refus au-delà de la banque 7 (D11), qui existe déjà
-- [ ] Les dix suites vertes, et D12 tient
+- [x] `Image build(objects, script, profile)` ; `Image`, `Block`, `Symbol` et `flatten` inchangés
+- [x] Un script vide et un profil vide donnent **exactement** le placement de l'étage B, et un test le dit
+- [x] Une section nommée dans `CONFIG c { wN { SECTION s } }` est basée à l'adresse de `wN`, et rangée dans la banque que `c` donne à `wN`
+- [x] L'`ORG` vient de la fenêtre nommée par le script, et le rangement de la banque que la configuration y met (D5)
+- [x] Refusés, en nommant les trois : une configuration inconnue, une fenêtre que la configuration ne concerne pas, une section que nul objet ne porte
+- [x] Une section `"uninit"` occupe la place sans émettre un octet
+- [x] Une section qui dépasse sa banque est refusée **avec le dépassement chiffré**
+- [x] Une section relocalisable que le script ne place pas retombe sur le placement dérivable du §9
+- [x] Le placement passe par le refus au-delà de la banque 7 (D11), qui existe déjà
+- [x] Les dix suites vertes, et D12 tient
+
+**Le contrôle qui compte est déjà tenu**, au niveau de la couture : déplacer une
+section d'`ext_w1<1>` vers `ext_w1<2>` **dans le script seul** change sa banque de
+rangement — 5 devient 6 — et **pas une adresse logique**. C1.9 le refera de bout
+en bout, avec des octets qui sortent.
+
+Cinq choses décidées en cours de route, à relire en C1.10 :
+
+- **`STORE` entre dans le langage de profil**, et c'est la seule addition que
+  cette étape lui apporte. Une banque nommée doit devenir l'entier que `--sym`
+  imprime déjà dans sa colonne `store`, que `flatten` emploie et que le refus
+  au-delà de la banque 7 lit. Le déduire de l'ordre des lignes aurait rendu
+  l'ordre du fichier sémantique : déplacer deux lignes aurait changé chaque
+  `.sym` et la disposition de chaque snapshot **sans un mot**. Et une plage de
+  banques reçoit une **plage** de numéros — `STORE 0..3` —, parce qu'un seul
+  numéro pour quatre banques aurait été une attribution consécutive implicite, et
+  l'implicite est ce que `STORE` existe pour retirer. Deux banques qui le
+  partagent sont refusées.
+- **Le script peut nommer le profil.** Le §6 ouvre un script par
+  `TARGET <machine>` ; un auteur qui a écrit sa carte n'a pas à redire sa machine
+  sur la ligne de commande. `-T` seul suffit donc, et un désaccord entre le
+  script et `--target` est refusé en nommant les deux.
+- **La place disponible est la plus petite de trois bornes** : la fenêtre, la
+  banque, et le découpage que le script a écrit. Les trois sont réelles, et
+  retenir la plus petite est la seule réponse qui ne mente pas.
+- **Un état dont le nom appartient à deux axes est refusé en demandant de nommer
+  l'axe.** `on` appartient à autant d'axes qu'il y a de recouvrements ; en
+  choisir un ferait dépendre le placement de l'ordre des `CONFIG SET`.
+- **Un script qui place sans profil est refusé DANS le linker**, et non dans le
+  CLI : c'est là que la raison se dit complètement — la fenêtre donne l'adresse,
+  la configuration donne la banque, et le profil donne les deux. Le CLI n'a pas à
+  la dupliquer.
+
+Et un refus qui n'était pas au programme : **une section placée par son `org` ET
+par le script.** Il n'y a pas de lecture par défaut à préférer, et le silence
+aurait laissé le script sans effet sur la seule section dont l'auteur avait pris
+la peine de parler deux fois.
 
 ## C1.5 — le chevauchement inter-sections, et le mou
 

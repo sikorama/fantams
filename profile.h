@@ -76,6 +76,15 @@ struct Bank {
     // d'une ROM. C'est lui que `PAGE` vaut dans une expression de `SELECT`.
     bool hasPage = false;
     int64_t page = 0;
+    // Son EMPLACEMENT DE RANGEMENT : le numéro sous lequel la machine désigne
+    // elle-même ce bloc, et celui que `--sym` imprime déjà dans sa colonne
+    // `store` (ADR 0019). Deux banques ne peuvent pas le partager.
+    //
+    // Il est DÉCLARÉ, pour la même raison que la taille : le déduire de l'ordre
+    // des lignes rendrait l'ordre du fichier sémantique, et déplacer deux lignes
+    // changerait chaque `.sym` et la disposition de chaque snapshot sans un mot.
+    bool hasStore = false;
+    int64_t store = 0;
     int line = 0;
 };
 

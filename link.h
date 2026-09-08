@@ -5,10 +5,15 @@
 // seul chemin par lequel un octet sort de fantams, de sorte qu'un placement
 // faux fait rougir un test le jour où on l'écrit, et non trois étages plus tard.
 //
-// À l'étage B ce linker est TRIVIAL : il place ABSOLUMENT, tel qu'`org` le dit.
-// Il ne calcule ni fenêtre, ni banque libre, ni configuration, et ne vérifie
-// aucune continuité — c'est l'affaire de l'étage C, qui remplacera son intérieur
-// sans toucher à son interface.
+// Il reçoit deux entrées de plus qu'à l'étage B : un SCRIPT — quelle section va
+// où — et un PROFIL — ce que la machine sait faire. Un script vide et un profil
+// vide sont des valeurs licites, et elles donnent EXACTEMENT le placement
+// absolu de l'étage B : c'est ce qui fait du §12.1 une valeur plutôt qu'une
+// intention.
+//
+// Il ne VÉRIFIE encore rien de ce que l'étage C2 vérifiera : ni la continuité et
+// ses trois pointeurs, ni la co-visibilité des références, ni les sections
+// miroir. C'est ce qui permet de le livrer sans promettre C2.
 //
 // Ce qui a migré ici, et qui était dispersé dans trois endroits qui ne savaient
 // pas qu'ils le faisaient : la dérivation banque↔adresse, la limite des banques
@@ -17,6 +22,8 @@
 #pragma once
 
 #include "asm.h"
+#include "profile.h"
+#include "script.h"
 
 #include <cstdint>
 #include <string>
@@ -72,9 +79,15 @@ struct Image {
     std::vector<Symbol> symbolTable;
 };
 
-// Lie N objets en une image. En B, le placement est absolu et le linker ne fait
-// que poser, dériver et constater — il ne déplace rien.
-Image build(const std::vector<asmb::Object> &objects);
+// Lie N objets en une image.
+//
+// Les deux dernières entrées sont facultatives, et leur absence n'est pas un cas
+// particulier : c'est le cas COURANT, celui d'une source à un `org` et un `run`
+// (§12.1). Sans script, aucune section n'est placée par calcul, et le placement
+// dérivable de l'étage B s'applique tel quel.
+Image build(const std::vector<asmb::Object> &objects,
+            const script::Script &script = script::Script(),
+            const profile::Profile &profile = profile::Profile());
 
 // L'image PLATE des banques 0..7 — l'octet (banque b, offset o) en b*0x4000+o —
 // et sa coverage, telles que `sna::build` les attend.

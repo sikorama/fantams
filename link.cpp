@@ -83,6 +83,12 @@ struct Linker {
     // resolvent.
     std::map<int, int> relocBase_;
     std::vector<std::map<int, int>> bases_;
+    // L'emplacement de RANGEMENT que le script a décidé pour une section, quand
+    // il en a décidé un. Il voyage à côté de la base parce qu'il vient du même
+    // calcul : la fenêtre donne l'adresse logique, la configuration donne la
+    // banque, et le profil dit sous quel numéro cette banque se range.
+    std::map<int, int> relocStore_;
+    std::vector<std::map<int, int>> stores_;
     // Les symboles que les objets EXPORTENT, par nom : c'est contre elle que les
     // `EXTERN` se resolvent.
     std::map<std::string, int64_t> exported_;
@@ -104,6 +110,13 @@ struct Linker {
         if (section < 0) return 0;
         auto it = relocBase_.find(section);
         return it == relocBase_.end() ? 0 : it->second;
+    }
+    // -1 : aucun script n'a décidé du rangement de cette section, et la banque
+    // suit alors l'adresse comme elle l'a toujours fait (ADR 0005).
+    int storeOf(int section) const {
+        if (section < 0) return -1;
+        auto it = relocStore_.find(section);
+        return it == relocStore_.end() ? -1 : it->second;
     }
 
     std::string siteLabel(uint16_t id) const {
@@ -211,6 +224,167 @@ struct Linker {
                    " — a section is relocatable in every unit, or in none");
     }
 
+    // Ce que le script a décidé pour une section : son adresse logique, son
+    // emplacement de rangement, et la place qui lui reste.
+    struct Slotting {
+        int64_t base = 0;
+        int store = 0;
+        int64_t capacity = 0;      // ce que le bloc peut encore porter
+        std::string config, window, bank;
+        std::string file;
+        int line = 0;
+    };
+
+    const profile::Window *windowNamed(const profile::Profile &pr, const std::string &n) const {
+        for (const profile::Window &w : pr.windows) if (w.name == n) return &w;
+        return nullptr;
+    }
+    const profile::Bank *bankNamed(const profile::Profile &pr, const std::string &n) const {
+        for (const profile::Bank &b : pr.banks) if (b.name == n) return &b;
+        return nullptr;
+    }
+
+    // Retrouver l'état qu'une référence de script désigne. L'axe est facultatif
+    // quand le nom d'état suffit ; quand il ne suffit pas, c'est-à-dire quand
+    // deux axes portent le même nom d'état, le refus le dit plutôt que d'en
+    // choisir un — `on` appartient à autant d'axes qu'il y a de recouvrements.
+    const profile::State *stateOf(const profile::Profile &pr, const script::ConfigRef &ref,
+                                  const std::string &where, int line, std::string &axisName) {
+        const profile::State *found = nullptr;
+        std::string firstAxis;
+        int matches = 0;
+        for (const profile::Axis &a : pr.axes) {
+            if (!ref.axis.empty() && a.name != ref.axis) continue;
+            for (const profile::State &st : a.states)
+                if (st.name == ref.state) {
+                    if (!found) { found = &st; firstAxis = a.name; }
+                    ++matches;
+                }
+        }
+        if (!found) {
+            out.errors.push_back({where, line,
+                "the script places sections in configuration '" +
+                (ref.axis.empty() ? ref.state : ref.axis + "." + ref.state) +
+                "', which the profile does not declare"});
+            return nullptr;
+        }
+        if (matches > 1) {
+            out.errors.push_back({where, line,
+                "configuration '" + ref.state + "' is a state of " +
+                std::to_string(matches) + " axes: name the axis, as in "
+                "'<axis>." + ref.state + "'"});
+            return nullptr;
+        }
+        axisName = firstAxis;
+        return found;
+    }
+
+    // Le PLAN : la fenêtre donne l'adresse logique, la configuration donne la
+    // banque, et le profil dit sous quel numéro cette banque se range. C'est le
+    // renversement du §12.2 — la source ne nomme plus d'emplacement, elle nomme
+    // une section.
+    std::map<std::string, Slotting> planFrom(const script::Script &sc, const profile::Profile &pr,
+                                             const std::map<std::string, int64_t> &sizes) {
+        std::map<std::string, Slotting> plan;
+        for (const script::ConfigBlock &cb : sc.map) {
+            std::string axisName;
+            const profile::State *st = stateOf(pr, cb.config, cb.file, cb.line, axisName);
+            if (!st) continue;
+            const std::string configLabel =
+                axisName + "." + cb.config.state +
+                (cb.config.hasArg ? "<" + std::to_string(cb.config.arg) + ">" : "");
+            for (const script::Placement &p : cb.placements) {
+                const profile::Window *win = windowNamed(pr, p.window);
+                if (!win) {
+                    out.errors.push_back({p.file, p.line,
+                        "'" + p.window + "' is not a WINDOW the profile declares"});
+                    continue;
+                }
+                // Quelle banque cet état fait-il apparaître dans cette fenêtre ?
+                // S'il n'en dit rien, il ne concerne pas cette fenêtre, et y
+                // placer une section serait supposer une carte que personne n'a
+                // décrite.
+                const profile::Slot *slot = nullptr;
+                for (const profile::Slot &sl : st->slots)
+                    if (sl.window == p.window) slot = &sl;
+                if (!slot) {
+                    out.errors.push_back({p.file, p.line,
+                        "configuration '" + configLabel + "' says nothing about window '" +
+                        p.window + "': it cannot place a section there"});
+                    continue;
+                }
+                std::string bankName = slot->bank;
+                if (slot->hasParam) {
+                    if (slot->literal) bankName += std::to_string(slot->value);
+                    else if (cb.config.hasArg) bankName += std::to_string(cb.config.arg);
+                    else {
+                        out.errors.push_back({p.file, p.line,
+                            "configuration '" + configLabel + "' takes a parameter, and the "
+                            "script gave none: write '" + cb.config.state + "<n>'"});
+                        continue;
+                    }
+                }
+                const profile::Bank *bk = bankNamed(pr, bankName);
+                if (!bk) {
+                    out.errors.push_back({p.file, p.line,
+                        "configuration '" + configLabel + "' puts bank '" + bankName +
+                        "' in window '" + p.window + "', and the profile declares no such bank"});
+                    continue;
+                }
+                // La place disponible est la plus petite des trois : la fenêtre,
+                // la banque, et le découpage que le script a écrit. Les trois
+                // sont des bornes réelles, et retenir la plus petite est la seule
+                // réponse qui ne mente pas.
+                const int64_t span = win->hi - win->lo + 1;
+                int64_t room = span < bk->size ? span : bk->size;
+                int64_t origin = win->lo;
+                if (p.hasRange) {
+                    if (p.offset + p.size > room) {
+                        out.errors.push_back({p.file, p.line,
+                            "[OFFSET " + hexSize(p.offset) + ", SIZE " + hexSize(p.size) +
+                            "] does not fit in bank '" + bankName + "' seen at window '" +
+                            p.window + "' (" + hexSize(room) + " bytes)"});
+                        continue;
+                    }
+                    origin += p.offset;
+                    room = p.size;
+                }
+                int64_t used = 0;
+                for (const std::string &name : p.sections) {
+                    auto prev = plan.find(name);
+                    if (prev != plan.end()) {
+                        out.errors.push_back({p.file, p.line,
+                            "section '" + name + "' is placed twice: already in '" +
+                            prev->second.config + "', window '" + prev->second.window + "'"});
+                        continue;
+                    }
+                    auto sz = sizes.find(name);
+                    const int64_t need = sz == sizes.end() ? 0 : sz->second;
+                    if (used + need > room) {
+                        out.errors.push_back({p.file, p.line,
+                            "section '" + name + "' overflows bank '" + bankName +
+                            "' at window '" + p.window + "' by " +
+                            hexSize(used + need - room) + " bytes (" + hexSize(room) +
+                            " available, " + hexSize(used + need) + " asked for)"});
+                        continue;
+                    }
+                    Slotting s;
+                    s.base = origin + used;
+                    s.store = (int)bk->store;
+                    s.capacity = room - used;
+                    s.config = configLabel;
+                    s.window = p.window;
+                    s.bank = bankName;
+                    s.file = p.file;
+                    s.line = p.line;
+                    plan[name] = std::move(s);
+                    used += need;
+                }
+            }
+        }
+        return plan;
+    }
+
     // Où poser les sections que personne n'a placées.
     //
     // Le même nom dans N objets ne fait qu'UNE section : c'est ce qui permet au
@@ -226,7 +400,9 @@ struct Linker {
     //
     // Les identifiants de section sont LOCAUX à leur objet : c'est pour cela
     // qu'il y a une table de bases par objet, et non une seule.
-    std::vector<std::map<int, int>> placeRelocSections(const std::vector<asmb::Object> &objects) {
+    std::vector<std::map<int, int>> placeRelocSections(const std::vector<asmb::Object> &objects,
+                                                       const script::Script &sc,
+                                                       const profile::Profile &pr) {
         int cursor = 0;
         for (const asmb::Object &obj : objects)
             for (const asmb::Fragment &f : obj.fragments)
@@ -277,12 +453,50 @@ struct Linker {
             }
         }
 
-        // 3. Les bases. Une section à la fois, et à l'intérieur, un objet à la
+        // 3. Ce que le script place PAR CALCUL. L'étendue totale de chaque nom
+        // doit être connue avant : c'est elle qui décide de ce qui rentre, et
+        // c'est pour cela que ce temps-ci vient après le second.
+        std::map<std::string, int64_t> total;
+        for (size_t mi = 0; mi < merged.size(); ++mi) {
+            int64_t t = 0;
+            for (size_t oi = 0; oi < objects.size(); ++oi) {
+                auto e = extent[oi].find(mi);
+                if (e != extent[oi].end()) t += e->second;
+            }
+            total[merged[mi].name] = t;
+        }
+        std::map<std::string, Slotting> plan;
+        if (!sc.map.empty()) plan = planFrom(sc, pr, total);
+        // Un script qui place une section qu'aucune unité ne porte, ou qui en
+        // place une que son `org` a déjà placée : deux fautes que seul cet
+        // endroit voit, parce que lui seul a les deux côtés sous les yeux.
+        for (const auto &kv : plan) {
+            const Merged *m = nullptr;
+            for (const Merged &mm : merged) if (mm.name == kv.first) m = &mm;
+            if (!m) {
+                out.errors.push_back({kv.second.file, kv.second.line,
+                    "the script places section '" + kv.first + "', which no object declares"});
+                continue;
+            }
+            if (!m->relocatable)
+                out.errors.push_back({kv.second.file, kv.second.line,
+                    "the script places section '" + kv.first + "', but it carries an "
+                    "'org': a section is placed by its org, or by the script, never both"});
+        }
+
+        // 4. Les bases. Une section à la fois, et à l'intérieur, un objet à la
         // fois : c'est cet ordre-là qui met bout à bout les contributions d'un
         // même nom, au lieu de les disperser objet par objet.
+        //
+        // Une section que le script ne nomme pas suit le PLACEMENT DÉRIVABLE du
+        // §9 — à la suite, après le dernier octet absolu. Le cas simple ne paie
+        // ni en syntaxe, ni en fichier, ni en argument de ligne de commande.
         std::vector<std::map<int, int>> all(objects.size());
+        stores_.assign(objects.size(), std::map<int, int>());
         for (size_t mi = 0; mi < merged.size(); ++mi) {
             if (!merged[mi].relocatable) continue;
+            auto placed = plan.find(merged[mi].name);
+            int64_t where = placed == plan.end() ? cursor : placed->second.base;
             for (size_t oi = 0; oi < objects.size(); ++oi) {
                 auto e = extent[oi].find(mi);
                 if (e == extent[oi].end() || e->second <= 0) continue;
@@ -290,9 +504,11 @@ struct Linker {
                 for (const asmb::Section &sec : objects[oi].sections)
                     if (sec.name == merged[mi].name) { id = sec.id; break; }
                 if (id < 0) continue;
-                all[oi][id] = cursor;
-                cursor += e->second;
+                all[oi][id] = (int)where;
+                if (placed != plan.end()) stores_[oi][id] = placed->second.store;
+                where += e->second;
             }
+            if (placed == plan.end()) cursor = (int)where;
         }
 
         // 4. Le plafond, sur la SOMME. Chaque unité tient, leur somme non : c'est
@@ -385,9 +601,13 @@ struct Linker {
             const int fragAddr = f.addr + baseOf(f.relocSection);
             Block blk;
             bool open = false;
+            // Le rangement que le script a décidé l'emporte sur la dérivation
+            // par l'adresse : c'est exactement ce que C1 apporte, et sans lui
+            // `audio` vu en `&4000` se rangerait en banque 1 comme `main`.
+            const int forced = storeOf(f.relocSection);
             for (size_t k = 0; k < f.bytes.size(); ++k) {
                 const int addr = (fragAddr + (int)k) & 0xFFFF;
-                const int bank = bankOf(f, addr);
+                const int bank = forced >= 0 ? forced : bankOf(f, addr);
                 const bool follows = open && bank == blk.bank &&
                                      ((blk.addr + (int)blk.bytes.size()) & 0xFFFF) == addr;
                 if (!follows) {
@@ -479,8 +699,20 @@ struct Linker {
 
 } // namespace
 
-Image build(const std::vector<asmb::Object> &objects) {
+Image build(const std::vector<asmb::Object> &objects,
+            const script::Script &sc, const profile::Profile &pr) {
     Linker lk;
+    // Un script qui PLACE sans profil ne peut rien calculer : la fenêtre, la
+    // banque et le numéro de rangement viennent tous du profil. Le dire ici est
+    // ce qui empêche un script d'être accepté et ignoré.
+    if (!sc.map.empty() && pr.windows.empty()) {
+        lk.out.ok = false;
+        lk.out.errors.push_back({sc.map.front().file, sc.map.front().line,
+            "a script that places sections needs a profile: the window gives the "
+            "address, the configuration gives the bank, and the profile gives both "
+            "— pass --target or -P"});
+        return lk.out;
+    }
     // Les objets se posent dans l'ordre où on les a donnés. Leurs tables de
     // sites se concatènent, et `prov` se décale d'autant : c'est ce qui laisse
     // un recouvrement nommer la bonne ligne du bon fichier.
@@ -491,7 +723,7 @@ Image build(const std::vector<asmb::Object> &objects) {
 
     // Trois temps, et l'ordre est force. D'abord : ou vont les sections que
     // personne n'a placees.
-    lk.bases_ = lk.placeRelocSections(objects);
+    lk.bases_ = lk.placeRelocSections(objects, sc, pr);
 
     // Ensuite : ce que les objets EXPORTENT. Il faut que TOUTES les bases soient
     // decidees avant, sans quoi un `PUBLIC` d'une section relocalisable n'aurait
@@ -499,6 +731,7 @@ Image build(const std::vector<asmb::Object> &objects) {
     std::map<std::string, size_t> exportedBy;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         lk.relocBase_ = lk.bases_[oi];
+        lk.relocStore_ = lk.stores_[oi];
         for (const asmb::Symbol &s : objects[oi].symbolTable) {
             if (!s.isPublic) continue;
             // Deux objets qui exportent le même nom : refusé, en nommant LES
@@ -523,6 +756,7 @@ Image build(const std::vector<asmb::Object> &objects) {
         const uint16_t base = (uint16_t)lk.sites_.size();
         for (const asmb::Site &s : obj.sites) lk.sites_.push_back(s);
         lk.relocBase_ = lk.bases_[oi];
+        lk.relocStore_ = lk.stores_[oi];
         lk.curObject_ = (int)oi;
         asmb::Object placed = obj;
         lk.resolve(placed.fragments, obj);
@@ -552,6 +786,7 @@ Image build(const std::vector<asmb::Object> &objects) {
         const asmb::Object &obj = objects[oi];
         if (!obj.entry.has) continue;
         lk.relocBase_ = lk.bases_[oi];
+        lk.relocStore_ = lk.stores_[oi];
         int run = (int)obj.entry.value;
         auto it = obj.symbols.find(obj.entry.name);
         if (!obj.entry.name.empty() && it != obj.symbols.end()) run = (int)it->second;
@@ -575,6 +810,7 @@ Image build(const std::vector<asmb::Object> &objects) {
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const asmb::Object &obj = objects[oi];
         lk.relocBase_ = lk.bases_[oi];
+        lk.relocStore_ = lk.stores_[oi];
         for (const asmb::Symbol &s : obj.symbolTable) {
             Symbol out;
             out.name = s.name;
@@ -588,7 +824,9 @@ Image build(const std::vector<asmb::Object> &objects) {
                 const asmb::Fragment &f = obj.fragments[(size_t)s.frag];
                 const int fragAddr = f.addr + lk.baseOf(f.relocSection);
                 out.store = (fragAddr + s.offset) & 0xFFFF;
-                out.bank = f.bank < 0 ? ((out.store >> 14) & 3) : f.bank;
+                const int forced = lk.storeOf(f.relocSection);
+                out.bank = forced >= 0 ? forced
+                                       : (f.bank < 0 ? ((out.store >> 14) & 3) : f.bank);
                 // Dans une section relocalisable, la VALEUR aussi n'etait
                 // connue que d'ici : c'est tout l'objet de l'amendement a
                 // l'ADR 0019.

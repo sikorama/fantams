@@ -47,10 +47,16 @@ WINDOW w3 [0xC000..0xFFFF]
 // possible to use it as video RAM » ; [CW-GA] « The Video RAM is always
 // located in the first 64K ». Aucune section ecran ne peut vivre en RAM
 // etendue.
-BANK base0..base3  SIZE 0x4000  rw  VIDEO
-BANK ext0..ext3    SIZE 0x4000  rw
-BANK rom_lo        SIZE 0x4000  ro
-BANK rom_hi<n>     SIZE 0x4000  ro
+//
+// STORE : le numero sous lequel la machine designe elle-meme ses blocs.
+// ATTESTE. [S968] §2.5 : « 8 16K blocks, numbered 0..7 », 0-3 = base,
+// 4-7 = page etendue. C'est ce numero que --sym imprime dans sa colonne
+// `store`, et celui qu'un dump plat de 128 K sait porter. Les deux ROM sont
+// au-dela : elles se decrivent, et aucun conteneur de cet etage ne les sort.
+BANK base0..base3  SIZE 0x4000  rw  VIDEO  STORE 0..3
+BANK ext0..ext3    SIZE 0x4000  rw         STORE 4..7
+BANK rom_lo        SIZE 0x4000  ro         STORE 8
+BANK rom_hi<n>     SIZE 0x4000  ro         STORE 9
 
 // --- Les configurations : les huit organisations reellement atteignables --
 // ATTESTE, cinq sources concordantes et aucune divergence ([S968] §2.5 et

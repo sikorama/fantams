@@ -223,8 +223,27 @@ struct Parser : lex::Cursor {
         bool hasSize = false;
         int64_t size = 0, page = 0;
         bool ro = false, rw = false, video = false, contended = false, hasPage = false;
+        bool hasStore = false;
+        std::vector<int64_t> stores;
         for (;;) {
-            if (isName("SIZE")) {
+            if (isName("STORE")) {
+                next();
+                int64_t a = 0;
+                if (!wantNumber(a)) { sync(); return; }
+                stores.push_back(a);
+                // `base0..base3 STORE 0..3` : une plage de banques reçoit une
+                // plage de numéros, un pour un. Un seul numéro pour quatre
+                // banques aurait été une attribution consécutive IMPLICITE, et
+                // l'implicite est ce que `STORE` existe pour retirer.
+                if (isPunct("..")) {
+                    next();
+                    int64_t b = 0;
+                    if (!wantNumber(b)) { sync(); return; }
+                    if (b < a) { err(line, "BANK: STORE counts backwards"); return; }
+                    for (int64_t v = a + 1; v <= b; ++v) stores.push_back(v);
+                }
+                hasStore = true;
+            } else if (isName("SIZE")) {
                 next();
                 if (!wantNumber(size)) { sync(); return; }
                 hasSize = true;
@@ -239,6 +258,12 @@ struct Parser : lex::Cursor {
             else break;
         }
         if (ro && rw) { err(line, "BANK: 'ro' and 'rw' cannot both be declared"); return; }
+        if (hasStore && stores.size() != names.size()) {
+            err(line, "BANK: " + std::to_string(names.size()) + " bank(s) declared but " +
+                      std::to_string(stores.size()) + " STORE number(s) given — write "
+                      "'STORE a..b' to give a range of banks a range of numbers");
+            return;
+        }
         for (size_t k = 0; k < names.size(); ++k) {
             Bank *prev = bank(names[k]);
             // Une ligne SANS taille AMENDE des banques déjà déclarées — c'est
@@ -252,6 +277,7 @@ struct Parser : lex::Cursor {
                     continue;
                 }
                 if (hasSize) { prev->hasSize = true; prev->size = size; }
+                if (hasStore) { prev->hasStore = true; prev->store = stores[k]; }
                 if (ro) prev->readOnly = true;
                 if (rw) prev->readOnly = false;
                 if (video) prev->video = true;
@@ -268,6 +294,8 @@ struct Parser : lex::Cursor {
             b.contended = contended;
             b.hasPage = hasPage;
             b.page = page;
+            b.hasStore = hasStore;
+            if (hasStore) b.store = stores[k];
             b.line = line;
             if (!params[k].empty()) { b.hasPage = true; b.page = 0; }
             out.banks.push_back(std::move(b));
@@ -474,11 +502,26 @@ struct Parser : lex::Cursor {
 
     // Ce qui ne se sait qu'à la fin.
     void check() {
-        for (const Bank &b : out.banks)
+        for (const Bank &b : out.banks) {
             if (!b.hasSize)
                 err(b.line, "BANK '" + b.name + "' has no SIZE: a bank's size is "
                             "declared, never implicit — a wired 16K would make "
                             "another machine indescribable");
+            if (!b.hasStore)
+                err(b.line, "BANK '" + b.name + "' has no STORE: a bank whose "
+                            "storage slot is unnamed is a bank nothing can be "
+                            "placed into");
+        }
+        // Deux banques dans le même emplacement : refusé. C'est le seul contrôle
+        // que `STORE` demande, et il attrape la faute de saisie qu'une plage mal
+        // recopiée produit.
+        for (size_t a = 0; a < out.banks.size(); ++a)
+            for (size_t b = a + 1; b < out.banks.size(); ++b)
+                if (out.banks[a].hasStore && out.banks[b].hasStore &&
+                    out.banks[a].store == out.banks[b].store)
+                    err(out.banks[b].line,
+                        "BANK '" + out.banks[b].name + "' and '" + out.banks[a].name +
+                        "' both declare STORE " + std::to_string(out.banks[a].store));
         for (const Select &s : out.selects)
             for (const std::string &ax : s.axes)
                 if (!axisKnown(ax))

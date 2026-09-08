@@ -44,6 +44,7 @@
 #include "beautify.h"
 #include "fo.h"
 #include "profile.h"
+#include "script.h"
 #include "link.h"
 #include "pp.h"
 #include "sna.h"
@@ -79,6 +80,10 @@ int main(int argc, char **argv) {
     // meme analyseur et le meme chemin de code, et c'est ce qui prouve que le
     // texte embarque n'a aucun privilege (D3).
     std::string targetName, profilePath, dumpProfile;
+    // Le SCRIPT DE LINKAGE : quelle section va ou. Il arrive avec le code qui
+    // l'honore, et pas avant : un `-T` qui accepterait un script sans l'appliquer
+    // laisserait croire un placement qui n'a pas eu lieu.
+    std::string scriptPath;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) outPath = argv[++i];
@@ -98,6 +103,7 @@ int main(int argc, char **argv) {
         else if (a == "--target" && i + 1 < argc) targetName = argv[++i];
         else if (a.rfind("--target=", 0) == 0) targetName = a.substr(9);
         else if (a == "-P" && i + 1 < argc) profilePath = argv[++i];
+        else if (a == "-T" && i + 1 < argc) scriptPath = argv[++i];
         else if (a == "--dump-profile" && i + 1 < argc) dumpProfile = argv[++i];
         else if (a.rfind("--dump-profile=", 0) == 0) dumpProfile = a.substr(15);
         else inputs.push_back(a);
@@ -126,6 +132,30 @@ int main(int argc, char **argv) {
         fputs(text.c_str(), stdout);
         return 0;
     }
+    // --- Le script de linkage ----------------------------------------------
+    // Il est lu AVANT le profil, parce que c'est lui qui peut le nommer : le §6
+    // ouvre un script par `TARGET <machine>`, et un auteur qui a ecrit sa carte
+    // n'a pas a redire sa machine sur la ligne de commande.
+    script::Script scr;
+    if (!scriptPath.empty()) {
+        std::string text;
+        if (!readFile(scriptPath, text)) {
+            fprintf(stderr, "error: file not found: %s\n", scriptPath.c_str());
+            return 2;
+        }
+        scr = script::parse(text, scriptPath);
+        for (const asmb::Diagnostic &d : scr.errors)
+            fprintf(stderr, "%s:%d: error: %s\n", d.file.c_str(), d.line, d.message.c_str());
+        if (!scr.ok) return 1;
+        if (scr.hasTarget && targetName.empty() && profilePath.empty())
+            targetName = scr.target;
+        else if (scr.hasTarget && !targetName.empty() && scr.target != targetName) {
+            fprintf(stderr, "error: the script targets '%s' and --target says '%s'; keep one\n",
+                    scr.target.c_str(), targetName.c_str());
+            return 2;
+        }
+    }
+
     // Un nom livre ET un fichier : refuse. C'est la regle du §7 appliquee a la
     // ligne de commande — deux porteurs pour une meme chose, et personne ne
     // pourrait dire lequel a servi.
@@ -159,7 +189,9 @@ int main(int argc, char **argv) {
         if (!prof.ok) return 1;
         hasProfile = true;
     }
-    (void)hasProfile;   // rien ne place encore avec un profil : c'est l'etape C1.4
+    // Un script qui place sans profil est refuse DANS le linker, la ou la
+    // raison se dit completement ; le CLI n'a pas a la dupliquer.
+    (void)hasProfile;
 
     if (!inputs.empty()) path = inputs.front();
     // Un `.fo` en ENTREE est un objet deja assemble : on le relit au lieu de
@@ -174,6 +206,7 @@ int main(int argc, char **argv) {
                                      "  file.fo... : des objets deja assembles, a linker\n"
                                      "  --target N : profil de cible livre (au choix : %s)\n"
                                      "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
+                                     "  -T f.ld    : le script de linkage — quelle section va ou\n"
                                      "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n",
                                      namesList().c_str()); return 2; }
     // Le mode « la sortie est un source » : l'un ou l'autre des deux drapeaux suffit.
@@ -390,7 +423,7 @@ int main(int argc, char **argv) {
     // C'est le seul chemin par lequel un octet sort d'ici, et c'est lui qui
     // decide des banques, des adresses et du recouvrement — le CLI n'en derive
     // plus aucune.
-    const link::Image img = link::build(objects);
+    const link::Image img = link::build(objects, scr, prof);
     for (auto &w : out.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     for (auto &w : img.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     if (!out.ok || !img.ok) {

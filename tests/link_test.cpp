@@ -6,6 +6,9 @@
 // lignes — et un test qui echoue nomme le linker, pas l'assembleur.
 #include "link.h"
 
+#include "profile.h"
+#include "script.h"
+
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -613,6 +616,219 @@ int main() {
         a.sections[0].hasMax = true; a.sections[0].max = 3;
         link::Image img = link::build({a});
         ok("un debordement d'une seule unite n'est pas double", img.ok);
+    }
+
+    // --- C1.4 : l'ORG deduit de la fenetre ----------------------------------
+    // Le profil et le script sont ANALYSES depuis du texte, et non fabriques a la
+    // main : c'est le chemin reel, et un test qui echoue nomme le bon maillon.
+    auto prof = [](const char *extra = "") {
+        std::string t =
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "WINDOW w2 [0x8000..0xBFFF]\n"
+            "BANK base1 SIZE 0x4000 rw STORE 1\n"
+            "BANK base2 SIZE 0x4000 rw STORE 2\n"
+            "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+            "CONFIG SET ram {\n"
+            "  linear    [CODE 0]        { w1 base1  w2 base2 }\n"
+            "  ext_w1<b> [CODE %100 | b] { w1 ext<b>          }\n"
+            "}\n"
+            "SELECT ram = OUT 0x7F00, CODE\n";
+        t += extra;
+        profile::Profile p = profile::parse(t, "m.prof");
+        if (!p.ok && !p.errors.empty())
+            printf("    PROFIL FAUTIF : %s\n", p.errors[0].message.c_str());
+        return p;
+    };
+    auto scr = [](const std::string &text) { return script::parse(text, "game.ld"); };
+
+    {
+        // La fenetre donne l'adresse logique, la configuration donne la banque,
+        // et le profil dit sous quel numero cette banque se range. Aucun `org`
+        // dans la source : c'est le renversement du §12.2.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1, 2, 3}}})},
+                                      scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main } } }"),
+                                      prof());
+        ok("le placement calcule est vert", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("la fenetre donne l'adresse", img.blocks.size() == 1 && img.blocks[0].addr == 0x4000);
+        ok("et la configuration donne la banque", img.blocks.size() == 1 && img.blocks[0].bank == 1);
+        ok("la banque ecrite est celle-la", img.banksWritten == std::vector<int>{1});
+    }
+    {
+        // Une banque ETENDUE vue dans la meme fenetre : meme adresse logique,
+        // rangement different. C'est ce qu'aucune derivation par l'adresse ne
+        // saurait faire, et toute la raison de l'etage.
+        link::Image img = link::build({secObj("a.fo", {{"audio", {9}}})},
+                                      scr("MEMORY_MAP { CONFIG ext_w1<1> { w1 { SECTION audio } } }"),
+                                      prof());
+        ok("une banque etendue se place", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("l'adresse logique reste celle de la fenetre",
+           img.blocks.size() == 1 && img.blocks[0].addr == 0x4000);
+        ok("le rangement vient du profil, non de l'adresse",
+           img.blocks.size() == 1 && img.blocks[0].bank == 5);
+    }
+    {
+        // LE CONTROLE QUI COMPTE : deplacer la section dans le SCRIPT SEUL change
+        // sa banque de rangement, et pas une adresse logique.
+        asmb::Object o = secObj("a.fo", {{"audio", {9}}});
+        asmb::Symbol sy;
+        sy.name = "audio_init"; sy.frag = 0; sy.offset = 0; sy.section = "audio";
+        o.symbolTable.push_back(sy);
+        link::Image a = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<1> { w1 { SECTION audio } } }"), prof());
+        link::Image b = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<2> { w1 { SECTION audio } } }"), prof());
+        ok("les deux placements sont verts", a.ok && b.ok);
+        ok("la banque change", a.blocks.size() == 1 && b.blocks.size() == 1 &&
+                              a.blocks[0].bank == 5 && b.blocks[0].bank == 6);
+        ok("et pas une adresse logique",
+           a.symbolTable.size() == 1 && b.symbolTable.size() == 1 &&
+           a.symbolTable[0].value == 0x4000 && b.symbolTable[0].value == 0x4000);
+        ok("la table des symboles porte le rangement decide",
+           a.symbolTable[0].bank == 5 && b.symbolTable[0].bank == 6);
+    }
+    {
+        // Deux sections dans la meme fenetre se suivent, dans l'ordre du script.
+        link::Image img = link::build({secObj("a.fo", {{"one", {1, 2}}, {"two", {3}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION two  SECTION one } } }"), prof());
+        ok("deux sections dans une fenetre se suivent", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        // L'ordre du SCRIPT, non celui de la declaration : `two` d'abord.
+        okBytes("dans l'ordre du script, non celui de la source", img.bin, {3, 1, 2});
+    }
+    {
+        // Une section que le script ne nomme pas suit le placement DERIVABLE du
+        // §9. Le cas simple ne paie rien, meme quand un script existe.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}, {"libre", {7}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main } } }"), prof());
+        ok("une section hors du script est quand meme placee", img.ok);
+        bool seen = false;
+        for (const link::Block &b : img.blocks)
+            if (b.bytes == std::vector<uint8_t>{7} && b.addr == 0) seen = true;
+        ok("et elle suit le placement derivable", seen);
+    }
+    {
+        // Sans script ni profil : EXACTEMENT le placement de l'etage B. C'est
+        // l'engagement du §12.1, tenu par une valeur et non par une intention.
+        link::Image with = link::build({secObj("a.fo", {{"main", {1, 2, 3}}})},
+                                       script::Script(), profile::Profile());
+        link::Image without = link::build({secObj("a.fo", {{"main", {1, 2, 3}}})});
+        ok("un script vide et un profil vide sont des valeurs licites", with.ok && without.ok);
+        ok("et elles donnent le placement de l'etage B",
+           with.bin == without.bin && with.blocks.size() == without.blocks.size() &&
+           !with.blocks.empty() && with.blocks[0].addr == 0 && with.blocks[0].bank == 0);
+    }
+
+    // --- Ce que seul cet endroit peut refuser --------------------------------
+    {
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main } } }"), profile::Profile());
+        ok("un script qui place sans profil est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus dit d'ou viennent l'adresse et la banque",
+           m.find("--target or -P") != std::string::npos);
+    }
+    {
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG pas_un_etat { w1 { SECTION main } } }"), prof());
+        ok("une configuration que le profil ne declare pas est refusee", !img.ok);
+        ok("et le refus la nomme",
+           !img.errors.empty() &&
+           img.errors[0].message.find("'pas_un_etat'") != std::string::npos);
+    }
+    {
+        // `linear` ne dit rien de `w1`... si, justement. Prenons une fenetre dont
+        // l'etat ne parle pas : `ext_w1<b>` ne concerne que `w1`.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG ext_w1<1> { w2 { SECTION main } } }"), prof());
+        ok("placer dans une fenetre dont l'etat ne parle pas est refuse", !img.ok);
+        ok("et le refus le dit ainsi",
+           !img.errors.empty() &&
+           img.errors[0].message.find("says nothing about window 'w2'") != std::string::npos);
+    }
+    {
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear { pas_une_fenetre { SECTION main } } }"), prof());
+        ok("une fenetre que le profil ne declare pas est refusee", !img.ok);
+        ok("et le refus la nomme",
+           !img.errors.empty() &&
+           img.errors[0].message.find("not a WINDOW") != std::string::npos);
+    }
+    {
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION jamais_declaree } } }"), prof());
+        ok("placer une section qu'aucun objet ne porte est refuse", !img.ok);
+        ok("et le refus la nomme",
+           !img.errors.empty() &&
+           img.errors[0].message.find("which no object declares") != std::string::npos);
+    }
+    {
+        // Une section placee par son `org` ET par le script : il n'y a pas de
+        // lecture par defaut a preferer, donc refus.
+        asmb::Object o = secObj("a.fo", {{"code", {1}}});
+        o.sections[0].relocatable = false;
+        o.fragments[0].placed = true;
+        o.fragments[0].relocSection = -1;
+        o.fragments[0].addr = o.fragments[0].logical = 0x8000;
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION code } } }"), prof());
+        ok("une section a la fois org-ee et placee est refusee", !img.ok);
+        ok("et le refus dit qu'il faut choisir",
+           !img.errors.empty() &&
+           img.errors[0].message.find("never both") != std::string::npos);
+    }
+    {
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION main }  w2 { SECTION main } } }"), prof());
+        ok("une section placee deux fois est refusee", !img.ok);
+        ok("et le refus nomme le premier placement",
+           !img.errors.empty() &&
+           img.errors[0].message.find("placed twice") != std::string::npos);
+    }
+    {
+        // Le depassement est CHIFFRE : pas « ca ne rentre pas », mais de combien
+        // et dans quelle banque.
+        asmb::Object o = secObj("a.fo", {{"gros", {1}}});
+        o.fragments[0].bytes.assign(0x4001, 0xAA);
+        o.fragments[0].prov.assign(0x4001, 1);
+        o.sections[0].size = 0x4001;
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION gros } } }"), prof());
+        ok("une section qui deborde sa banque est refusee", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le depassement est chiffre",
+           m.find("overflows bank 'base1'") != std::string::npos &&
+           m.find("by 0x1 bytes") != std::string::npos);
+    }
+    {
+        // Un nom d'etat que deux axes portent : le refus nomme la forme qualifiee
+        // plutot que d'en choisir un.
+        link::Image img = link::build({secObj("a.fo", {{"main", {1}}})},
+            scr("MEMORY_MAP { CONFIG on { w1 { SECTION main } } }"),
+            prof("CONFIG SET rom_a OVER ram { on { w1 base1 } }\n"
+                 "SELECT rom_a = OUT 0, MASK 1, CODE\n"
+                 "CONFIG SET rom_b OVER ram { on { w2 base2 } }\n"
+                 "SELECT rom_b = OUT 0, MASK 2, CODE\n"));
+        ok("un nom d'etat ambigu est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus demande de nommer l'axe",
+           m.find("name the axis") != std::string::npos);
+    }
+    {
+        // Une section "uninit" occupe la place sans emettre un octet : c'est ce
+        // que l'etape A2 a livre, et le placement calcule ne le defait pas.
+        asmb::Object o = secObj("a.fo", {{"vide", {0, 0, 0}}, {"apres", {7}}});
+        o.sections[0].kind = "UNINIT";
+        o.fragments[0].prov.assign(3, 0);   // reserve, jamais ecrit
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION vide  SECTION apres } } }"), prof());
+        ok("une section uninit se place", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        bool found = false;
+        for (const link::Block &b : img.blocks)
+            if (b.addr == 0x4003 && b.bytes == std::vector<uint8_t>{7}) found = true;
+        ok("elle occupe la place sans emettre un octet", found);
     }
 
     // --- Rien a lier --------------------------------------------------------

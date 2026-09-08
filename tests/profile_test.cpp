@@ -57,7 +57,8 @@ static const profile::State *state(const profile::Axis &a, const char *n) {
 // lui chaque cas devrait reecrire une fenetre, une banque et un SELECT.
 static std::string with(const std::string &more) {
     return "WINDOW w0 [0x0000..0x3FFF]\n"
-           "BANK b0 SIZE 0x4000 rw\n" + more;
+           "BANK b0 SIZE 0x4000 rw STORE 99\n" + more;   // 99 : hors de portee
+                                                        // des STORE que les cas ajoutent
 }
 
 int main() {
@@ -107,14 +108,14 @@ int main() {
 
     // --- Les banques : la taille est DECLAREE, jamais implicite -------------
     {
-        profile::Profile p = parse("WINDOW w0 [0..0x3FFF]\nBANK seg0 rw\n");
+        profile::Profile p = parse("WINDOW w0 [0..0x3FFF]\nBANK seg0 rw STORE 0\n");
         ok("une banque sans SIZE est refusee", !p.ok);
         ok("et le refus dit pourquoi la taille ne peut pas etre implicite",
            says(p, "declared, never implicit") && says(p, "indescribable"));
     }
     {
         // Une plage de banques declare N banques, et non une banque de N x 16 K.
-        profile::Profile p = parse(with("BANK base0..base3 SIZE 0x4000 rw VIDEO\n"));
+        profile::Profile p = parse(with("BANK base0..base3 SIZE 0x4000 rw VIDEO STORE 0..3\n"));
         ok("une plage declare chaque banque", p.ok && bank(p, "base0") && bank(p, "base3"));
         ok("et pas celles d'a cote", !bank(p, "base4"));
         ok("les attributs vont a toutes",
@@ -125,7 +126,7 @@ int main() {
         // Une ligne SANS taille AMENDE : c'est ainsi que la contention se pose
         // sur quatre banques d'un lot de huit sans repeter leur taille. Et c'est
         // exactement ce qu'un ZX exige.
-        profile::Profile p = parse(with("BANK ram0..ram7 SIZE 0x4000 rw\n"
+        profile::Profile p = parse(with("BANK ram0..ram7 SIZE 0x4000 rw STORE 0..7\n"
                                         "BANK ram1, ram3, ram5, ram7 CONTENDED\n"
                                         "BANK ram5, ram7 VIDEO\n"
                                         "CONFIG SET pager { high<n> [CODE n] { w0 ram<n> } }\n"
@@ -140,8 +141,45 @@ int main() {
            bank(p, "ram7")->contended && bank(p, "ram7")->video);
     }
     {
-        profile::Profile p = parse(with("BANK b0 SIZE 0x4000 ro rw\n"));
+        profile::Profile p = parse(with("BANK b1 SIZE 0x4000 ro rw STORE 1\n"));
         ok("ro et rw ensemble sont refuses", !p.ok);
+    }
+
+    // --- STORE : l'emplacement de rangement est DECLARE ---------------------
+    {
+        profile::Profile p = parse("WINDOW w0 [0..0x3FFF]\nBANK b0 SIZE 0x4000 rw\n");
+        ok("une banque sans STORE est refusee", !p.ok);
+        ok("et le refus dit pourquoi", says(p, "storage slot is unnamed"));
+    }
+    {
+        // Une plage de banques recoit une plage de numeros, un pour un. Un seul
+        // numero pour quatre banques aurait ete une attribution consecutive
+        // IMPLICITE, et l'implicite est ce que STORE existe pour retirer.
+        profile::Profile p = parse(with("BANK e0..e3 SIZE 0x4000 rw STORE 4..7\n"));
+        ok("une plage de banques recoit une plage de numeros", p.ok);
+        if (!p.ok) firstError(p);
+        ok("un pour un, dans l'ordre",
+           bank(p, "e0") && bank(p, "e0")->store == 4 &&
+           bank(p, "e3") && bank(p, "e3")->store == 7);
+    }
+    {
+        profile::Profile p = parse(with("BANK e0..e3 SIZE 0x4000 rw STORE 4\n"));
+        ok("un seul numero pour quatre banques est refuse", !p.ok);
+        ok("et le refus donne la forme", says(p, "STORE a..b"));
+    }
+    {
+        profile::Profile p = parse(with("BANK e0 SIZE 0x4000 rw STORE 5\n"
+                                        "BANK e1 SIZE 0x4000 rw STORE 5\n"));
+        ok("deux banques dans le meme emplacement sont refusees", !p.ok);
+        ok("et le refus nomme les deux", says(p, "'e1' and 'e0' both declare STORE 5"));
+    }
+    {
+        // Un amendement peut porter le STORE seul, comme il porte CONTENDED.
+        profile::Profile p = parse(with("BANK e0..e1 SIZE 0x4000 rw STORE 4..5\n"
+                                        "BANK e1 CONTENDED\n"));
+        ok("un amendement ne perd pas le STORE",
+           p.ok && bank(p, "e1") && bank(p, "e1")->store == 5 && bank(p, "e1")->contended);
+        if (!p.ok) firstError(p);
     }
 
     // --- Deux grilles superposees, et des banques de 8 K --------------------
@@ -154,7 +192,7 @@ int main() {
             "WINDOW page2 [0x8000..0xBFFF]\n"
             "WINDOW m0 [0x4000..0x5FFF]\n"
             "WINDOW m1 [0x6000..0x7FFF]\n"
-            "BANK seg0..seg3 SIZE 0x2000 ro\n"
+            "BANK seg0..seg3 SIZE 0x2000 ro STORE 0..3\n"
             "CONFIG SET mapper1 { seg<n> [CODE n] { m1 seg<n> } }\n"
             "SELECT mapper1 = POKE 0x6000, CODE\n");
         ok("un MSX en miniature se lit", p.ok);
@@ -173,7 +211,7 @@ int main() {
     {
         profile::Profile p = parse(
             "WINDOW w0 [0..0x3FFF]\nWINDOW w1 [0x4000..0x7FFF]\n"
-            "BANK base0..base1 SIZE 0x4000 rw\nBANK ext0..ext3 SIZE 0x4000 rw\n"
+            "BANK base0..base1 SIZE 0x4000 rw STORE 0..1\nBANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
             "CONFIG SET ram {\n"
             "  linear    [CODE %000]     { w0 base0  w1 base1  }\n"
             "  ext_w1<b> [CODE %100 | b] { w0 base0  w1 ext<b> }\n"
