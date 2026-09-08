@@ -17,6 +17,14 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FANTAMS_MANIFES
 
 # ENCODING UTF-8 : sans lui, file(STRINGS) coupe les lignes sur les octets non
 # ASCII, et un fragment de commentaire accentue arrive ici sans son diese.
+# Le jeu FERME des bibliotheques que ce fichier declare. Sans lui, un groupe
+# mal orthographie — « asmlibb asm.cpp » — se lit sans broncher, remplit une
+# variable que personne ne consomme, et retire le module de toutes les
+# bibliotheques : la configuration reussit et l'edition de liens meurt sur
+# symboles indefinis. C'est la faute meme que le manifeste supprime, remontee
+# d'un cran. On la refuse a la configuration, en nommant le coupable.
+set(FANTAMS_KNOWN_GROUPS z80 keywords pp parser beautify sna asmlib)
+
 file(STRINGS ${FANTAMS_MANIFEST} _manifest_lines ENCODING UTF-8)
 foreach(_line IN LISTS _manifest_lines)
   string(STRIP "${_line}" _line)
@@ -26,8 +34,20 @@ foreach(_line IN LISTS _manifest_lines)
   if(NOT _line MATCHES "^([A-Za-z0-9_]+)[ \t]+([^ \t]+)$")
     message(FATAL_ERROR "sources.manifest : ligne illisible : ${_line}")
   endif()
+  if(NOT CMAKE_MATCH_1 IN_LIST FANTAMS_KNOWN_GROUPS)
+    message(FATAL_ERROR
+      "sources.manifest : groupe inconnu « ${CMAKE_MATCH_1} » pour ${CMAKE_MATCH_2}\n"
+      "  groupes declares ici : ${FANTAMS_KNOWN_GROUPS}")
+  endif()
   list(APPEND FANTAMS_GROUPS ${CMAKE_MATCH_1})
   list(APPEND FANTAMS_SRC_${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
+endforeach()
+
+# Et l'inverse : une bibliotheque declarée ici que le manifeste ne remplit plus.
+foreach(_g IN LISTS FANTAMS_KNOWN_GROUPS)
+  if(NOT FANTAMS_SRC_${_g})
+    message(FATAL_ERROR "sources.manifest : le groupe « ${_g} » n'a aucun module")
+  endif()
 endforeach()
 if(NOT FANTAMS_GROUPS)
   message(FATAL_ERROR "sources.manifest : aucun module lu")

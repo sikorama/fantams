@@ -359,7 +359,7 @@ the WASM source list, and went unnoticed for three stages.
 
 ## Tests that need something we do not build
 
-Three tests depend on things that live outside fantams' own build. Each one
+Two tests depend on things that live outside fantams' own build. Each one
 **skips** — `ctest` reports `Skipped`, loudly, and a skip is not a pass — rather
 than failing when its dependency is missing.
 

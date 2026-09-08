@@ -57,8 +57,21 @@ fi
 WORK=$(mktemp -d)
 LOG="$WORK/emu.log"
 PID=""
+# On ATTEND que l'emulateur soit mort avant d'effacer son repertoire. Un simple
+# SIGTERM suivi d'un « rm -rf » immediat lui retire sa configuration sous les
+# pieds et, s'il tarde, lui laisse le port. Le passage suivant tombe alors sur
+# la garde « port deja servi » et se SAUTE : un echec reel se degraderait en
+# saut silencieux, a chaque fois, jusqu'a ce qu'on redemarre la machine.
 cleanup() {
-    [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null && kill "$PID" 2>/dev/null
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+        kill "$PID" 2>/dev/null
+        for _ in $(seq 1 25); do
+            kill -0 "$PID" 2>/dev/null || break
+            sleep 0.2
+        done
+        kill -0 "$PID" 2>/dev/null && kill -9 "$PID" 2>/dev/null
+        wait "$PID" 2>/dev/null
+    fi
     rm -rf "$WORK"
 }
 trap cleanup EXIT

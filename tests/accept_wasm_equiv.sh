@@ -62,9 +62,15 @@ case_bytes demo "demo -> .bin" examples/demo.asm .bin
 case_bytes demo "demo -> .sna" examples/demo.asm .sna
 
 # La sortie deroulee (-E) : du TEXTE, ou une divergence de preprocesseur se voit.
-"$FANTAMS" examples/demo.asm -E -o "$TMP/pp.nat" >/dev/null 2>&1
-wasm --in "$ROOT/examples/demo.asm:/in.asm" --out "/out.asm:$TMP/pp.wasm" -- /in.asm -E -o /out.asm >/dev/null 2>&1
-if cmp -s "$TMP/pp.nat" "$TMP/pp.wasm"; then
+# Gardees comme tous les autres cas : sous « set -e », un echec non garde
+# sortirait du script ici meme, sans diagnostic et sans jouer les deux cas
+# suivants — le cas banque et --version, c'est-a-dire ceux pour lesquels ce
+# fichier a ete ecrit.
+"$FANTAMS" examples/demo.asm -E -o "$TMP/pp.nat" >/dev/null 2>&1 || {
+    echo "ECHEC : l'adaptateur natif refuse -E"; fail=1; }
+wasm --in "$ROOT/examples/demo.asm:/in.asm" --out "/out.asm:$TMP/pp.wasm" -- /in.asm -E -o /out.asm >/dev/null 2>&1 || {
+    echo "ECHEC : l'adaptateur WASM refuse -E"; fail=1; }
+if cmp -s "$TMP/pp.nat" "$TMP/pp.wasm" 2>/dev/null; then
     echo "acceptation : natif ≡ WASM sur la source deroulee, $(wc -l < "$TMP/pp.nat" | tr -d ' ') lignes"
 else
     echo "ECHEC : natif et WASM divergent sur la source deroulee"; fail=1
@@ -92,16 +98,26 @@ fi
 vnat=$("$FANTAMS" --version 2>&1 || true)
 vwasm=$(wasm -- --version 2>&1 || true)
 form='^fantams [0-9]{4}-[0-9]{2}-[0-9]{2} [(]compile [0-9]{4}-[0-9]{2}-[0-9]{2}[)]$'
-if ! echo "$vnat" | grep -Eq "$form"; then echo "ECHEC : forme de --version natif : $vnat"; fail=1; fi
-if ! echo "$vwasm" | grep -Eq "$form"; then echo "ECHEC : forme de --version WASM : $vwasm"; fail=1; fi
-rnat=$(echo "$vnat"  | cut -d' ' -f2)
-rwasm=$(echo "$vwasm" | cut -d' ' -f2)
+# Un artefact qui ne connait pas l'option repond n'importe quoi, et un module
+# qui ne se charge pas repond une trace de plusieurs milliers de lignes. On
+# rapporte la PREMIERE ligne : elle suffit a nommer la panne, et le rapport de
+# la suite reste lisible.
+first() { echo "$1" | head -1; }
+if ! echo "$vnat" | grep -Eq "$form"; then echo "ECHEC : forme de --version natif : $(first "$vnat")"; fail=1; fi
+if ! echo "$vwasm" | grep -Eq "$form"; then echo "ECHEC : forme de --version WASM : $(first "$vwasm")"; fail=1; fi
+# On extrait D'ABORD la ligne de version, ensuite seulement on en prend le
+# second champ. Sans cela, la moindre ligne parasite sur la sortie d'erreur —
+# un avertissement experimental de node, une note du moteur WASM — rend « cut »
+# multiligne et fait accuser l'artefact d'etre perime alors que rien ne l'est.
+release_of() { echo "$1" | grep -E "$form" | head -1 | cut -d' ' -f2; }
+rnat=$(release_of "$vnat")
+rwasm=$(release_of "$vwasm")
 if [ "$rnat" = "$rwasm" ]; then
     echo "acceptation : --version, meme forme et meme date de version des deux cotes ($rnat)"
 else
-    echo "ECHEC : date de version natif=$rnat wasm=$rwasm — l'artefact WASM est perime"
-    echo "        natif : $vnat"
-    echo "        wasm  : $vwasm"
+    echo "ECHEC : date de version natif=${rnat:-<aucune>} wasm=${rwasm:-<aucune>} — l'artefact WASM est perime"
+    echo "        natif : $(first "$vnat")"
+    echo "        wasm  : $(first "$vwasm")"
     fail=1
 fi
 

@@ -18,18 +18,34 @@ const argv = process.argv.slice(2);
 const modPath = argv.shift();
 if (!modPath) { console.error('usage: wasm_cli.mjs <fantams.mjs> [--in h:v] [--out v:h] -- argv...'); process.exit(2); }
 
+const die = (m) => { console.error(`wasm_cli.mjs: ${m}`); process.exit(2); };
+
 const ins = [], outs = [];
 let rest = [];
 while (argv.length) {
   const a = argv.shift();
-  if (a === '--in') ins.push(argv.shift());
-  else if (a === '--out') outs.push(argv.shift());
-  else if (a === '--') { rest = argv.splice(0); }
-  else { console.error(`wasm_cli.mjs: argument inattendu: ${a}`); process.exit(2); }
+  if (a === '--in' || a === '--out') {
+    const spec = argv.shift();
+    if (spec === undefined) die(`${a} attend « chemin:nom »`);
+    (a === '--in' ? ins : outs).push(spec);
+  } else if (a === '--') { rest = argv.splice(0); }
+  else die(`argument inattendu: ${a}`);
 }
 
 // Le separateur est le DERNIER deux-points : un chemin hote peut en porter.
-const split = (s) => { const i = s.lastIndexOf(':'); return [s.slice(0, i), s.slice(i + 1)]; };
+// Sans deux-points du tout, « lastIndexOf » rendrait -1 et decouperait la
+// chaine en silence, pour finir sur un ENOENT qui n'expliquerait rien.
+const split = (s) => {
+  const i = s.lastIndexOf(':');
+  if (i <= 0 || i === s.length - 1) die(`« ${s} » n'est pas de la forme « chemin:nom »`);
+  return [s.slice(0, i), s.slice(i + 1)];
+};
+
+// Les specifications sont validees AVANT d'instancier le module : une erreur
+// d'invocation doit se lire comme une erreur d'invocation, pas se cacher
+// derriere une trace d'import ou un ENOENT tardif.
+const inPairs = ins.map(split);
+const outPairs = outs.map(split);
 
 const createFantams = (await import(pathToFileURL(modPath).href)).default;
 
@@ -40,8 +56,7 @@ const mod = await createFantams({
   noExitRuntime: true,
 });
 
-for (const spec of ins) {
-  const [host, vfs] = split(spec);
+for (const [host, vfs] of inPairs) {
   mod.FS.writeFile(vfs, new Uint8Array(readFileSync(host)));
 }
 
@@ -58,8 +73,7 @@ process.stdout.write(out);
 process.stderr.write(err);
 
 if (code === 0) {
-  for (const spec of outs) {
-    const [vfs, host] = split(spec);
+  for (const [vfs, host] of outPairs) {
     writeFileSync(host, Buffer.from(mod.FS.readFile(vfs)));
   }
 }

@@ -89,9 +89,13 @@ is_stale() {
   [ -f "$w" ] || { echo "$w absent"; return 0; }
   [ -f "$OUT_DIR/fantams.mjs" ] || { echo "$OUT_DIR/fantams.mjs absent"; return 0; }
   local f
+  # On a deja fait « cd "$HERE" » : les chemins du manifeste s'y resolvent tels
+  # quels. Passer par « basename » les aplatirait, et un module range dans un
+  # sous-repertoire cesserait alors de declencher la reconstruction — un .wasm
+  # perime sans le moindre signal, le symptome meme contre lequel ce test existe.
   for f in "${CORE[@]}" "$HERE"/*.h "$MANIFEST"; do
     [ -e "$f" ] || continue
-    [ "$HERE/$(basename "$f")" -nt "$w" ] && { echo "$(basename "$f") plus récent que le .wasm"; return 0; }
+    [ "$f" -nt "$w" ] && { echo "$(basename "$f") plus récent que le .wasm"; return 0; }
   done
   if [ -n "$PUB_DIR" ] && [ -d "$PUB_DIR" ]; then
     cmp -s "$w" "$PUB_DIR/fantams.wasm" || { echo "$PUB_DIR désynchronisé"; return 0; }

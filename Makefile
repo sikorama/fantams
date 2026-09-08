@@ -8,6 +8,12 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 # les trois points d'entree de construction LISENT (cf. l'en-tete du manifeste).
 # On n'y prend que la seconde colonne : le groupe ne sert qu'a CMake.
 MANIFEST = sources.manifest
+# Tous les en-tetes de la racine, pas trois d'entre eux. La liste nominative
+# etait fausse des que le coeur en gagnait un — version.h en a fait la
+# demonstration : « touch version.h && make » repondait « up to date », et le
+# binaire continuait d'annoncer l'ancienne date de version. C'est exactement la
+# classe de peremption que ce chantier ferme.
+HDRS := $(wildcard *.h)
 # (le « \# » est pour make, qui couperait la ligne sur un dièse nu ; awk le
 # recoit par -v, donc sans echappement.)
 HASH := \#
@@ -76,10 +82,10 @@ $(T)/beautify_test: beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cp
 $(T)/sna_test: sna.cpp $(T)/sna_test.cpp sna.h
 	$(TCXX) sna.cpp $(T)/sna_test.cpp -o $@
 
-ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp pp.h expr.h z80.h keywords.h
+ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp -o $@
 
-fantams: $(MANIFEST) $(CORE) asm_main.cpp asm.h pp.h sym.h
+fantams: $(MANIFEST) $(CORE) asm_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) $(CORE) asm_main.cpp -o $@
 
 test: $(TESTS) fantams
