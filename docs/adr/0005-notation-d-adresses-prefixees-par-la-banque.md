@@ -161,3 +161,29 @@ nomme plus qu'une section, et la fenêtre vient de la configuration qui l'accuei
 Le vocabulaire de cette étude ne reprend donc rien de la notation `Bn:` et n'a
 pas à rester compatible avec elle. C'est à l'arrivée de l'étage C1 que le statut
 de cet ADR sera à revoir, pas avant.
+
+## Statut à la fin de l'étage C1
+
+**Le remplacement a eu lieu, et cet ADR reste accepté.** Les deux ne se
+contredisent pas, et il faut dire pourquoi.
+
+`org b<n>:adresse` **reste licite**, et rien de ce que décrit cet ADR n'a changé
+d'un octet : le préfixe, le masquage, la rémanence et son avertissement sont ceux
+qu'il a fixés. C'est l'engagement du §12.1, et `examples/` le vérifie à chaque
+étape.
+
+Ce qui a changé est qu'il existe maintenant **une seconde façon de placer**, et
+qu'elle ne passe pas par la source. `examples/banked.asm` ne contient ni `org`,
+ni banque, ni valeur de commutation : la fenêtre donne l'adresse, la
+configuration donne la banque, et déplacer une section ne touche pas une ligne du
+source. La question que cet ADR tranchait — *comment la source nomme un
+emplacement de rangement* — ne se pose plus **à cet endroit-là**.
+
+Les deux coexistent, et une section ne peut pas relever des deux à la fois : le
+linker **refuse** une section qu'un `org` place et qu'un script place aussi, en
+nommant les deux façons. Il n'y avait pas de lecture par défaut à préférer.
+
+**Ce que cet ADR devient, donc** : la description du placement absolu, qui reste
+le cas courant et le seul disponible sans script. Ce n'est pas une dette ; c'est
+la moitié de la phrase que le §9 tient pour le coût de tout le découpage —
+*un `org` place, une `SECTION` délègue le placement.*

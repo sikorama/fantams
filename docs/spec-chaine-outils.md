@@ -724,9 +724,20 @@ Ne sont pas concernés : `keywords.cpp`, `parser.cpp`, `beautify.cpp`, et
 |-------|----------------|----------------|
 | **A.** `SECTION` interne, placement toujours absolu (`org` à l'intérieur) | plafond de taille, détection d'écriture en `"ro"`, section dans la table des symboles | non |
 | **B.** fichier objet et expressions relocalisables | compilation séparée, `PUBLIC` / `EXTERN`, tailles résolues au linkage (§8) | oui — le gros morceau |
-| **C1.** le linker qui **place et calcule** : fenêtres, banques, configurations, `ORG` déduit, symboles de commutation, chevauchements inter-sections, compression | le maillon 2 du §3.2 : un programme banqué devient constructible | — |
+| **C1.** le linker qui **place et calcule** : fenêtres, banques, configurations, `ORG` déduit, symboles de commutation, chevauchements inter-sections | le maillon 2 du §3.2 : un programme banqué devient constructible | — |
 | **C2.** le linker qui **vérifie** : continuité et ses trois pointeurs (§13.3), sections miroir, `CLOBBERS`, `INIT_FROM` | un programme banqué **faux** devient refusable | — |
 | **D.** *(non engagé)* lecture des objets `.rel` de SDCC | interopérabilité C, au prix chiffré au §9 | — |
+
+> **Correction, écrite à l'étape C1.10.** Cette ligne rangeait aussi la
+> **compression** dans C1. Elle en est sortie, et `spec-etage-c1.md` (D9) dit
+> pourquoi : la compression ne partage aucun calcul avec les fenêtres, les
+> banques et les configurations — il faut choisir un format, écrire ou embarquer
+> un compresseur, et le tester —, et la raison qui fait de C1 et C2 deux étages
+> vaut ici mot pour mot. Ce que C1 livre quand même est de la **conception** :
+> l'ordre forcé *placer → compresser → résoudre*, la règle « l'assembleur n'itère
+> jamais, le linker peut itérer mais refuse bruyamment la non-convergence », et
+> un `COMPRESS` refusé **en nommant l'enveloppe du §8**, qui est le repli
+> disponible depuis l'étage A.
 
 C1 et C2 sont deux étages et non un, pour la raison qui fait de l'étage A un
 investissement autonome : C1 produit un binaire, C2 refuse un binaire faux, et

@@ -146,6 +146,12 @@ Image link(const std::vector<asmb::Object> &objects,
 }
 ```
 
+> **Fait, à l'étage C1.** `Script` et `Profile` sont deux valeurs analysées
+> depuis du texte, par deux jeux de mots-clés sur un même lexeur. `Placement`
+> nomme sa fenêtre par un **nom** et non par un numéro — un `w<n>` câblé aurait
+> rendu indescriptible une machine à deux grilles superposées. Et le profil livré
+> **est** un fichier de profil, embarqué : [ADR 0028](adr/0028-le-profil-est-un-texte-embarque.md).
+
 `Profile` est **une donnée, pas une hiérarchie de classes.** Les composants
 matériels (RAM de base, tranches étendues, ROM basse, ROM haute, ROM Multiface de
 8 K), leurs fenêtres, leurs valeurs de commutation : un profil lu depuis un
@@ -274,7 +280,7 @@ couture, il change le type qui circule à travers celle d'`expr`.
 |-------|---------------------------|
 | **A** | `Space` indexé par banque → `Section` nommée et typée. L'interface d'`assemble` change de *forme* mais pas de *taille*, et rien ne sort du module. Autonome, comme dit le §10. |
 | **B** | le type qui traverse `expr` change ; `Object` porte une LISTE DE FRAGMENTS à la place d'un flux d'octets unique, et devient sérialisable. Le gros morceau, et le seul. **Fait.** |
-| **C1** | la couture `link` existe depuis B3 : c'est son INTÉRIEUR que C1 remplace — `placeRelocSections()`, aujourd'hui une concaténation, devient un calcul de fenêtres et de banques. Rien de son interface ne bouge. |
+| **C1** | la couture `link` existe depuis B3 : c'est son INTÉRIEUR que C1 remplace — `placeRelocSections()`, hier une concaténation, est devenu un calcul de fenêtres et de banques. `build` a gagné ses deux ENTRÉES, celles que le §2.2 prévoyait ; `Image`, `Block`, `Symbol` et `flatten` n'ont pas bougé d'un champ, et un script vide plus un profil vide rendent exactement le placement de l'étage B. **Fait.** |
 | **C2** | rien ne bouge dans l'interface : des diagnostics de plus dans `Image`. C'est ce qui rend l'étage livrable séparément *sans* promesse anticipée. |
 | **D** | le *format* objet devient une couture réelle : deux producteurs. |
 

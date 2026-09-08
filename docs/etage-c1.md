@@ -49,7 +49,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.7 | Les symboles de commutation, `bankof()` et `BankOf` | C1.2, C1.4 | **faite** |
 | C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | **faite** |
 | C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | **faite** |
-| C1.10 | L'ADR de clôture, et l'ADR 0005 relu | tout | à faire |
+| C1.10 | L'ADR de clôture, et l'ADR 0005 relu | tout | **faite** |
 | C1.V | Les sources de vérification sur machine réelle *(autonome)* | — | à faire |
 
 Trois étapes ne sont pas dans la chaîne : **C1.0 et C1.1 sont parallèles**, et
@@ -60,6 +60,33 @@ Fin de l'étage C1 : C1.0 à C1.10 faites, les dix suites vertes plus celle du
 placement calculé, `docs/syntax.md` à jour, et l'exemple d'acceptation de C1.9
 dont le quatrième contrôle passe — déplacer une section **dans le script seul**
 change sa banque et sa valeur de commutation, et pas une adresse logique.
+
+**L'étage est fini.** Onze suites vertes — les neuf d'origine, plus `script_test`
+et `profile_test` — et quatre scripts d'acceptation, tous inscrits dans les
+**deux** listes : `accept_separate`, `accept_profile`, `accept_banked`, et
+l'invariant `no_machine_names`. Quinze tests par chaîne.
+
+Ce qu'un auteur gagne, et qu'il n'avait pas : `examples/banked.asm` porte cinq
+sections dans quatre banques **sans un seul `org`**, et déplacer son player
+audio d'une banque à l'autre est une ligne de script. Les valeurs de commutation
+sont des symboles que le linker calcule, jamais des nombres écrits en dur. Et
+`--dump-profile cpc6128` rend le texte à partir duquel décrire une autre machine.
+
+Rien n'a changé pour une source d'aujourd'hui : sans script, sans `--target` et
+sans `-P`, les binaires, les `--sym`, les sorties et les diagnostics des cinq
+exemples sont identiques **à l'octet** à ceux d'avant l'étage. C'est le §12.1, et
+il a été vérifié à chaque étape.
+
+**Deux défauts de l'étage B que ce placement a fait sortir**, et qui ne se
+voyaient pas parce que les sections relocalisables s'y posaient à la base zéro :
+le `run` d'un label en section relocalisable prenait un offset pour une adresse,
+et une section `"uninit"` n'avait aucune étendue — son label valait zéro et la
+section suivante venait s'y poser. Les deux sont corrigés et épinglés.
+
+**Ce que l'étage n'a pas livré, et qui est nommé** : la compression (D9), toute
+la vérification de C2, le builder au-delà du snapshot 128 K (D11), et les sources
+de vérification sur machine — l'étape C1.V, autonome, jamais sur le chemin
+critique et toujours à faire.
 
 ---
 
@@ -516,11 +543,11 @@ surveille rien sur l'autre.**
 
 ## C1.10 — l'ADR de clôture, et l'ADR 0005 relu
 
-- [ ] ADR : le profil est un **texte embarqué**, un porteur, un analyseur, un export qui est une copie — avec les trois raisons de D1
-- [ ] L'ADR 0005 : son statut est **écrit**. `org b<n>:` reste licite ; la question qu'il tranchait ne se pose plus au niveau du linker
-- [ ] Le tableau du §10 de `spec-chaine-outils.md` : la compression sort de C1 (D9)
-- [ ] `docs/syntax.md` à jour : le script, le profil, `bank()`, les noms `__`
-- [ ] Les décisions prises en cours de route sont dans **l'étape qui les a provoquées**, pas ici
+- [x] ADR : le profil est un **texte embarqué**, un porteur, un analyseur, un export qui est une copie — [ADR 0028](adr/0028-le-profil-est-un-texte-embarque.md)
+- [x] L'ADR 0005 : son statut est **écrit**, dans son propre fichier. `org b<n>:` reste licite et rien de ce qu'il décrit n'a changé d'un octet ; ce qui a changé est qu'il existe une **seconde** façon de placer, qui ne passe pas par la source — et une section ne peut pas relever des deux
+- [x] Le tableau du §10 de `spec-chaine-outils.md` : la compression sort de C1 (D9), corrigé sur place avec la raison
+- [x] `docs/syntax.md` à jour : `bankof()`, les noms `__`, les deux familles de symboles et pourquoi `__off_` n'est pas une constante
+- [x] Les décisions prises en cours de route sont dans **l'étape qui les a provoquées**, pas ici
 
 ## C1.V — les sources de vérification sur machine réelle *(autonome)*
 
