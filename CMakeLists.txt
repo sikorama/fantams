@@ -161,6 +161,17 @@ add_test(NAME accept_banked
 set_tests_properties(accept_banked PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 
+# Quatre banques etendues VUES A LA MEME ADRESSE LOGIQUE — la forme reelle des
+# qu'un programme depasse 64 K, la ou accept_banked n'en exerce qu'une. Le
+# controle en titre : la meme source placee a la main et placee par le linker
+# rend les memes octets. Deux chemins du meme outil, et leur accord fait la
+# preuve — aucun oracle exterieur n'est convoque.
+add_test(NAME accept_aliased
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_aliased.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_aliased PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # L'invariant mecanique du §13.2 : aucun nom de machine dans le code du linker.
 add_test(NAME no_machine_names
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_machine_names.sh)
