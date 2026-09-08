@@ -94,6 +94,11 @@ test: $(TESTS) fantams
 	@$(T)/accept_wasm_equiv.sh; rc=$$?; \
 	 if [ $$rc = 77 ]; then echo "   (saute — la suite n'a PAS verifie natif == WASM)"; \
 	 elif [ $$rc != 0 ]; then exit $$rc; fi
+	@# L'epreuve du snapshot. Meme discipline : absente l'une de ses
+	@# dependances, elle se saute — et le dit.
+	@$(T)/epreuve_snapshot.sh; rc=$$?; \
+	 if [ $$rc = 77 ]; then echo "   (saute — l'artefact n'a PAS ete eprouve sur machine)"; \
+	 elif [ $$rc != 0 ]; then exit $$rc; fi
 
 clean:
 	rm -f $(TESTS) ppdump fantams

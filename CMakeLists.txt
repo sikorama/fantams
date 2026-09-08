@@ -168,3 +168,18 @@ add_test(NAME accept_wasm_equiv
 set_tests_properties(accept_wasm_equiv PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>"
                      SKIP_RETURN_CODE 77)
+
+# L'EPREUVE : l'artefact part dans l'emulateur, et la machine l'execute. La
+# premiere verification du projet qui porte sur la RECEVABILITE d'un artefact et
+# non sur ses octets — les tests unitaires gardent toute autorite sur les
+# octets, depuis une image fabriquee a la main, sans machine.
+#
+# Elle se saute quand le frontal sans affichage de l'emulateur est absent :
+# construire fantams n'impose pas un second depot.
+add_test(NAME epreuve_snapshot
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/epreuve_snapshot.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(epreuve_snapshot PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>"
+                     SKIP_RETURN_CODE 77
+                     TIMEOUT 120)

@@ -309,6 +309,7 @@ The exported `.sna` carries 64 KB if the source stays within banks 0–3, and
 fantams file.asm [-o out] [-s] [-E] [--beautify] [--normalize] [--strict]
                  [--no-detach-labels] [--no-indent-blocks]
                  [--base base.sna] [--sym[=out.sym]]
+fantams --version
 ```
 
 | Option | Effect |
@@ -323,6 +324,7 @@ fantams file.asm [-o out] [-s] [-E] [--beautify] [--normalize] [--strict]
 | `--no-indent-blocks` | do not indent block bodies |
 | `--base f.sna` | lay the assembled bytes onto a captured machine state (`.sna` output only) |
 | `--sym[=file]` | write the symbol table as CSV; the default path derives from `-o` |
+| `--version` | the release date and this artifact's build date, on one line, to be read |
 
 `ppdump` is the preprocessor alone, equivalent to `-E`.
 
@@ -346,6 +348,35 @@ is newer than the `.wasm`, and `--force` overrides that.
 
 Two flags matter: `-fexceptions`, without which every `throw` becomes `abort()`,
 and `-sSTACK_SIZE=8388608`, because the parser recurses.
+
+The list of core sources lives in **`sources.manifest`** and nowhere else: the
+`Makefile`, `CMakeLists.txt` and `build-wasm.sh` all read it. Adding a module to
+the core is adding a line there, and nothing else. Two lists, only one of them
+complete, is the kind of drift that gets paid for in CI — it happened here, on
+the WASM source list, and went unnoticed for three stages.
+
+---
+
+## Tests that need something we do not build
+
+Three tests depend on things that live outside fantams' own build. Each one
+**skips** — `ctest` reports `Skipped`, loudly, and a skip is not a pass — rather
+than failing when its dependency is missing.
+
+| Test | Needs | How to give it |
+|---|---|---|
+| `accept_wasm_equiv` | the WASM artifact, and `node` | `./build-wasm.sh`, or `FANTAMS_WASM=/path/to/fantams.mjs` |
+| `epreuve_snapshot` | AMSpiriT's window-less frontend and its ROM set | `AMSPIRIT_HEADLESS=/path/to/amspirit-lite-headless AMSPIRIT_ROMS=/path/to/ROMs` |
+
+`accept_wasm_equiv` is the lock: the same `argv` and the same files, through the
+native adapter and through the WASM adapter, must produce the same bytes. A
+stale WASM artifact violates exactly that.
+
+`epreuve_snapshot` is an **épreuve**, not a byte test: a reference case is
+assembled, the snapshot is posted to the emulator, and the machine's execution
+of it is observed. It has no authority over bytes — those are tested from a
+hand-built image, without a machine — only over whether a real machine accepts
+the artifact.
 
 ---
 
