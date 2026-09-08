@@ -80,6 +80,7 @@ test: $(TESTS) fantams
 	@for t in $(TESTS); do ./$$t || exit 1; done
 	@$(T)/accept_separate.sh
 	@$(T)/accept_profile.sh
+	@$(T)/accept_banked.sh
 	@$(T)/no_machine_names.sh
 
 clean:

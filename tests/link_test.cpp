@@ -1229,6 +1229,29 @@ int main() {
            m.find("linear<n>") != std::string::npos);
     }
 
+    {
+        // La PLACE DEMANDEE compte, et pas seulement les octets poses. Une
+        // section "uninit" n'emet rien : sans ce controle son etendue serait
+        // nulle, le linker ne lui donnerait pas d'adresse, et son label vaudrait
+        // zero — ce qui est exactement ce que l'exemple d'acceptation a montre.
+        asmb::Object o = secObj("a.fo", {{"vars", {}}, {"apres", {7}}});
+        o.sections[0].kind = "UNINIT";
+        o.sections[0].size = 0x100;      // `ds 0x100` : reserve, jamais emis
+        asmb::Symbol sy;
+        sy.name = "vars"; sy.frag = 0; sy.offset = 0; sy.section = "vars";
+        o.symbolTable.push_back(sy);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w1 { SECTION vars  SECTION apres } } }"), prof());
+        ok("une section uninit sans un octet est quand meme placee", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("son label vaut l'adresse de sa fenetre, non zero",
+           img.symbolTable.size() == 1 && img.symbolTable[0].value == 0x4000);
+        bool after = false;
+        for (const link::Block &b : img.blocks)
+            if (b.addr == 0x4100 && b.bytes == std::vector<uint8_t>{7}) after = true;
+        ok("et la section suivante commence APRES la place reservee", after);
+    }
+
     // --- Le point d'entree passe par la base de sa section -------------------
     {
         // Un `run` qui nomme un label d'une section RELOCALISABLE. Le defaut

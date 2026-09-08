@@ -48,7 +48,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
 | C1.7 | Les symboles de commutation, `bankof()` et `BankOf` | C1.2, C1.4 | **faite** |
 | C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | **faite** |
-| C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | à faire |
+| C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | **faite** |
 | C1.10 | L'ADR de clôture, et l'ADR 0005 relu | tout | à faire |
 | C1.V | Les sources de vérification sur machine réelle *(autonome)* | — | à faire |
 
@@ -482,12 +482,37 @@ Quatre choses décidées en cours de route, à relire en C1.10 :
 **sans sa section compressée** (D9) : quatre sections, un profil, un script de
 dix lignes.
 
-- [ ] `examples/banked.asm` (ou son découpage) s'assemble, se linke et s'exporte en SNA 128 K
-- [ ] `main` en banque 1, `sysbank` en banque 2, `audio` en banque 5
-- [ ] `audio_init` vaut `&4000 + offset` **sans qu'un `org` l'ait dit**
-- [ ] `__val_ram_audio` = `&C5`, `__val_ram_linear` = `&C0`, comparés dans le test
-- [ ] **Le contrôle qui compte** : déplacer `audio` d'`ext1` vers `ext2` **dans le script seul** change la banque de rangement et la valeur de commutation, et **pas une adresse logique**
-- [ ] Le script est inscrit dans les **deux** listes de tests, `Makefile` et `CMakeLists.txt`
+- [x] `examples/banked.asm` s'assemble, se linke et s'exporte en SNA 128 K
+- [x] `main` en banque 1, `sysbank` en banque 2, `audio` en banque 5, `unpacked` en banque 3
+- [x] `audio_init` vaut `0x4000` **sans qu'un `org` l'ait dit** — et `start`, dans une autre banque, vaut la **même** adresse logique
+- [x] `__val_ram_audio` = `&C5`, `__val_ram_linear` = `&C0`, comparés dans les octets émis
+- [x] **Le contrôle qui compte** : déplacer `audio` d'`ext1` vers `ext2` **dans le script seul** change la banque de rangement et la valeur de commutation, et **pas une adresse logique**
+- [x] Le script est inscrit dans les **deux** listes de tests, `Makefile` et `CMakeLists.txt`
+
+Un contrôle de plus, que l'écriture de l'exemple a suggéré : **la source ne
+nomme aucun emplacement**, et le script le vérifie par un `grep`. C'est l'énoncé
+de l'exemple, et le laisser à la relecture aurait suffi à le perdre.
+
+Et **deux défauts que cet exemple a fait sortir** :
+
+- **`&` n'est pas un préfixe hexadécimal dans une source fantams** — c'est `#`,
+  `$` ou `0x`. Il l'est dans le script et le profil, qui sont un autre langage.
+  L'exemple a été écrit avec la graphie du §6 et refusé ; c'est le §6 qui parle
+  d'un autre langage, pas la source qui a tort.
+- **une section `"uninit"` n'avait aucune étendue.** `reserve()` avance le PC
+  sans créer de fragment : une telle section n'a donc pas un octet, son étendue
+  était nulle, le linker ne lui donnait pas d'adresse et son label valait
+  **zéro**. Le même défaut frappait un `ds` en fin de section relocalisable — les
+  octets réservés étaient hors du fragment, et la section suivante venait s'y
+  poser. Corrigé en prenant, pour étendue, le maximum entre les fragments et
+  `Section::size` — qui est exactement « la place demandée », et dont le
+  commentaire d'origine disait déjà qu'elle est « la seule information qu'une
+  section "uninit" donne au linker ».
+
+Et une leçon d'outillage : la première version du script employait une
+substitution de processus, qui n'existe pas dans le `/bin/sh` que la seconde
+liste de tests emploie. **Un test qui ne passe que sur une des deux listes ne
+surveille rien sur l'autre.**
 
 ## C1.10 — l'ADR de clôture, et l'ADR 0005 relu
 

@@ -639,6 +639,21 @@ struct Linker {
                 int &e = extent[oi][n->second];
                 e = std::max(e, f.addr + (int)f.bytes.size());
             }
+            // La PLACE DEMANDÉE compte aussi, et pas seulement les octets posés.
+            // Une section `"uninit"` n'émet rien : elle n'a aucun fragment, et
+            // son étendue serait nulle — le linker ne lui donnerait pas d'adresse
+            // et son label vaudrait zéro. Un `ds` en fin de section relocalisable
+            // pose le même problème : les octets réservés sont hors du fragment,
+            // et la section suivante viendrait s'y poser.
+            //
+            // `Section::size` est exactement cette place — « une place RÉSERVÉE
+            // compte comme une place écrite : c'est la seule information qu'une
+            // section "uninit" donne au linker ».
+            for (const asmb::Section &sec : objects[oi].sections) {
+                if (!sec.relocatable || sec.id < 0 || !byName.count(sec.name)) continue;
+                int &e = extent[oi][byName[sec.name]];
+                e = std::max(e, (int)sec.size);
+            }
         }
 
         // 3. Ce que le script place PAR CALCUL. L'étendue totale de chaque nom

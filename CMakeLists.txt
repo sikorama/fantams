@@ -107,6 +107,13 @@ add_test(NAME accept_profile
 set_tests_properties(accept_profile PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 
+# Le critere de fin de l'etage C1 : l'exemple du §12.2, sans compression.
+add_test(NAME accept_banked
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_banked.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_banked PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # L'invariant mecanique du §13.2 : aucun nom de machine dans le code du linker.
 add_test(NAME no_machine_names
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_machine_names.sh)
