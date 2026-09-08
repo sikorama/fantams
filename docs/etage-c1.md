@@ -40,7 +40,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | # | Étape | Bloqué par | État |
 |---|-------|-----------|------|
 | C1.0 | La section fusionnée par nom à travers les objets *(préfacteur)* | — | **faite** |
-| C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | à faire |
+| C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | **faite** |
 | C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | à faire |
 | C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | à faire |
 | C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | à faire |
@@ -119,13 +119,49 @@ C1.4 qui le refusera, parce que c'est là que le profil existe.
 **Pourquoi ici.** C'est la couture **réelle** de l'étage : le script est écrit par
 l'auteur. Et il se teste seul, sans profil, sans objet et sans un octet.
 
-- [ ] `TARGET`, `MEMORY_MAP`, `CONFIG <nom>[<param>]`, `w<n> { SECTION <nom> … }`
-- [ ] `w<n> [OFFSET x, SIZE y] { … }` est **analysé** ici, employé en C1.6
-- [ ] `OUTPUT_FORMAT { TARGET, ENTRY_POINT, STACK, INT_VECTOR }` — analysé et porté ; `STACK` et `INT_VECTOR` ne servent qu'à C2, et un champ analysé mais non lu est préférable à un champ que C2 devra rétro-insérer
-- [ ] Un mot-clé inconnu est **refusé**, jamais ignoré
-- [ ] `COMPRESS` et `MIRROR` sont reconnus et refusés en nommant l'étage (les messages définitifs sont en C1.8)
-- [ ] Se teste seul : texte → `Script`, une suite à part entière
-- [ ] Les dix suites vertes, et aucune sortie ne change — rien ne lit encore un script
+- [x] `TARGET`, `MEMORY_MAP`, `CONFIG <nom>[<param>]`, `w<n> { SECTION <nom> … }`
+- [x] `w<n> [OFFSET x, SIZE y] { … }` est **analysé** ici, employé en C1.6
+- [x] `OUTPUT_FORMAT { TARGET, ENTRY_POINT, STACK, INT_VECTOR }` — analysé et porté ; `STACK` et `INT_VECTOR` ne servent qu'à C2, et un champ analysé mais non lu est préférable à un champ que C2 devra rétro-insérer
+- [x] Un mot-clé inconnu est **refusé**, jamais ignoré
+- [x] `COMPRESS` et `MIRROR` sont reconnus et refusés en nommant l'étage (les messages définitifs sont en C1.8)
+- [x] Se teste seul : texte → `Script`, une suite à part entière
+- [x] Les dix suites vertes, et aucune sortie ne change — rien ne lit encore un script
+
+Le script du §12.2 est repris **mot pour mot** dans la suite, ce qui fait de
+l'affirmation du §6 — « il tient en dix lignes pour un programme banqué réel » —
+une chose qu'un test tient plutôt qu'une chose que la spec avance.
+
+Six choses décidées en cours de route, à relire en C1.10 :
+
+- **`Script` porte un `vector<Diagnostic>`, et non un `bool` plus une chaîne**
+  comme `fo::read`. La différence est que le `.fo` est écrit par une machine et
+  le script par une personne : la forme qui convient à l'un — une seule faute,
+  la première — est la mauvaise pour l'autre.
+- **L'analyseur ne résout rien**, et un test l'épingle : une configuration, une
+  fenêtre et une section qu'aucun profil ne porte passent sans un mot. C'est ce
+  qui permet à la suite de ne se lier qu'à `script.cpp`.
+- **`TARGET` désigne deux choses** : la machine au premier niveau, le conteneur
+  dans `OUTPUT_FORMAT`. C'est le §6 qui emploie le même mot pour les deux ;
+  l'analyseur les distingue par leur place, et le nom est à revoir — le champ
+  s'appelle déjà `format` dans la structure.
+- **Les quatre notations de nombre du projet sont acceptées** — `0x`, `&`, `#`,
+  `%` et le décimal. En refuser une demanderait à l'auteur d'un `.asm` d'écrire
+  ses adresses autrement dans son script que dans sa source. Idem pour les deux
+  styles de commentaire : `//`, que le §6 emploie, et `;`, avec lequel une source
+  fantams commente.
+- **L'ordre `OFFSET` puis `SIZE` est imposé.** Un `SIZE` avant son `OFFSET` se
+  lirait aussi bien, et c'est la raison de n'en accepter qu'un : deux écritures
+  pour un même placement rendraient deux scripts moins comparables.
+- **Le refus de `STACK` est le même pour ses deux formes fautives** — `= 0x3FFF`
+  et `= [0x3FFF]`. Laisser la première tomber sur un « expected `[` » dirait la
+  syntaxe sans dire la raison, à l'endroit précis où la raison est tout.
+
+Et une faute attrapée par la suite, notée parce qu'elle se reproduira à l'étape
+du profil : **la reprise après erreur doit prouver qu'elle avance.** La première
+version rattrapait une faute en cherchant le prochain début d'instruction, y
+retombait sur le jeton fautif, et bouclait en empilant le même diagnostic. La
+forme qui tient est un saut jusqu'à la fin du bloc, accolades comptées, plus une
+garantie de progrès explicite à chaque tour de boucle.
 
 ## C1.2 — le langage de profil, le CPC embarqué, le lexeur extrait
 

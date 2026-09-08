@@ -4,14 +4,15 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 
 .PHONY: all test clean
 
-CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp beautify.cpp sna.cpp sym.cpp
+CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp script.cpp beautify.cpp sna.cpp sym.cpp
 
 # Les tests vivent dans tests/, binaire compris : la racine ne porte que le code
 # et les deux outils. Leurs « #include "asm.h" » se résolvent par -I. — la
 # compilation part toujours de la racine.
 T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
-        $(T)/asm_test $(T)/link_test $(T)/fo_test $(T)/beautify_test $(T)/sna_test
+        $(T)/asm_test $(T)/link_test $(T)/fo_test $(T)/script_test \
+        $(T)/beautify_test $(T)/sna_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
 all: $(TESTS) ppdump fantams
@@ -43,6 +44,12 @@ $(T)/link_test: link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/l
 # la raison de ne pas le faire compact.
 $(T)/fo_test: fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/fo_test.cpp fo.h asm.h
 	$(TCXX) fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/fo_test.cpp -o $@
+
+# Le script de linkage : un TEXTE entre, une valeur sort. Aucun profil, aucun
+# objet, aucun octet — c'est ce qui le rend testable seul, et c'est pour cela
+# que cette suite ne se lie qu'a script.cpp.
+$(T)/script_test: script.cpp $(T)/script_test.cpp script.h asm.h
+	$(TCXX) script.cpp $(T)/script_test.cpp -o $@
 
 # Le beautify n'a besoin que du parseur et du vocabulaire réservé : ni adresse,
 # ni octet, ni assemblage (ADR 0013).
