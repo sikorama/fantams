@@ -43,6 +43,7 @@
 #include "asm.h"
 #include "beautify.h"
 #include "fo.h"
+#include "profile.h"
 #include "link.h"
 #include "pp.h"
 #include "sna.h"
@@ -74,6 +75,10 @@ int main(int argc, char **argv) {
     bool strict = false;
     bool detachLabels = true;
     bool indentBlocks = true;
+    // Le PROFIL DE CIBLE : un nom livre, ou un fichier. Les deux passent par le
+    // meme analyseur et le meme chemin de code, et c'est ce qui prouve que le
+    // texte embarque n'a aucun privilege (D3).
+    std::string targetName, profilePath, dumpProfile;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) outPath = argv[++i];
@@ -90,8 +95,72 @@ int main(int argc, char **argv) {
         else if (a == "--strict") strict = true;
         else if (a == "--no-detach-labels") detachLabels = false;
         else if (a == "--no-indent-blocks") indentBlocks = false;
+        else if (a == "--target" && i + 1 < argc) targetName = argv[++i];
+        else if (a.rfind("--target=", 0) == 0) targetName = a.substr(9);
+        else if (a == "-P" && i + 1 < argc) profilePath = argv[++i];
+        else if (a == "--dump-profile" && i + 1 < argc) dumpProfile = argv[++i];
+        else if (a.rfind("--dump-profile=", 0) == 0) dumpProfile = a.substr(15);
         else inputs.push_back(a);
     }
+    // --- Le profil de cible ------------------------------------------------
+    // Trois formes, et la troisieme est une COPIE. `--dump-profile` ne serialise
+    // rien : il rend le texte que l'analyseur lira, tel quel. C'est ce qui rend
+    // impossible la divergence entre un ecrivain et un lecteur — la faute que
+    // l'etape B7 a testee pour le `.fo`, et que la decision D1 evite en n'ayant
+    // qu'un seul porteur.
+    auto namesList = [] {
+        std::string s;
+        for (const std::string &n : profile::builtinNames()) {
+            if (!s.empty()) s += ", ";
+            s += n;
+        }
+        return s;
+    };
+    if (!dumpProfile.empty()) {
+        const std::string text = profile::builtin(dumpProfile);
+        if (text.empty()) {
+            fprintf(stderr, "error: no built-in profile named '%s' (built-in: %s)\n",
+                    dumpProfile.c_str(), namesList().c_str());
+            return 2;
+        }
+        fputs(text.c_str(), stdout);
+        return 0;
+    }
+    // Un nom livre ET un fichier : refuse. C'est la regle du §7 appliquee a la
+    // ligne de commande — deux porteurs pour une meme chose, et personne ne
+    // pourrait dire lequel a servi.
+    if (!targetName.empty() && !profilePath.empty()) {
+        fprintf(stderr, "error: --target and -P both name a profile; keep one\n");
+        return 2;
+    }
+    bool hasProfile = false;
+    profile::Profile prof;
+    if (!targetName.empty() || !profilePath.empty()) {
+        std::string text, from;
+        if (!targetName.empty()) {
+            text = profile::builtin(targetName);
+            from = targetName;
+            if (text.empty()) {
+                fprintf(stderr, "error: no built-in profile named '%s' (built-in: %s)\n"
+                                "       a profile is a data file: write one and pass it with -P\n",
+                        targetName.c_str(), namesList().c_str());
+                return 2;
+            }
+        } else {
+            if (!readFile(profilePath, text)) {
+                fprintf(stderr, "error: file not found: %s\n", profilePath.c_str());
+                return 2;
+            }
+            from = profilePath;
+        }
+        prof = profile::parse(text, from);
+        for (const asmb::Diagnostic &d : prof.errors)
+            fprintf(stderr, "%s:%d: error: %s\n", d.file.c_str(), d.line, d.message.c_str());
+        if (!prof.ok) return 1;
+        hasProfile = true;
+    }
+    (void)hasProfile;   // rien ne place encore avec un profil : c'est l'etape C1.4
+
     if (!inputs.empty()) path = inputs.front();
     // Un `.fo` en ENTREE est un objet deja assemble : on le relit au lieu de
     // l'assembler. Un `.fo` en SORTIE demande l'inverse — assembler seul, et
@@ -102,7 +171,11 @@ int main(int argc, char **argv) {
     };
     if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]]\n"
                                      "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
-                                     "  file.fo... : des objets deja assembles, a linker\n"); return 2; }
+                                     "  file.fo... : des objets deja assembles, a linker\n"
+                                     "  --target N : profil de cible livre (au choix : %s)\n"
+                                     "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
+                                     "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n",
+                                     namesList().c_str()); return 2; }
     // Le mode « la sortie est un source » : l'un ou l'autre des deux drapeaux suffit.
     const bool sourceOut = beautifyOnly || normalizeOnly;
     if (outPath.empty()) {

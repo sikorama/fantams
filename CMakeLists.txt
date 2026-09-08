@@ -99,6 +99,14 @@ add_test(NAME target_profile COMMAND profile_test)
 # L'acceptation de l'etage B : deux sources assemblees separement puis linkees
 # donnent le meme binaire que la version monolithique. Un script, parce que le
 # fait porte sur le CLI et sur des FICHIERS.
+# Le critere de l'etape C1.3 : le profil embarque, sa copie exportee et aucun
+# profil rendent le meme octet — donc le texte embarque n'a aucun privilege.
+add_test(NAME accept_profile
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_profile.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_profile PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # L'invariant mecanique du §13.2 : aucun nom de machine dans le code du linker.
 add_test(NAME no_machine_names
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_machine_names.sh)

@@ -42,7 +42,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.0 | La section fusionnée par nom à travers les objets *(préfacteur)* | — | **faite** |
 | C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | **faite** |
 | C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | **faite** |
-| C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | à faire |
+| C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | **faite** |
 | C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | à faire |
 | C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
 | C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
@@ -244,11 +244,34 @@ meilleur refus qu'avant : il donne la forme juste et dit d'où vient l'`ORG`.
 **Ce qu'il livre.** Les trois formes de D3, et la preuve que le profil embarqué
 n'a aucun privilège.
 
-- [ ] `--target cpc6128` nomme le texte embarqué
-- [ ] `-P mien.prof` le remplace, **par le même chemin de code**
-- [ ] `--dump-profile cpc6128` rend le texte embarqué, et un test le compare **octet pour octet** — le seul contrôle qui attrape la divergence que D1 rend impossible
-- [ ] Un `--target` inconnu est refusé en listant les profils embarqués
-- [ ] Sans `--target` ni `-P` : aucun profil, et le placement de l'étage B (D12)
+- [x] `--target cpc6128` nomme le texte embarqué
+- [x] `-P mien.prof` le remplace, **par le même chemin de code**
+- [x] `--dump-profile cpc6128` rend le texte embarqué, et un test le compare **octet pour octet** — le seul contrôle qui attrape la divergence que D1 rend impossible
+- [x] Un `--target` inconnu est refusé en listant les profils embarqués
+- [x] Sans `--target` ni `-P` : aucun profil, et le placement de l'étage B (D12)
+
+Le critère vit dans `tests/accept_profile.sh`, inscrit dans les **deux** listes,
+parce que trois affirmations de D1 ne se vérifient qu'en **sortant du
+processus** : l'export est déterministe, le texte exporté **se relit**, et
+`--target cpc6128` / `-P <sa copie>` / **aucun profil** rendent le même octet. Le
+troisième est celui qui compte : c'est la preuve que le texte embarqué n'a aucun
+privilège (D3). Un quatrième contrôle vérifie que l'export **n'a pas perdu ses
+citations** — c'est ce qu'un sérialiseur aurait fait, et la raison de n'en avoir
+aucun.
+
+Trois choses décidées en cours de route, à relire en C1.10 :
+
+- **`-T` n'est PAS livré ici**, contre la tentation de compléter la ligne de
+  commande d'un coup. Un `-T` qui accepterait un script sans l'appliquer serait
+  exactement le mensonge silencieux que D2 refuse : l'auteur croirait avoir placé
+  ses sections. Il arrive en C1.4, avec le code qui l'honore.
+- **`--target` et `-P` ensemble sont refusés.** C'est la règle du §7 appliquée à
+  la ligne de commande : deux porteurs pour une même chose, et personne ne
+  pourrait dire lequel a servi.
+- **Un profil seul ne change aucun octet, et ce n'est pas un silence gênant** :
+  seul un script décide d'un placement, et le §9 dit qu'une section que rien ne
+  place suit le placement dérivable. `--target` valide donc le profil, et c'est
+  déjà utile — un profil fautif est refusé avant qu'un octet soit écrit.
 
 ## C1.4 — l'`ORG` déduit
 
