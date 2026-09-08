@@ -14,7 +14,7 @@ prochain chantier.
 
 **Blocked by:** 07 (z80live affiche la version de fantams).
 
-**Status:** ready-for-human
+**Status:** resolved
 
 - [x] La liste est versionnée dans le dépôt consommateur
 - [x] Chaque point énonce un geste **et** son résultat attendu — pas « vérifier
@@ -23,7 +23,7 @@ prochain chantier.
       source déroulée, l'affichage d'un diagnostic sur une source fautive, la
       récupération du snapshot, et la version de fantams affichée
 - [x] Elle tient en une page et se rejoue sans relire la spec
-- [ ] Le mainteneur l'a parcourue une fois de bout en bout, et le résultat est
+- [x] Le mainteneur l'a parcourue une fois de bout en bout, et le résultat est
       consigné
 
 ## Commentaires
@@ -40,7 +40,20 @@ déroulée, un diagnostic sur une source fautive, la récupération du snapshot,
 la version de fantams affichée — plus la persistance de la version après
 rechargement.
 
-**Le dernier point reste ouvert, et il ne peut pas être coché ici.** Un agent ne
-peut pas parcourir la liste : c'est la raison d'être du ticket. Le tableau
-« Journal des passages », en fin de document, attend la date, la version
-affichée et le résultat. Le ticket ne se ferme qu'une fois cette ligne écrite.
+### Parcourue
+
+Le mainteneur l'a parcourue de bout en bout le 2026-09-08, **7 points sur 7**,
+sur une source réelle portant macro, boucle `for`, `org`, `run` et `equ`. Le
+journal de passage est rempli dans le document lui-même.
+
+Deux remarques en sont sorties :
+
+- **le point 6 est plus faible que ce que la machine a déjà prouvé.** Le
+  mainteneur l'a noté : l'émulateur autodétecte le conteneur par ses octets
+  magiques, donc un snapshot qu'il accepte *et exécute* a nécessairement un
+  en-tête recevable. Le `head -c 8` de la liste est le contrôle du pauvre à côté
+  de l'épreuve du ticket 06 ;
+- **la source déroulée perd les lignes vides et les commentaires**, ce qui la
+  rend « assez brute à relire ». C'est une incohérence réelle entre ce que
+  `asm_main.cpp` annonce pour `-E` et ce que l'ADR 0013 promet ; hors périmètre,
+  consignée en ticket 09.
