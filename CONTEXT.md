@@ -385,6 +385,8 @@ la **diversité syntaxique** rencontrée dans la nature — et donc le travail
 d'implémentation restant. Il contient des sources dont la correction n'est pas
 garantie : c'est un instrument de mesure, jamais une référence de correction, et
 la compatibilité avec un autre assembleur n'est pas un objectif du projet.
+Son **intégralité** n'est jamais publiée : une source n'en sort
+qu'individuellement et sur déverrouillage nommé du mainteneur (ADR 0029).
 _Éviter_ : base de test, suite de tests (qui désignent les tests unitaires),
 corpus de compatibilité
 
@@ -405,3 +407,12 @@ _Éviter_ : fixture, exemple, échantillon
 Le travail d'édition nécessaire pour qu'une source Z80 existante assemble sous
 fantams. Se mesure en lignes éditées, pas en réussite ou échec — et son coût est
 une information, pas une dette : fantams définit son langage.
+
+**Épreuve** :
+L'exécution d'un artefact sur une machine — émulée ou réelle — pour constater
+qu'elle l'accepte et ce qu'elle en fait. Comme le corpus, c'est un instrument de
+mesure : contrairement au cas de référence, elle ne fait pas autorité sur les
+octets, elle fait autorité sur leur **recevabilité**. Un octet de conteneur se
+teste sans machine (`coutures-de-la-chaine.md` §8) ; qu'une machine accepte le
+conteneur ne se teste que par une épreuve.
+_Éviter_ : oracle, banc, test d'intégration
