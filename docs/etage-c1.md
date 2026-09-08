@@ -44,8 +44,8 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 | C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | **faite** |
 | C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | **faite** |
 | C1.4 | L'`ORG` déduit : la fenêtre place la section | C1.0, C1.2 | **faite** |
-| C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | à faire |
-| C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | à faire |
+| C1.5 | Le chevauchement inter-sections, et le mou chiffré | C1.4 | **faite** |
+| C1.6 | `OFFSET` / `SIZE` : découper une banque au placement | C1.4 | **faite** |
 | C1.7 | Les symboles de commutation, `bankof()` et `BankOf` | C1.2, C1.4 | **faite** |
 | C1.8 | `__off_`, `__romnum_`, et les refus de `COMPRESS` / `MIRROR` | C1.7 | **faite** |
 | C1.9 | L'exemple d'acceptation du §12.2 | C1.3, C1.5, C1.6, C1.8 | **faite** |
@@ -361,11 +361,11 @@ la peine de parler deux fois.
 **Ce qu'il livre.** Le refus que seul un placement calculé peut prononcer, et le
 chiffre dont l'auteur a besoin pour arbitrer.
 
-- [ ] Deux sections qui se disputent des octets dans une banque : **refus**, en nommant les deux sections et la banque
-- [ ] Deux sections dans deux grilles superposées dont les fenêtres se recouvrent dans un même état : même refus, **calculé** et non déclaré (§13.1)
-- [ ] Le mou de chaque banque employée est signalé et chiffré : `2048 bytes unused at 0xE000 in rom_hi15`
-- [ ] Le refus inter-objets de l'étage B n'est pas doublé : deux diagnostics pour un seul fait en valent zéro
-- [ ] Se teste avec des objets fabriqués à la main, sans un source Z80
+- [x] Deux sections qui se disputent des octets dans une banque : **refus**, en nommant les deux sections et la banque
+- [x] Deux sections dans deux grilles superposées dont les fenêtres se recouvrent dans un même état : même refus, **calculé** et non déclaré (§13.1)
+- [x] Le mou de chaque banque employée est signalé et chiffré : `2048 bytes unused at 0xE000 in rom_hi15`
+- [x] Le refus inter-objets de l'étage B n'est pas doublé : deux diagnostics pour un seul fait en valent zéro
+- [x] Se teste avec des objets fabriqués à la main, sans un source Z80
 
 ## C1.6 — `OFFSET` / `SIZE`
 
