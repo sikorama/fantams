@@ -39,7 +39,7 @@ testable avec des objets fabriqués à la main sans un mot de profil.
 
 | # | Étape | Bloqué par | État |
 |---|-------|-----------|------|
-| C1.0 | La section fusionnée par nom à travers les objets *(préfacteur)* | — | à faire |
+| C1.0 | La section fusionnée par nom à travers les objets *(préfacteur)* | — | **faite** |
 | C1.1 | L'analyseur de script : syntaxe et diagnostics, sans résolution | — | à faire |
 | C1.2 | Le langage de profil, le CPC embarqué, le lexeur extrait | C1.1 | à faire |
 | C1.3 | `--target`, `-P`, `--dump-profile` | C1.2 | à faire |
@@ -75,13 +75,39 @@ viennent de N objets.
 (remplir une ROM avec les sections `"ro"` de dix fichiers) qui ne demande aucun
 profil. Même rôle que B0 : fabriquer l'objet avant d'y toucher.
 
-- [ ] Les sections de même nom de N objets ne reçoivent qu'une base
-- [ ] Leurs fragments s'y suivent dans l'ordre où les objets sont donnés
-- [ ] Le type est figé par la première déclaration **à travers les objets**, et rouvrir en `"rw"` ce qu'un autre a déclaré `"ro"` est refusé en nommant les deux unités
-- [ ] Deux plafonds différents pour un même nom : refusés, en nommant les deux sites — retenir le plus petit serait défendable, et c'est la raison de refuser
-- [ ] Un test épingle l'ordre pour **deux objets déclarant chacun deux sections** : `a1 a2 b1 b2`, et non `a1 b1 a2 b2` comme aujourd'hui
-- [ ] `accept_separate` reste vert
-- [ ] Les dix suites vertes, et D12 tient
+- [x] Les sections de même nom de N objets ne reçoivent qu'une base
+- [x] Leurs fragments s'y suivent dans l'ordre où les objets sont donnés
+- [x] Le type est figé par la première déclaration **à travers les objets**, et rouvrir en `"rw"` ce qu'un autre a déclaré `"ro"` est refusé en nommant les deux unités
+- [x] Deux plafonds différents pour un même nom : refusés, en nommant les deux sites — retenir le plus petit serait défendable, et c'est la raison de refuser
+- [x] Un test épingle l'ordre pour **deux objets déclarant chacun deux sections** : `a1 a2 b1 b2`, et non `a1 b1 a2 b2` comme aujourd'hui
+- [x] `accept_separate` reste vert
+- [x] Les dix suites vertes, et D12 tient
+
+Quatre choses décidées en cours de route, à relire en C1.10 :
+
+- **Un cinquième désaccord s'est ajouté aux deux prévus** : relocalisable dans une
+  unité, placée par son `org` dans une autre. La section fusionnée ne peut pas
+  être les deux, et il n'y a pas de lecture par défaut à préférer. C'est le même
+  refus que le type et le plafond, et l'omettre aurait laissé le seul des trois
+  qui change des adresses.
+- **Le plafond est vérifié sur la SOMME**, et c'est un refus que l'assembleur ne
+  pouvait pas prononcer : il ne voit qu'une unité. Il ne se déclenche que si
+  **deux** unités au moins déclarent la section — sinon l'étape A1 l'a déjà dit,
+  et deux diagnostics pour un seul fait en valent zéro. Et il **se tait** quand
+  les déclarations se contredisent : vérifier une somme contre un plafond qu'on
+  vient de déclarer indécidable serait tirer au sort une des deux lectures, puis
+  rapporter un dépassement sur ce tirage.
+- **Le placement se fait à l'ÉTENDUE, le plafond à la somme des octets émis.**
+  Deux quantités, et chacune est celle que son usage demande : un `ds` occupe la
+  place sans l'écrire, donc la contribution suivante doit commencer après son
+  trou ; mais c'est le nombre d'octets émis que l'étape A1 compare au plafond, et
+  lui en comparer un autre ici ferait dire deux choses à un même `max`.
+- **`asmb::Section` porte la ligne de sa première déclaration**, et le `.fo` la
+  transporte (`at=`, `line=`). Sans elle le refus ne nommerait aucune ligne
+  **précisément dans le cas multi-objet qui est sa raison d'être** : une unité
+  relue depuis un `.fo` n'a pas d'autre moyen de citer la sienne. C'est le seul
+  élargissement du format objet de cet étage, et l'aller-retour par chaînes le
+  couvre déjà.
 
 ## C1.1 — l'analyseur de script
 

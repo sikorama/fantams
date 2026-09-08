@@ -7,6 +7,7 @@
 #include "link.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -16,6 +17,9 @@ namespace {
 
 // Le nom d'un objet tel qu'un diagnostic doit le citer.
 std::string obj_name(const asmb::Object &o) { return o.name; }
+
+std::string hexSize(int64_t v) { char b[32]; snprintf(b, sizeof b, "0x%llX", (unsigned long long)v); return b; }
+std::string lower(std::string s) { for (char &c : s) c = (char)std::tolower((unsigned char)c); return s; }
 
 // Un ESPACE de 16 K, indexé par banque, et non un tableau plat de 64 K : le
 // masquage 16 bits ne laisse aucun endroit où loger une banque (ADR 0006).
@@ -34,6 +38,35 @@ static const uint16_t kUnknownSite = 0xFFFF;
 // avertissement. C'est cette coalescence, et non un plafond, qui empêche un bloc
 // réécrit de produire un avertissement par octet.
 struct Overlap { bool active = false; int bank = 0, start = 0, end = 0; uint16_t prev = 0, cur = 0; };
+
+// Une SECTION DU LINKAGE : le même nom, dans autant d'unités qu'on veut, ne
+// fait qu'une section. C'est ce qui donne au linker le gain que le §11 lui
+// attribue — concaténer les sections "ro" de dix fichiers pour remplir au plus
+// juste une ROM de 16 K —, et ce qu'aucune unité ne peut décider seule.
+//
+// Ce qu'elle porte vient de sa PREMIÈRE déclaration, et les suivantes doivent
+// s'y accorder : le type, le plafond, et le fait d'être relocalisable ou placée
+// par son `org`.
+struct Merged {
+    std::string name;
+    int declaredBy = -1;         // l'unité qui l'a déclarée la première
+    int declaredIn = 1;          // dans combien d'unités elle est déclarée
+    std::string file;            // la ligne de cette première déclaration
+    int line = 0;
+    std::string kind;
+    bool relocatable = false;
+    bool hasMax = false;
+    int64_t max = 0;
+    // Deux unites se sont contredites sur cette section. Le controle du plafond
+    // se tait alors : verifier une somme contre un plafond qu'on vient de
+    // declarer indecidable serait tirer au sort une des deux lectures, puis
+    // rapporter un depassement sur ce tirage.
+    bool disagreed = false;
+    // La somme des octets ÉMIS, pour le plafond — et non l'étendue, qui sert au
+    // placement. C'est la quantité que l'étape A1 compare au plafond, et la
+    // comparer à une autre ici ferait dire deux choses à un même `max`.
+    int64_t declaredSize = 0;
+};
 
 // L'état d'un linkage. Une structure et non des paramètres qui circulent : la
 // détection de recouvrement porte de la mémoire d'un octet à l'autre.
@@ -132,11 +165,64 @@ struct Linker {
     // Un BLOC vit dans UNE banque et à des adresses qui se suivent. Un fragment
     // sans préfixe de banque qui franchit une frontière de 16 K en donne donc
     // deux : la banque y suit l'adresse, et c'est au placement que cela se voit.
-    // Où poser les sections que personne n'a placées. En B c'est trivial et
-    // assumé : elles se suivent, dans leur ordre de déclaration, après le
-    // dernier octet absolu — de TOUS les objets, sans quoi deux unités
-    // assemblées séparément se marcheraient dessus. C1 remplacera CE calcul —
-    // fenêtres, banques, configurations — sans toucher au reste.
+
+    // Deux unités qui déclarent le même nom de section doivent en dire la même
+    // chose. Le diagnostic est attribué à la SECONDE déclaration — celle qui
+    // diverge, et la seule que son auteur peut changer sans toucher à l'autre
+    // unité — et il nomme les deux, sur le modèle exact du refus interne de
+    // l'étage A.
+    void agree(Merged &m, const asmb::Section &sec, int oi) {
+        ++m.declaredIn;
+        const std::string what = "section '" + sec.name + "': ";
+        const std::string first = objectLabel(m.declaredBy), second = objectLabel(oi);
+        auto refuse = [&](const std::string &msg) {
+            m.disagreed = true;
+            out.errors.push_back({sec.file, sec.line, what + msg});
+        };
+        // Le type, d'abord : c'est lui qui arme le refus d'écriture en "ro", et
+        // le laisser changer d'une unité à l'autre le désarmerait en silence.
+        if (!sec.kind.empty() && !m.kind.empty() && sec.kind != m.kind)
+            refuse(first + " declares it \"" + lower(m.kind) + "\", " + second +
+                   " declares it \"" + lower(sec.kind) + "\" — a section keeps the "
+                   "type of its first declaration");
+        // Le plafond. Retenir le plus petit serait défendable, et c'est
+        // précisément la raison de refuser : personne ne pourrait deviner
+        // laquelle des deux lectures a été appliquée.
+        // L'ordre du message est toujours PREMIERE puis SECONDE declaration, et
+        // jamais « celle qui declare un plafond » puis « celle qui n'en declare
+        // pas » : la regle citee parle de la premiere, et un message qui les
+        // nomme dans l'autre ordre la rend incomprehensible.
+        if (m.hasMax != sec.hasMax)
+            refuse(first + (m.hasMax ? " declares a maximum size of " + hexSize(m.max)
+                                     : std::string(" declares no maximum size")) + ", " +
+                   second + (sec.hasMax ? " declares " + hexSize(sec.max)
+                                        : std::string(" declares none")) +
+                   " — a section keeps the maximum size of its first declaration");
+        else if (m.hasMax && m.max != sec.max)
+            refuse(first + " declares a maximum size of " + hexSize(m.max) + ", " +
+                   second + " declares " + hexSize(sec.max) +
+                   " — a section keeps the maximum size of its first declaration");
+        // Relocalisable d'un côté, placée par son `org` de l'autre : la section
+        // fusionnée ne peut pas être les deux, et il n'y a pas de lecture par
+        // défaut à préférer.
+        if (m.relocatable != sec.relocatable)
+            refuse((m.relocatable ? first : second) + " lets the linker place it, " +
+                   (m.relocatable ? second : first) + " places it with 'org'"
+                   " — a section is relocatable in every unit, or in none");
+    }
+
+    // Où poser les sections que personne n'a placées.
+    //
+    // Le même nom dans N objets ne fait qu'UNE section : c'est ce qui permet au
+    // linker de remplir une ROM avec les sections "ro" de dix fichiers (§11), et
+    // sans quoi chaque unité recevrait sa propre base. Sa base est décidée une
+    // fois ; chaque objet y range sa contribution à la suite de celles des
+    // objets qui le précèdent.
+    //
+    // En C1.0 l'endroit reste trivial et assumé : les sections se suivent, dans
+    // l'ordre de leur PREMIÈRE déclaration, après le dernier octet absolu de
+    // TOUS les objets. C1.4 remplacera ce calcul — fenêtres, banques,
+    // configurations — sans toucher au reste.
     //
     // Les identifiants de section sont LOCAUX à leur objet : c'est pour cela
     // qu'il y a une table de bases par objet, et non une seule.
@@ -146,22 +232,82 @@ struct Linker {
             for (const asmb::Fragment &f : obj.fragments)
                 if (f.relocSection < 0 && !f.bytes.empty())
                     cursor = std::max(cursor, (f.addr + (int)f.bytes.size()) & 0xFFFF);
-        std::vector<std::map<int, int>> all;
-        for (const asmb::Object &obj : objects) {
-            // Les tailles, par section : un fragment d'une section relocalisable
-            // porte son OFFSET dans `addr`, donc la section s'étend jusqu'au plus
-            // loin qu'un de ses fragments atteigne.
-            std::map<int, int> size;
-            for (const asmb::Fragment &f : obj.fragments)
-                if (f.relocSection >= 0)
-                    size[f.relocSection] = std::max(size[f.relocSection], f.addr + (int)f.bytes.size());
-            std::map<int, int> base;
-            for (const asmb::Section &sec : obj.sections) {
-                if (!sec.relocatable || !size.count(sec.id)) continue;
-                base[sec.id] = cursor;
-                cursor += size[sec.id];
+
+        // 1. Les sections, fusionnées par nom. L'ordre est celui de la première
+        // déclaration, les objets parcourus dans l'ordre où on les a donnés.
+        std::vector<Merged> merged;
+        std::map<std::string, size_t> byName;
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            for (const asmb::Section &sec : objects[oi].sections) {
+                auto it = byName.find(sec.name);
+                if (it == byName.end()) {
+                    Merged m;
+                    m.name = sec.name;
+                    m.declaredBy = (int)oi;
+                    m.file = sec.file;
+                    m.line = sec.line;
+                    m.kind = sec.kind;
+                    m.relocatable = sec.relocatable;
+                    m.hasMax = sec.hasMax;
+                    m.max = sec.max;
+                    m.declaredSize = sec.size;
+                    byName[sec.name] = merged.size();
+                    merged.push_back(std::move(m));
+                    continue;
+                }
+                merged[it->second].declaredSize += sec.size;
+                agree(merged[it->second], sec, (int)oi);
             }
-            all.push_back(std::move(base));
+        }
+
+        // 2. Ce que chaque objet met dans chaque section : l'ÉTENDUE de ses
+        // fragments, et non le nombre d'octets émis. Un `ds` réserve de la place
+        // sans l'écrire, et la contribution suivante doit commencer après.
+        std::vector<std::map<size_t, int>> extent(objects.size());
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            std::map<int, size_t> local;   // id local -> section fusionnée
+            for (const asmb::Section &sec : objects[oi].sections)
+                if (sec.id >= 0 && byName.count(sec.name)) local[sec.id] = byName[sec.name];
+            for (const asmb::Fragment &f : objects[oi].fragments) {
+                if (f.relocSection < 0) continue;
+                auto n = local.find(f.relocSection);
+                if (n == local.end()) continue;
+                int &e = extent[oi][n->second];
+                e = std::max(e, f.addr + (int)f.bytes.size());
+            }
+        }
+
+        // 3. Les bases. Une section à la fois, et à l'intérieur, un objet à la
+        // fois : c'est cet ordre-là qui met bout à bout les contributions d'un
+        // même nom, au lieu de les disperser objet par objet.
+        std::vector<std::map<int, int>> all(objects.size());
+        for (size_t mi = 0; mi < merged.size(); ++mi) {
+            if (!merged[mi].relocatable) continue;
+            for (size_t oi = 0; oi < objects.size(); ++oi) {
+                auto e = extent[oi].find(mi);
+                if (e == extent[oi].end() || e->second <= 0) continue;
+                int id = -1;
+                for (const asmb::Section &sec : objects[oi].sections)
+                    if (sec.name == merged[mi].name) { id = sec.id; break; }
+                if (id < 0) continue;
+                all[oi][id] = cursor;
+                cursor += e->second;
+            }
+        }
+
+        // 4. Le plafond, sur la SOMME. Chaque unité tient, leur somme non : c'est
+        // le refus que l'assembleur ne pouvait pas prononcer, puisqu'il ne voit
+        // qu'une unité. Attribué à la ligne qui PORTE le plafond, seule ligne que
+        // son auteur peut corriger (§4.1, étape A1).
+        //
+        // Une seule unité déclarante ne passe pas ici : l'assembleur l'a déjà
+        // refusée, et deux diagnostics pour un seul fait en valent zéro.
+        for (const Merged &m : merged) {
+            if (m.declaredIn < 2 || m.disagreed || !m.hasMax || m.declaredSize <= m.max) continue;
+            out.errors.push_back({m.file, m.line,
+                "section '" + m.name + "' exceeds maximum declared size (" +
+                hexSize(m.declaredSize) + " > " + hexSize(m.max) + " bytes), summed over " +
+                std::to_string(m.declaredIn) + " units"});
         }
         return all;
     }
@@ -338,6 +484,11 @@ Image build(const std::vector<asmb::Object> &objects) {
     // Les objets se posent dans l'ordre où on les a donnés. Leurs tables de
     // sites se concatènent, et `prov` se décale d'autant : c'est ce qui laisse
     // un recouvrement nommer la bonne ligne du bon fichier.
+    // Les noms d'abord : le placement lui-meme diagnostique — deux unites qui
+    // declarent le meme nom de section sans en dire la meme chose — et un
+    // diagnostic qui ne peut pas nommer son unite ne sert a rien.
+    for (const asmb::Object &obj : objects) lk.objectNames_.push_back(obj.name);
+
     // Trois temps, et l'ordre est force. D'abord : ou vont les sections que
     // personne n'a placees.
     lk.bases_ = lk.placeRelocSections(objects);
@@ -345,7 +496,6 @@ Image build(const std::vector<asmb::Object> &objects) {
     // Ensuite : ce que les objets EXPORTENT. Il faut que TOUTES les bases soient
     // decidees avant, sans quoi un `PUBLIC` d'une section relocalisable n'aurait
     // pas encore d'adresse a offrir.
-    for (const asmb::Object &obj : objects) lk.objectNames_.push_back(obj.name);
     std::map<std::string, size_t> exportedBy;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         lk.relocBase_ = lk.bases_[oi];

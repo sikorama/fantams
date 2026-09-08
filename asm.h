@@ -106,6 +106,12 @@ struct Section {
     bool hasMax = false;
     int64_t max = 0;
     int64_t size = 0;        // octets émis, cumulés sur les réouvertures
+    // La ligne de sa PREMIÈRE déclaration — celle qui fixe le type et porte le
+    // plafond. Le linker en a besoin : deux unités qui déclarent le même nom
+    // sans en dire la même chose se refusent en nommant les deux lignes, et une
+    // unité relue depuis un `.fo` n'a pas d'autre moyen de citer la sienne.
+    std::string file;
+    int line = 0;
 };
 
 // Une RELOCALISATION : à cet endroit-ci, il manque la base d'une section, et le

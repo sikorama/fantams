@@ -8,6 +8,7 @@
 
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 static int g_pass = 0, g_fail = 0;
@@ -50,6 +51,39 @@ static asmb::Object obj1(const asmb::Fragment &f, const char *file = "a.asm", in
     asmb::Object o;
     o.sites.push_back({file, line});
     o.fragments.push_back(f);
+    return o;
+}
+
+// Un objet dont chaque entree est (nom de section, octets) : une section
+// relocalisable "RO", un fragment, dans l'ordre donne. C'est tout ce qu'il faut
+// pour exercer le placement des sections FUSIONNEES — et cela tient en une
+// ligne par unite, ce qui est le gain de test de cette suite.
+static asmb::Object secObj(const char *unit,
+                           std::vector<std::pair<std::string, std::vector<uint8_t>>> secs,
+                           const char *file = nullptr, int line = 1) {
+    asmb::Object o;
+    o.name = unit;
+    o.sites.push_back({file ? file : unit, line});
+    int id = 0;
+    for (auto &p : secs) {
+        asmb::Fragment f;
+        f.placed = false;
+        f.relocSection = id;
+        f.section = p.first;
+        f.bytes = p.second;
+        f.prov.assign(f.bytes.size(), 1);
+        o.fragments.push_back(f);
+        asmb::Section sec;
+        sec.name = p.first;
+        sec.id = id;
+        sec.relocatable = true;
+        sec.kind = "RO";
+        sec.size = (int64_t)p.second.size();
+        sec.file = file ? file : unit;
+        sec.line = line;
+        o.sections.push_back(sec);
+        ++id;
+    }
     return o;
 }
 
@@ -450,6 +484,135 @@ int main() {
         link::Image img = link::build({o});
         ok("le symbole vaut la base plus son offset",
            img.symbolTable[0].value == 0x8002 && img.symbolTable[0].store == 0x8002);
+    }
+
+    // --- C1.0 : la section fusionnee par nom --------------------------------
+    {
+        // Deux objets declarant chacun DEUX sections. Les contributions d'un
+        // meme nom se suivent : c'est ce qui permet de remplir une ROM avec les
+        // sections "ro" de dix fichiers (§11). Avant C1.0, l'ordre etait
+        // a1 b1 a2 b2 — chaque objet recevait ses propres bases.
+        link::Image img = link::build({secObj("a.fo", {{"a", {1, 2}}, {"b", {3}}}),
+                                       secObj("b.fo", {{"a", {4}}, {"b", {5, 6}}})});
+        ok("deux objets, deux sections : le placement est vert", img.ok);
+        okBytes("les contributions d'un meme nom se suivent", img.bin, {1, 2, 4, 3, 5, 6});
+    }
+    {
+        // Un seul nom partage : les deux unites remplissent LA MEME section, et
+        // la seconde commence ou la premiere s'arrete.
+        link::Image img = link::build({secObj("a.fo", {{"code", {1, 2}}}),
+                                       secObj("b.fo", {{"code", {3}}})});
+        ok("un nom, une section", img.ok);
+        okBytes("la seconde unite suit la premiere", img.bin, {1, 2, 3});
+    }
+    {
+        // L'ETENDUE, et non les octets emis : un trou reserve occupe la place, et
+        // la contribution suivante commence apres.
+        asmb::Object a = secObj("a.fo", {{"code", {1, 0, 0}}});
+        a.fragments[0].prov[1] = 0;   // un `ds` de deux octets
+        a.fragments[0].prov[2] = 0;
+        link::Image img = link::build({a, secObj("b.fo", {{"code", {9}}})});
+        okBytes("un trou reserve n'est pas de la place libre", img.bin, {1, 0, 0, 9});
+    }
+    {
+        // Le type est fige par la premiere declaration A TRAVERS les objets :
+        // rouvrir en "rw" ce qu'une autre unite a declare "ro" desarmerait le
+        // refus d'ecriture en ROM en silence.
+        asmb::Object a = secObj("a.fo", {{"data", {1}}}, "a.asm", 7);
+        asmb::Object b = secObj("b.fo", {{"data", {2}}}, "b.asm", 9);
+        b.sections[0].kind = "RW";
+        link::Image img = link::build({a, b});
+        ok("un type qui change d'une unite a l'autre est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("il nomme les deux unites",
+           m.find("'a.fo'") != std::string::npos && m.find("'b.fo'") != std::string::npos);
+        ok("et les deux types",
+           m.find("\"ro\"") != std::string::npos && m.find("\"rw\"") != std::string::npos);
+        ok("rapporte sur la SECONDE declaration, la seule que son auteur peut changer",
+           !img.errors.empty() && img.errors[0].file == "b.asm" && img.errors[0].line == 9);
+    }
+    {
+        // Deux plafonds differents. Retenir le plus petit serait defendable, et
+        // c'est la raison de refuser : personne ne pourrait deviner laquelle des
+        // deux lectures a ete appliquee.
+        asmb::Object a = secObj("a.fo", {{"blob", {1}}}, "a.asm", 3);
+        asmb::Object b = secObj("b.fo", {{"blob", {2}}}, "b.asm", 4);
+        a.sections[0].hasMax = true; a.sections[0].max = 0x2000;
+        b.sections[0].hasMax = true; b.sections[0].max = 0x1000;
+        link::Image img = link::build({a, b});
+        ok("deux plafonds differents sont refuses", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("les deux valeurs sont nommees",
+           m.find("0x2000") != std::string::npos && m.find("0x1000") != std::string::npos);
+    }
+    {
+        // Un plafond d'un cote, aucun de l'autre : meme refus. Un plafond qu'une
+        // seule unite declare est un plafond qu'un `include` peut faire
+        // disparaitre sans un mot.
+        asmb::Object a = secObj("a.fo", {{"blob", {1}}}, "a.asm", 3);
+        asmb::Object b = secObj("b.fo", {{"blob", {2}}}, "b.asm", 4);
+        a.sections[0].hasMax = true; a.sections[0].max = 0x2000;
+        link::Image img = link::build({a, b});
+        ok("un plafond d'un seul cote est refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le refus dit laquelle n'en declare pas", m.find("declares none") != std::string::npos);
+    }
+    {
+        // Relocalisable d'un cote, placee par son `org` de l'autre : la section
+        // fusionnee ne peut pas etre les deux, et il n'y a pas de lecture par
+        // defaut a preferer.
+        asmb::Object a = secObj("a.fo", {{"code", {1}}}, "a.asm", 2);
+        asmb::Object b = secObj("b.fo", {{"code", {2}}}, "b.asm", 5);
+        b.sections[0].relocatable = false;
+        b.fragments[0].placed = true;
+        b.fragments[0].relocSection = -1;
+        b.fragments[0].addr = 0x8000;
+        b.fragments[0].logical = 0x8000;
+        link::Image img = link::build({a, b});
+        ok("relocalisable ici, absolue la : refuse", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le refus nomme les deux facons de placer",
+           m.find("lets the linker place it") != std::string::npos &&
+           m.find("places it with 'org'") != std::string::npos);
+    }
+    {
+        // Le plafond sur la SOMME : chaque unite tient, leur somme non. C'est le
+        // refus que l'assembleur ne pouvait pas prononcer, puisqu'il ne voit
+        // qu'une unite.
+        asmb::Object a = secObj("a.fo", {{"blob", {1, 2}}}, "a.asm", 3);
+        asmb::Object b = secObj("b.fo", {{"blob", {3, 4}}}, "b.asm", 5);
+        a.sections[0].hasMax = true; a.sections[0].max = 3;
+        b.sections[0].hasMax = true; b.sections[0].max = 3;
+        link::Image img = link::build({a, b});
+        ok("la somme des unites depasse le plafond", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("le depassement est chiffre", m.find("0x4 > 0x3") != std::string::npos);
+        ok("et le nombre d'unites est dit", m.find("summed over 2 units") != std::string::npos);
+        ok("rapporte sur la ligne qui PORTE le plafond",
+           !img.errors.empty() && img.errors[0].file == "a.asm" && img.errors[0].line == 3);
+    }
+    {
+        // Deux unites qui se contredisent SUR le plafond : le controle de la
+        // somme se tait. Verifier une somme contre un plafond qu'on vient de
+        // declarer indecidable serait tirer au sort une des deux lectures, puis
+        // rapporter un depassement sur ce tirage.
+        asmb::Object a = secObj("a.fo", {{"blob", {1, 2}}}, "a.asm", 3);
+        asmb::Object b = secObj("b.fo", {{"blob", {3, 4}}}, "b.asm", 5);
+        a.sections[0].hasMax = true; a.sections[0].max = 3;
+        link::Image img = link::build({a, b});
+        ok("un desaccord, un seul diagnostic", img.errors.size() == 1);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et c'est celui du desaccord, pas celui de la somme",
+           m.find("keeps the maximum size") != std::string::npos);
+    }
+    {
+        // Une seule unite qui deborde : le linker se TAIT. L'assembleur l'a deja
+        // refusee a l'etape A1, et deux diagnostics pour un seul fait en valent
+        // zero.
+        asmb::Object a = secObj("a.fo", {{"blob", {1, 2, 3, 4}}}, "a.asm", 3);
+        a.sections[0].hasMax = true; a.sections[0].max = 3;
+        link::Image img = link::build({a});
+        ok("un debordement d'une seule unite n'est pas double", img.ok);
     }
 
     // --- Rien a lier --------------------------------------------------------

@@ -163,6 +163,8 @@ public:
             sec.hasMax = it->second.hasMax;
             sec.max = it->second.max;
             sec.size = it->second.size;
+            sec.file = it->second.site.file;
+            sec.line = it->second.site.line;
             o.sections.push_back(std::move(sec));
         }
         o.relocs = relocs_;
@@ -1281,6 +1283,11 @@ private:
                 structErr("SECTION '" + curSection_ + "' was already declared \"" +
                           lower(sec.kind) + "\": a section keeps the type of its first declaration");
             else sec.kind = ty;
+            // Le site est retenu a la PREMIERE declaration, plafond ou pas : le
+            // linker doit pouvoir citer cette ligne pour un desaccord de type
+            // entre deux unites, ou l'accepter comme la ligne qui porte le
+            // plafond (noteSectionMax la reecrit a l'identique).
+            if (!reopened) sec.site = cur_;
             // Le plafond est traite en passe 1 seulement : sa valeur s'y fixe, et
             // c'est la passe ou sortent les diagnostics structurels.
             if (pass_ == 1) noteSectionMax(parts, reopened);

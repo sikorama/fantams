@@ -139,6 +139,10 @@ std::string write(const asmb::Object &obj) {
           << (s.relocatable ? " reloc" : " abs")
           << " size=" << hex(s.size);
         if (s.hasMax) o << " max=" << hex(s.max);
+        // La ligne de sa premiere declaration. Sans elle, un desaccord de type
+        // ou de plafond entre deux `.fo` se signalerait sans nommer une ligne —
+        // et c'est le cas MULTI-OBJET qui est la raison d'etre du refus.
+        if (!s.file.empty()) o << " at=" << quoted(s.file) << " line=" << s.line;
         o << '\n';
     }
 
@@ -317,6 +321,9 @@ bool read(const std::string &text, asmb::Object &out, std::string &error) {
             if (!ok) return fail("section: 'size' is not a number");
             if (kv.count("max")) { s.hasMax = true; s.max = num("max", 0, ok); }
             if (!ok) return fail("section: 'max' is not a number");
+            if (kv.count("at")) s.file = kv["at"];
+            s.line = (int)num("line", 0, ok);
+            if (!ok) return fail("section: 'line' is not a number");
             out.sections.push_back(std::move(s));
         } else if (w == "site") {
             if (t.size() < 4) return fail("site: expected an index, a file and a line");
