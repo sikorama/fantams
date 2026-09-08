@@ -1,0 +1,53 @@
+# sources.manifest — les modules du cœur de fantams, déclarés UNE SEULE FOIS.
+#
+# Les trois points d'entrée de construction — Makefile, CMakeLists.txt et
+# build-wasm.sh — LISENT ce fichier au lieu de redéclarer la liste. Deux listes
+# dont une seule est complète est le genre d'écart qui se paie en CI : la
+# configuration CMake le constatait déjà sur les tests, et la même faute s'est
+# reproduite sur les sources — quatre modules de l'étage C1 manquaient à la
+# liste du script WASM, dont l'édition de liens échouait depuis trois étages.
+#
+# Format : « groupe  fichier », un module par ligne, « # » en tête de ligne pour
+# un commentaire. Le groupe nomme la bibliothèque CMake qui porte le module ;
+# le Makefile et le script WASM ne lisent que la seconde colonne, puisqu'ils
+# compilent le cœur d'un bloc.
+#
+# Ce manifeste ne contient QUE le cœur. Les deux modules portant un « main » —
+# asm_main.cpp et pp_main.cpp — n'y figurent pas : chaque point d'entrée ajoute
+# le sien.
+#
+# Ajouter un module au cœur, c'est ajouter une ligne ici, et rien d'autre.
+
+# Le jeu d'instructions : encodage seul, sans adresse ni symbole.
+z80        z80.cpp
+
+# Le vocabulaire réservé partagé (ADR 0013, ADR 0015) : « ce mot est-il un
+# label ? », une seule fois, avec la phase pour paramètre.
+keywords   keywords.cpp
+
+# Le préprocesseur et l'arithmétique des expressions. expr.cpp lit les
+# littéraux de chaîne par kw::readLiteral (ADR 0010).
+pp         pp.cpp
+pp         expr.cpp
+
+# L'analyse d'une ligne source.
+parser     parser.cpp
+
+# La mise en forme du source (ADR 0013) : texte -> texte, sans adresse ni octet.
+beautify   beautify.cpp
+
+# Le conteneur snapshot.
+sna        sna.cpp
+
+# asm.cpp rend un OBJET, link.cpp en fait une IMAGE : les deux moitiés de la
+# même chaîne, et la seule façon d'obtenir un octet. sym.cpp est le format de
+# la table des symboles (ADR 0019), fonction pure. lex.cpp est le lexeur
+# partagé du script de lien et du profil de cible (ADR 0022, ADR 0028).
+asmlib     asm.cpp
+asmlib     link.cpp
+asmlib     fo.cpp
+asmlib     lex.cpp
+asmlib     script.cpp
+asmlib     profile.cpp
+asmlib     profiles.cpp
+asmlib     sym.cpp

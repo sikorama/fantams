@@ -4,8 +4,14 @@ CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 
 .PHONY: all test clean
 
-CORE = z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp \
-       lex.cpp script.cpp profile.cpp profiles.cpp beautify.cpp sna.cpp sym.cpp
+# Les modules du coeur sont declares une seule fois, dans sources.manifest, que
+# les trois points d'entree de construction LISENT (cf. l'en-tete du manifeste).
+# On n'y prend que la seconde colonne : le groupe ne sert qu'a CMake.
+MANIFEST = sources.manifest
+# (le « \# » est pour make, qui couperait la ligne sur un dièse nu ; awk le
+# recoit par -v, donc sans echappement.)
+HASH := \#
+CORE = $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(MANIFEST))
 
 # Les tests vivent dans tests/, binaire compris : la racine ne porte que le code
 # et les deux outils. Leurs « #include "asm.h" » se résolvent par -I. — la
@@ -73,7 +79,7 @@ $(T)/sna_test: sna.cpp $(T)/sna_test.cpp sna.h
 ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp pp.h expr.h z80.h keywords.h
 	$(CXX) $(CXXFLAGS) pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp -o $@
 
-fantams: $(CORE) asm_main.cpp asm.h pp.h sym.h
+fantams: $(MANIFEST) $(CORE) asm_main.cpp asm.h pp.h sym.h
 	$(CXX) $(CXXFLAGS) $(CORE) asm_main.cpp -o $@
 
 test: $(TESTS) fantams

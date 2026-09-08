@@ -5,39 +5,66 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra)
 
+# Les modules du coeur sont declares UNE SEULE FOIS, dans sources.manifest, que
+# les trois points d'entree de construction lisent. La ligne « groupe fichier »
+# y nomme la bibliotheque qui porte le module ; les aretes entre bibliotheques
+# restent ici, parce qu'elles sont un fait de CMake et non une liste de sources.
+#
+# Le manifeste est declare en dependance de la reconfiguration : ajouter un
+# module y suffit, sans autre edition et sans « cmake » relance a la main.
+set(FANTAMS_MANIFEST ${CMAKE_CURRENT_SOURCE_DIR}/sources.manifest)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FANTAMS_MANIFEST})
+
+# ENCODING UTF-8 : sans lui, file(STRINGS) coupe les lignes sur les octets non
+# ASCII, et un fragment de commentaire accentue arrive ici sans son diese.
+file(STRINGS ${FANTAMS_MANIFEST} _manifest_lines ENCODING UTF-8)
+foreach(_line IN LISTS _manifest_lines)
+  string(STRIP "${_line}" _line)
+  if(_line STREQUAL "" OR _line MATCHES "^#")
+    continue()
+  endif()
+  if(NOT _line MATCHES "^([A-Za-z0-9_]+)[ \t]+([^ \t]+)$")
+    message(FATAL_ERROR "sources.manifest : ligne illisible : ${_line}")
+  endif()
+  list(APPEND FANTAMS_GROUPS ${CMAKE_MATCH_1})
+  list(APPEND FANTAMS_SRC_${CMAKE_MATCH_1} ${CMAKE_MATCH_2})
+endforeach()
+if(NOT FANTAMS_GROUPS)
+  message(FATAL_ERROR "sources.manifest : aucun module lu")
+endif()
+
 # Bibliothèques autonomes (portables WASM/JS)
-add_library(z80 STATIC z80.cpp)
+add_library(z80 STATIC ${FANTAMS_SRC_z80})
 target_include_directories(z80 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Vocabulaire réservé partagé (ADR 0013) : « ce mot est-il un label ? », une
 # seule fois, avec la phase pour paramètre.
-add_library(keywords STATIC keywords.cpp)
+add_library(keywords STATIC ${FANTAMS_SRC_keywords})
 target_include_directories(keywords PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(keywords PUBLIC z80)
 
 # expr.cpp depend de keywords (kw::readLiteral, ADR 0010).
-add_library(pp STATIC pp.cpp expr.cpp)
+add_library(pp STATIC ${FANTAMS_SRC_pp})
 target_include_directories(pp PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(pp PUBLIC keywords)
 
-add_library(parser STATIC parser.cpp)
+add_library(parser STATIC ${FANTAMS_SRC_parser})
 target_include_directories(parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(parser PUBLIC z80 keywords)
 
 # Mise en forme du source (ADR 0013) : texte -> texte, sans adresse ni octet.
-add_library(beautify STATIC beautify.cpp)
+add_library(beautify STATIC ${FANTAMS_SRC_beautify})
 target_include_directories(beautify PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(beautify PUBLIC keywords)
 
-add_library(sna STATIC sna.cpp)
+add_library(sna STATIC ${FANTAMS_SRC_sna})
 target_include_directories(sna PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # sym.cpp : le format de la table des symboles (ADR 0019), fonction pure —
 # il vit avec l'assembleur parce qu'il ne rend que son Object.
 # asm.cpp rend un OBJET, link.cpp en fait une IMAGE : les deux moities de la
 # meme chaine, et la seule facon d'obtenir un octet.
-add_library(asmlib STATIC asm.cpp link.cpp fo.cpp lex.cpp script.cpp
-                          profile.cpp profiles.cpp sym.cpp)
+add_library(asmlib STATIC ${FANTAMS_SRC_asmlib})
 target_include_directories(asmlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asmlib PUBLIC parser z80 pp sna keywords)
 

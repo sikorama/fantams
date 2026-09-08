@@ -45,7 +45,18 @@ cd "$HERE"
 CONTAINER="${CONTAINER:-podman}"
 IMAGE="${IMAGE:-docker.io/emscripten/emsdk:latest}"
 
-CORE=(z80.cpp expr.cpp keywords.cpp parser.cpp pp.cpp asm.cpp link.cpp fo.cpp beautify.cpp sna.cpp sym.cpp asm_main.cpp)
+# Les modules du coeur sont declares UNE SEULE FOIS, dans sources.manifest, que
+# les trois points d'entree de construction lisent. C'est precisement ici que la
+# faute avait mordu : quatre modules de l'etage C1 manquaient a la liste qui
+# vivait en dur a cette ligne, et l'edition de liens echouait sur symboles
+# indefinis. Le manifeste ne porte que le coeur ; le module portant le « main »
+# de l'adaptateur CLI est ajoute ici, par ce point d'entree, comme le font les
+# deux autres.
+MANIFEST="$HERE/sources.manifest"
+[ -f "$MANIFEST" ] || { echo "!! sources.manifest introuvable ($MANIFEST)" >&2; exit 1; }
+mapfile -t CORE < <(awk 'NF && substr($1,1,1) != "#" { print $2 }' "$MANIFEST")
+[ "${#CORE[@]}" -gt 0 ] || { echo "!! sources.manifest : aucun module lu" >&2; exit 1; }
+CORE+=(asm_main.cpp)
 
 # Note pile 8 Mo : le parseur récursif de fantams déborde la pile Emscripten
 # par défaut (64 Ko) sur les grosses sources -> trap "table index out of bounds".
@@ -78,7 +89,7 @@ is_stale() {
   [ -f "$w" ] || { echo "$w absent"; return 0; }
   [ -f "$OUT_DIR/fantams.mjs" ] || { echo "$OUT_DIR/fantams.mjs absent"; return 0; }
   local f
-  for f in "${CORE[@]}" "$HERE"/*.h; do
+  for f in "${CORE[@]}" "$HERE"/*.h "$MANIFEST"; do
     [ -e "$f" ] || continue
     [ "$HERE/$(basename "$f")" -nt "$w" ] && { echo "$(basename "$f") plus récent que le .wasm"; return 0; }
   done
