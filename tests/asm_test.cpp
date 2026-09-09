@@ -373,6 +373,8 @@ int main() {
 
     chkErr("registre en label", "hl: nop\n");
 
+    chkErr("opcode en label", "opcode: nop\n");
+
     chkSym("label libre", "boucle: nop\n", "boucle", 0);
 
     chkSym("label local non concerné", "g: nop\n.b: nop\n", "g.b", 1);
@@ -899,6 +901,12 @@ int main() {
            "  END_BOUNDARY\n"
            "  db 2\n"
            "  END_BOUNDARY\n");
+
+    // --- opcode() : hook réel câblé sur le module dédié (ADR 0031) -----------
+    printf("\n-- opcode() --\n");
+    chk("opcode() s'assemble comme n'importe quel operateur", "  org #8000\n  db opcode(\"ld (bc),a\",0)\n", {0x02}, 0x8000);
+    chk("opcode() est utilisable dans un ld", "  org #8000\n  ld a,opcode(\"ld (bc),a\",0)\n", {0x3E, 0x02}, 0x8000);
+    chkErr("l'octet d'un placeholder reste un refus, meme cable", "  org #8000\n  db opcode(\"ld a,n\",1)\n");
 
     // --- C1.7 : bankof(), et les noms qui appartiennent au linker ------------
     printf("\n-- bankof() et les noms du linker --\n");

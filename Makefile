@@ -24,7 +24,7 @@ CORE := $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(
 # compilation part toujours de la racine.
 T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
-        $(T)/asm_test $(T)/link_test $(T)/fo_test $(T)/script_test \
+        $(T)/asm_test $(T)/opcode_test $(T)/link_test $(T)/fo_test $(T)/script_test \
         $(T)/profile_test $(T)/beautify_test $(T)/sna_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
@@ -44,21 +44,26 @@ $(T)/pp_test: pp.cpp expr.cpp z80.cpp keywords.cpp $(T)/pp_test.cpp pp.h expr.h 
 $(T)/parser_test: parser.cpp z80.cpp keywords.cpp $(T)/parser_test.cpp parser.h z80.h keywords.h
 	$(TCXX) parser.cpp z80.cpp keywords.cpp $(T)/parser_test.cpp -o $@
 
-$(T)/asm_test: asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp script.cpp lex.cpp $(T)/asm_test.cpp asm.h link.h sym.h keywords.h script.h
-	$(TCXX) asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp script.cpp lex.cpp $(T)/asm_test.cpp -o $@
+$(T)/asm_test: asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp script.cpp lex.cpp $(T)/asm_test.cpp asm.h link.h sym.h keywords.h opcode.h script.h
+	$(TCXX) asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp script.cpp lex.cpp $(T)/asm_test.cpp -o $@
+
+# opcode.cpp (ADR 0031) : testable seul, comme z80.cpp — ne depend que de
+# parser+z80.
+$(T)/opcode_test: opcode.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/opcode_test.cpp opcode.h parser.h z80.h expr.h
+	$(TCXX) opcode.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/opcode_test.cpp -o $@
 
 # Le linkage se teste au point le plus haut : des objets fabriques A LA MAIN,
 # et l'image qui en sort. Verifier un recouvrement ne demande plus d'ecrire un
 # source Z80 qui le provoque, mais deux structures de dix lignes.
 # Le profil et le script y sont ANALYSES depuis du texte, et non fabriques a la
 # main : c'est le chemin reel, et un test qui echoue nomme le bon maillon.
-$(T)/link_test: link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp link.h asm.h script.h profile.h
-	$(TCXX) link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp -o $@
+$(T)/link_test: link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp link.h asm.h script.h profile.h
+	$(TCXX) link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp -o $@
 
 # Le fichier objet : l'aller-retour se teste par CHAINES, ce qui est justement
 # la raison de ne pas le faire compact.
-$(T)/fo_test: fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp script.cpp lex.cpp $(T)/fo_test.cpp fo.h asm.h script.h
-	$(TCXX) fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp script.cpp lex.cpp $(T)/fo_test.cpp -o $@
+$(T)/fo_test: fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp script.cpp lex.cpp $(T)/fo_test.cpp fo.h asm.h script.h
+	$(TCXX) fo.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp script.cpp lex.cpp $(T)/fo_test.cpp -o $@
 
 # Le script de linkage : un TEXTE entre, une valeur sort. Aucun profil, aucun
 # objet, aucun octet — c'est ce qui le rend testable seul, et c'est pour cela
@@ -76,8 +81,8 @@ $(T)/profile_test: lex.cpp profile.cpp profiles.cpp $(T)/profile_test.cpp profil
 # ni octet, ni assemblage (ADR 0013).
 # beautify.cpp lui-meme n'a besoin que de keywords + z80 ; l'assembleur n'est la
 # que pour l'invariant d'octets, verifie par les tests.
-$(T)/beautify_test: beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cpp expr.cpp pp.cpp script.cpp lex.cpp $(T)/beautify_test.cpp beautify.h keywords.h script.h
-	$(TCXX) beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cpp expr.cpp pp.cpp script.cpp lex.cpp $(T)/beautify_test.cpp -o $@
+$(T)/beautify_test: beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cpp expr.cpp opcode.cpp pp.cpp script.cpp lex.cpp $(T)/beautify_test.cpp beautify.h keywords.h script.h
+	$(TCXX) beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cpp expr.cpp opcode.cpp pp.cpp script.cpp lex.cpp $(T)/beautify_test.cpp -o $@
 
 $(T)/sna_test: sna.cpp $(T)/sna_test.cpp sna.h
 	$(TCXX) sna.cpp $(T)/sna_test.cpp -o $@

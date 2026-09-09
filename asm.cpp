@@ -6,6 +6,7 @@
 #include <cmath>
 #include "expr.h"
 #include "keywords.h"
+#include "opcode.h"
 #include "parser.h"
 #include "z80.h"
 
@@ -977,6 +978,14 @@ private:
                 return true;
             }
             return false;
+        }, [](const std::string &instrText, int index, int len, int64_t &value, std::string &error) -> bool {
+            // opcode() (ADR 0031) : le seul étage qui joigne parser+z80, donc le
+            // seul à câbler le hook réel — ailleurs (préprocesseur pur) il reste
+            // absent, et opcode() le dit lui-même.
+            opcode::Result r = opcode::extract(instrText, index, len);
+            if (!r.ok) { error = r.error; return false; }
+            value = r.value;
+            return true;
         });
         if (!r.ok) { evalOk_ = false; if (pass_ == 2) push(r.error); return 0; }
         lastValue_ = r;

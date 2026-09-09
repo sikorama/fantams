@@ -315,6 +315,23 @@ mais tous ne viennent pas d'un backend — la source déroulée, le source mis e
 et la table des symboles en sont aussi.
 _Éviter_ : sortie, output, binaire
 
+### Opérateurs
+
+**Octet fixe** :
+Un octet de l'encodage d'une instruction dont la valeur ne dépend d'aucun
+opérande variable — il est le même quelle que soit l'instance réelle de
+l'instruction. C'est le seul qu'`opcode()` peut extraire ; tout le reste
+(placeholder, déplacement relatif non résolu) est un refus.
+_Éviter_ : octet d'opcode (ambigu avec l'encodage entier), octet constant
+
+**Placeholder d'opérande** :
+Dans une instruction passée à `opcode()`, le nom générique (`n`, `nn`, `d`,
+`e`, `imm`, `imm8`, `imm16`) qui tient la place d'un opérande produisant un
+octet séparé de l'opcode, sans en fixer la valeur. Ne s'emploie jamais pour un
+opérande qui change l'octet d'opcode lui-même — bit de `BIT`/`SET`/`RES`,
+vecteur de `RST`, mode de `IM` — qui réclame une vraie valeur.
+_Éviter_ : joker, wildcard, valeur générique
+
 ### Diagnostics
 
 **Diagnostic** :

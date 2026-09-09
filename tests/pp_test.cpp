@@ -142,6 +142,16 @@ int main() {
     chk("label jamais substitué", "LET v=1\nv: nop\n", "v: nop\n");
     chk("pas de substitution dans un nombre hexa", "LET f=1\n db #ff\n", "db #ff\n");
 
+    // opcode() (ADR 0031) n'a de sens qu'au temps d'assemblage, où l'Assembler
+    // câble le hook réel. LET exige une résolution au temps préprocesseur
+    // (CONTEXT.md, « Variable de préprocesseur »), qui ne joint jamais
+    // parser/z80 : le refus le dit, plutôt que de se comporter différemment
+    // d'un contexte à l'autre.
+    chkErr("opcode() est indisponible au temps préprocesseur (LET)",
+           "LET x=opcode(\"ld a,n\",0)\n db x\n");
+    chk("le même appel, résolu au temps d'assemblage, fonctionne",
+        "db opcode(\"ld a,n\",0)\n", "db opcode(\"ld a,n\",0)\n");
+
     // IF / ELSE / ELSEIF (PP-strict)
     chk("IF vrai", "LET FLAG=1\nIF FLAG\n  ld a,1\nELSE\n  ld a,2\nENDIF\n", "ld a,1\n");
     chk("IF faux", "LET FLAG=0\nIF FLAG\n  ld a,1\nELSE\n  ld a,2\nENDIF\n", "ld a,2\n");

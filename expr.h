@@ -59,6 +59,14 @@ struct Value {
 // coefficient nul et n'a rien d'autre à faire.
 using Resolver = std::function<bool(const std::string &name, Value &out)>;
 
+// `opcode("instruction"[, index[, len]])` (ADR 0031) : extrait un ou plusieurs
+// octets FIXES de l'encodage d'une instruction Z80 passée en chaîne. `expr`
+// n'en connaît pas l'implémentation — elle vit dans `opcode.cpp`, qui dépend
+// de `parser`+`z80` — seulement ce point d'injection, comme le `Resolver`
+// pour les symboles. Rend false et remplit `error` si l'extraction échoue.
+using OpcodeHook = std::function<bool(const std::string &instrText, int index, int len,
+                                       int64_t &value, std::string &error)>;
+
 // Le résultat : une valeur, plus l'issue de son calcul. `value` est la partie
 // CONNUE arrondie — la valeur entière tout court quand elle est absolue, et
 // l'addend de la relocalisation quand elle ne l'est pas.
@@ -79,5 +87,11 @@ struct Result : Value {
 // acceptés ; tout le reste est refusé, parce qu'il demanderait une adresse que
 // personne ne connaît encore.
 Result eval(const std::string &text, const Resolver &resolver);
+
+// Surcharge portant le hook d'`opcode()` : absent (nullptr) là où `parser`/`z80`
+// ne sont pas joignables (ex. résolution de variables pures du préprocesseur),
+// auquel cas `opcode(...)` échoue en le disant plutôt que de se comporter
+// différemment de contexte en contexte.
+Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook);
 
 } // namespace expr

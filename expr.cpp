@@ -47,6 +47,7 @@ struct Parser {
     const std::string &s;
     size_t i = 0;
     const Resolver &resolver;
+    const OpcodeHook *opcodeHook = nullptr;
 
     Parser(const std::string &str, const Resolver &r) : s(str), resolver(r) {}
 
@@ -311,7 +312,39 @@ struct Parser {
     // graphies — une seule règle à retenir, et le refus nomme quand même la
     // graphie canonique. Sur une valeur ABSOLUE, les quatre calculent tout de
     // suite comme elles l'ont toujours fait.
+    // `opcode("instruction"[, index[, len]])` (ADR 0031). Son premier argument
+    // est une CHAINE, pas une expression : elle se lit par `kw::readLiteral`
+    // directement, en contournant `parseLiteral()` dont la limite à un octet
+    // (ADR 0010) n'a pas de sens ici — ce n'est pas la chaîne qui vaut un
+    // nombre, c'est un octet de l'encodage qu'elle nomme.
+    bool callOpcode(Value &out) {
+        if (!eat("(")) fail("expected '(' after OPCODE");
+        skip();
+        if (peek() != '\'' && peek() != '"') fail("opcode(): expected a string literal instruction");
+        kw::Literal lit = kw::readLiteral(s, i);
+        if (!lit.error.empty()) fail(lit.error);
+        i = lit.end;
+        std::string instrText(lit.bytes.begin(), lit.bytes.end());
+
+        int64_t index = 0, len = 1;
+        if (eat(",")) {
+            index = toInt(known(logOr(), "'opcode()'"));
+            if (eat(",")) len = toInt(known(logOr(), "'opcode()'"));
+        }
+        if (!eat(")")) fail("expected ')'");
+
+        if (!opcodeHook || !*opcodeHook)
+            fail("opcode() is not available in this context: no assembler is wired here "
+                 "(e.g. a preprocessor variable resolved before assembly)");
+        int64_t value = 0;
+        std::string err;
+        if (!(*opcodeHook)(instrText, (int)index, (int)len, value, err))
+            fail(err.empty() ? "opcode() failed" : err);
+        out = num((double)value);
+        return true;
+    }
     bool callBuiltin(const std::string &upperName, Value &out) {
+        if (upperName == "OPCODE") return callOpcode(out);
         static const std::set<std::string> unary1 = {
             "SIN", "COS", "ABS", "HI", "LO", "HIGH", "LOW",
             // `bankof(x)` : dans quelle banque le linker a-t-il rangé x ? Une
@@ -398,9 +431,14 @@ struct Parser {
 } // namespace
 
 Result eval(const std::string &text, const Resolver &resolver) {
+    return eval(text, resolver, nullptr);
+}
+
+Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook) {
     Result r;
     try {
         Parser p(text, resolver);
+        p.opcodeHook = &opcodeHook;
         Value v = p.logOr();
         p.skip();
         if (p.i < text.size()) { r.ok = false; r.error = "unexpected character: '" + std::string(1, text[p.i]) + "'"; return r; }

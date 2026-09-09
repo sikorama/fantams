@@ -110,6 +110,10 @@ target_link_libraries(parser_test PRIVATE parser)
 add_executable(asm_test tests/asm_test.cpp)
 target_link_libraries(asm_test PRIVATE asmlib)
 
+# opcode.cpp (ADR 0031) : testable seul, comme z80.cpp.
+add_executable(opcode_test tests/opcode_test.cpp)
+target_link_libraries(opcode_test PRIVATE asmlib)
+
 add_executable(link_test tests/link_test.cpp)
 target_link_libraries(link_test PRIVATE asmlib)
 
@@ -139,6 +143,7 @@ add_test(NAME expressions COMMAND expr_test)
 add_test(NAME preprocessor COMMAND pp_test)
 add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)
+add_test(NAME opcode_extraction COMMAND opcode_test)
 add_test(NAME linker COMMAND link_test)
 add_test(NAME object_file COMMAND fo_test)
 add_test(NAME link_script COMMAND script_test)

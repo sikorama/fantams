@@ -53,6 +53,10 @@ const std::set<std::string> &instructionWords() {
         // `bankof(x)` : la banque ou le linker a range x. Meme raison, et une
         // graphie distincte de BANK, qui reste refusee plus bas.
         "BANKOF",
+        // `opcode("...")` (ADR 0031) : extrait un octet fixe de l'encodage d'une
+        // instruction passee en chaine. Meme raison que HIGH/LOW/BANKOF — un
+        // label nomme « opcode » rendrait `opcode(x)` indechiffrable.
+        "OPCODE",
         // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.

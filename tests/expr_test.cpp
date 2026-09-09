@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <vector>
 
 static int g_pass = 0, g_fail = 0;
 
@@ -239,6 +240,55 @@ int main() {
     // Les memes formes restent legales sur un nombre.
     chkAbs("start >> 8 reste legal", "start >> 8", 0x80);
     chkAbs("start & 255 reste legal", "start & 255", 0);
+
+    // --- opcode() : un simple point d'injection, jamais une dépendance directe
+    // vers parser/z80 (ADR 0031) ----------------------------------------------
+    {
+        // Sans hook, opcode() échoue en le disant : c'est le chemin du
+        // préprocesseur pur, qui ne peut jamais joindre parser/z80.
+        expr::Result r = expr::eval("opcode(\"ld a,n\",0)", resolver, nullptr);
+        bool named = !r.ok && r.error.find("not available") != std::string::npos;
+        if (!named) { ++g_fail; printf("  \033[31mFAIL\033[0m opcode() sans hook nomme l'absence : %s\n", r.error.c_str()); }
+        else ++g_pass;
+    }
+    {
+        // Avec un hook factice, l'appel lui est transmis tel quel : le texte de
+        // l'instruction, et index/len — par défaut 0 et 1 quand omis.
+        struct Call { std::string text; int index; int len; };
+        std::vector<Call> calls;
+        expr::OpcodeHook hook = [&](const std::string &text, int index, int len,
+                                     int64_t &value, std::string &) {
+            calls.push_back({text, index, len});
+            value = 0x3E;
+            return true;
+        };
+        expr::Result r1 = expr::eval("opcode(\"ld a,n\")", resolver, hook);
+        if (!r1.ok || r1.value != 0x3E || calls.size() != 1 ||
+            calls[0].text != "ld a,n" || calls[0].index != 0 || calls[0].len != 1) {
+            ++g_fail;
+            printf("  \033[31mFAIL\033[0m opcode() sans index/len : défauts 0 et 1\n");
+        } else ++g_pass;
+
+        calls.clear();
+        expr::Result r2 = expr::eval("opcode(\"ld (ix+d),n\",1,2)", resolver, hook);
+        if (!r2.ok || calls.size() != 1 || calls[0].text != "ld (ix+d),n" ||
+            calls[0].index != 1 || calls[0].len != 2) {
+            ++g_fail;
+            printf("  \033[31mFAIL\033[0m opcode() transmet index/len tels quels\n");
+        } else ++g_pass;
+    }
+    {
+        // Le hook peut échouer (mnémonique invalide, octet non fixe...) : son
+        // message remonte tel quel, sans reformulation.
+        expr::OpcodeHook fails = [](const std::string &, int, int, int64_t &, std::string &error) {
+            error = "byte 1 is not fixed";
+            return false;
+        };
+        expr::Result r = expr::eval("opcode(\"ld a,n\",1)", resolver, fails);
+        bool named = !r.ok && r.error.find("byte 1 is not fixed") != std::string::npos;
+        if (!named) { ++g_fail; printf("  \033[31mFAIL\033[0m le refus du hook remonte tel quel : %s\n", r.error.c_str()); }
+        else ++g_pass;
+    }
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

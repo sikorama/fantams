@@ -43,6 +43,9 @@ sna        sna.cpp
 # même chaîne, et la seule façon d'obtenir un octet. sym.cpp est le format de
 # la table des symboles (ADR 0019), fonction pure. lex.cpp est le lexeur
 # partagé du script de lien et du profil de cible (ADR 0022, ADR 0028).
+# opcode.cpp extrait les octets fixes de l'encodage d'une instruction (ADR
+# 0031) : il dépend de parser+z80, que asmlib porte déjà tous les deux.
+asmlib     opcode.cpp
 asmlib     asm.cpp
 asmlib     link.cpp
 asmlib     fo.cpp
