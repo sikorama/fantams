@@ -820,13 +820,22 @@ private:
                 // plus bas, par la vraie analyse ; ici on se tait.
                 std::string win, cfg, ignored;
                 bool has = false;
-                peelPlacement(rest, win, cfg, has, ignored);
+                const bool wellFormed = peelPlacement(rest, win, cfg, has, ignored);
                 auto parts = splitTopLevel(rest, ',');
                 cur = parts.empty() ? std::string() : trim(parts[0]);
                 if (cur.empty()) continue;
                 SectionInfo &sec = sections_[cur];
-                if (sec.id < 0) { sec.id = nextId_++; sectionOrder_.push_back(cur); }
-                if (has && !cfg.empty() && !sec.hasPlace) {
+                const bool created = sec.id < 0;
+                if (created) { sec.id = nextId_++; sectionOrder_.push_back(cur); }
+                // Une forme FAUTIVE ne place rien. `peelPlacement` remplit `cfg`
+                // avant de constater la faute ; retenir ce debut ferait porter a
+                // la section un placement que la vraie analyse a refuse, et le
+                // linker s'en plaindrait une seconde fois, sans ligne a citer.
+                //
+                // Et seule la PREMIERE declaration place : un `IN` apparu a une
+                // reouverture est refuse plus bas, et le retenir ici le rendrait
+                // retroactif sur les octets deja poses.
+                if (wellFormed && has && !cfg.empty() && created) {
                     sec.hasPlace = true; sec.place = cfg; sec.placeWindow = win;
                 }
             } else if (w0 == "ORG" && !cur.empty()) {
@@ -1421,7 +1430,15 @@ private:
                     ? (sec.placeWindow.empty() ? sec.place : sec.placeWindow + " OF " + sec.place)
                     : std::string();
                 const std::string now = placeWin.empty() ? placeCfg : placeWin + " OF " + placeCfg;
-                if (sec.hasPlace && was != now)
+                if (!sec.hasPlace && reopened)
+                    // Un `IN` apparu a une reouverture vaudrait RETROACTIVEMENT
+                    // pour les octets deja poses, et c'est exactement le
+                    // deplacement silencieux — depuis un fichier inclus, par
+                    // exemple — que le figeage existe pour empecher.
+                    structErr("SECTION '" + curSection_ + "' was first declared without a "
+                              "placement: a section is placed at its first declaration, or "
+                              "not at all — the bytes already in it would move without a word");
+                else if (sec.hasPlace && was != now)
                     structErr("SECTION '" + curSection_ + "' was already placed 'IN " + was +
                               "': a section keeps the placement of its first declaration");
                 else { sec.hasPlace = true; sec.place = placeCfg; sec.placeWindow = placeWin; }

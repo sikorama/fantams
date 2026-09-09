@@ -462,8 +462,10 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
          "    section gfx3, \"ro\", 0x2000 IN ext_w1<2>\n");
     idem("la mise en forme d'un placement est idempotente",
          "section gfx1,\"ro\" IN ext_w1<1>\n    db 1\n");
-    sameBytes("et elle ne change pas un octet",
-              "    section gfx1, \"ro\" IN ext_w1<1>\n    db 1,2,3\n");
+    // Pas de controle d'octets ici : un source qui se place lui-meme reclame un
+    // profil, et le linker le refuse sans — c'est justement ce que P3 a rendu
+    // vrai, et `link_test` le tient. Ce que cette suite doit garantir est le
+    // TEXTE, et `keep` le compare a l'octet pres.
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

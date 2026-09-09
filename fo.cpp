@@ -15,7 +15,12 @@ namespace fo {
 namespace {
 
 const char *kMagic = "fantams-object";
-const int kVersion = 1;
+// 2 : la section porte `place` / `window`, et une section placee par le source
+// s'ecrit `reloc` bien qu'elle porte un `org` — son `org` y est un decalage. Un
+// fantams d'avant lirait ces objets sans broncher, ignorerait les deux cles et
+// lierait la section a une adresse fausse EN SILENCE. C'est la classe de
+// changement que ce champ existe pour attraper ; il monte donc.
+const int kVersion = 2;
 const uint16_t kUnknownSite = 0xFFFF;
 
 std::string hex(int64_t v) {

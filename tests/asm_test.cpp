@@ -1102,6 +1102,31 @@ int main() {
         okc("une configuration qui n'en est pas une syntaxiquement est refusee", !d.obj.ok);
     }
 
+    {
+        // Une forme FAUTIVE ne place rien. Le detacheur remplit sa chaine avant
+        // de constater la faute ; retenir ce debut ferait porter a la section un
+        // placement que la vraie analyse a refuse — et le linker s'en plaindrait
+        // une SECONDE fois, sans ligne a citer.
+        Built b = build("  section s, \"ro\" IN a+b\n  db 1\n", "t.asm");
+        okc("une forme fautive est refusee", !b.obj.ok);
+        okc("et une seule fois", b.errors.size() == 1);
+        const asmb::Section *s = sectionOf(b.obj, "s");
+        okc("la section ne porte alors aucun placement", s && s->place.empty());
+    }
+    {
+        // Un `IN` apparu a une REOUVERTURE vaudrait retroactivement pour les
+        // octets deja poses : c'est le deplacement silencieux que le figeage
+        // existe pour empecher, et il se produisait dans l'autre sens.
+        Built b = build("  section s, \"ro\"\n  db 1\n"
+                        "  section s, \"ro\" IN w1 OF ext_w1<2>\n  db 2\n", "t.asm");
+        okc("un placement introduit a une reouverture est refuse", !b.obj.ok);
+        const std::string m = b.errors.empty() ? std::string() : b.errors[0].message;
+        okc("et le refus dit pourquoi : les octets deja poses bougeraient",
+            m.find("first declaration") != std::string::npos);
+        const asmb::Section *s = sectionOf(b.obj, "s");
+        okc("la section n'est pas placee pour autant", s && s->place.empty());
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

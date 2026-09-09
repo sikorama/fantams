@@ -108,8 +108,8 @@ décision.
 |---|-------|-----------|------|
 | P1 | Les clés du profil seul dans `switchSymbols` | — | **faite** |
 | P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — | **faite** |
-| P3 | Le linker résout le placement du source, et le fusionne | P2 | à faire |
-| P4 | La surcharge par le script, et son avertissement | P3 | à faire |
+| P3 | Le linker résout le placement du source, et le fusionne | P2 | **faite** |
+| P4 | La surcharge par le script, et son avertissement | P3 | **faite** |
 | P5 | L'exemple et les tests d'acceptation | P1, P4 | à faire |
 | P6 | L'ADR : le source qui porte son placement, et ce qu'il perd | tout | à faire |
 
@@ -232,29 +232,95 @@ n'est pas encore honorée.
 
 ### P3 — le linker résout et fusionne
 
-- [ ] Le placement du source entre dans la **même carte** que celle du script —
+- [x] Le placement du source entre dans la **même carte** que celle du script —
       un seul moteur, donc un seul jeu de diagnostics
-- [ ] Une config que le profil ne déclare pas : refus, en nommant celles qu'il
+- [x] Une config que le profil ne déclare pas : refus, en nommant celles qu'il
       déclare
-- [ ] Forme courte sur une config qui mappe plusieurs fenêtres : refus, en
+- [x] Forme courte sur une config qui mappe plusieurs fenêtres : refus, en
       nommant les fenêtres et la forme verbeuse
-- [ ] Une fenêtre que la config ne mappe pas : refus
-- [ ] Le chevauchement, le mou et l'`ORG` déduit s'appliquent **sans une ligne
+- [x] Une fenêtre que la config ne mappe pas : refus
+- [x] Le chevauchement, le mou et l'`ORG` déduit s'appliquent **sans une ligne
       de plus** — c'est le contrôle qui prouve que P3 n'a pas créé un second
       moteur
-- [ ] Le type de section et les droits de la banque sont confrontés (une `"rw"`
-      dans une banque `ro` est refusée), par le chemin qui le fait déjà
-- [ ] **L'ordre de concaténation** de deux sections placées par le source dans
+- [x] **L'ordre de concaténation** de deux sections placées par le source dans
       le même bloc est celui de la fusion par nom de C1.0 — ordre des objets sur
-      la ligne de commande, puis ordre de déclaration. À relire : il rend le
-      placement dépendant de l'ordre de linkage, ce que le script ne fait pas
+      la ligne de commande, puis ordre de déclaration
+- [ ] ~~Le type de section et les droits de la banque sont confrontés~~ —
+      **retiré, et pourquoi** : ce contrôle n'existe pour personne.
+      `profile::Bank::readOnly` est analysé et **jamais lu par le linker**, pas
+      davantage pour un placement de script. L'écrire ici aurait changé le
+      comportement du placement par script en marge d'une étape qui ne parle pas
+      de lui. Et c'est une **vérification** : par la division même de la spec,
+      elle appartient à C2. *(Manque nommé, à porter à C2.)*
+
+**Sept défauts trouvés par la relecture, et corrigés.**
+
+- **Le prescan retenait une forme fautive.** Le détacheur remplit sa chaîne
+  avant de constater la faute ; la section portait donc un placement que la
+  vraie analyse avait refusé, et le linker s'en plaignait une **seconde** fois,
+  sans ligne à citer.
+- **Un `IN` apparu à une réouverture était accepté**, et valait rétroactivement
+  pour les octets déjà posés — exactement le déplacement silencieux que le
+  figeage existe pour empêcher, dans le sens que la règle n'avait pas couvert.
+- **La surcharge par le script était muette** *(ci-dessus)*.
+- **Deux unités qui plaçaient le même nom se comparaient sur le TEXTE** :
+  `ext_w1<1>` et `ram.ext_w1<1>` nomment une seule configuration, et le
+  versement les traitait déjà comme une seule — le contrôle refusait donc un
+  accord parfait pour une différence d'écriture.
+- **La liste des configurations n'était pas qualifiée** : deux axes de
+  recouvrement nomment chacun `on` et `off`, et le profil livré en porte deux —
+  la liste faisait revenir le même mot deux fois sans dire lequel est lequel.
+- **`docs/syntax.md` affirmait qu'`in` restait un nom de label libre.** C'est
+  faux : `IN` est une instruction Z80, donc un mot réservé, et il l'était déjà.
+  Ce que cette étape garantit est plus étroit — elle n'ajoute **aucun** mot
+  réservé.
+- **La version du format objet ne montait pas.** Deux clés neuves, et une
+  section placée par le source écrite `reloc` bien qu'elle porte un `org` : un
+  fantams d'avant lisait ces objets sans broncher, ignorait les deux clés et
+  liait la section à une adresse fausse **en silence**. C'est la classe de
+  changement que ce champ existe pour attraper. `kVersion` passe à 2.
+
+**Trois choses décidées en cours de route.**
+
+- **Rien ne place dans P3.** L'étape construit une **carte** — la même structure
+  qu'un `.ld` produit — et la verse dans celle du script avant que quoi que ce
+  soit ne place. Tout ce qui suit s'applique sans savoir d'où elle vient. C'est
+  ce qui fait de `IN` une seconde syntaxe d'entrée et non un second moteur ; le
+  contrôle qui le prouve est qu'aucune ligne, en aval, n'a eu besoin de
+  distinguer une section placée par le script d'une section placée par le source.
+- **Un seul analyseur de référence de configuration.** `script::parseConfigRef`
+  est exposée, et le source passe par elle. En écrire une seconde pour `IN`
+  aurait fait deux langages qui se ressemblent, et la ressemblance aurait fini
+  par se défaire.
+- **Les clés PAR SECTION restent script-seul**, et le code le dit à l'endroit
+  où c'était tentant : `placeRelocSections` reçoit **deux** scripts — celui qui
+  place, et celui que l'auteur a écrit. Les symboles s'en tiennent au second.
+  Offrir `__val_ram_gfx1` au linkage et pas à l'assemblage ferait d'un même nom
+  deux langages selon la façon dont on compile. Un source qui se place lui-même
+  nomme sa configuration, `__val_ram_ext_w1_1`, et ce nom vaut par les deux
+  chemins.
+
+**Ce que le profil livré apprend sur la forme courte.** Sur `cpc6128`, un état
+décrit **toute** la carte — `ext_w1<b>` s'écrit `{ w0 base0  w1 ext<b>  w2 base2
+w3 base3 }` — et non la seule fenêtre qui change. La forme courte y est donc
+refusée presque partout, et `IN w1 OF ext_w1<1>` est la forme normale. Ce n'est
+pas un défaut : c'est la règle tranchée qui s'applique, et le refus nomme les
+quatre fenêtres et la forme qui tranche. La forme courte sert les configurations
+qui ne mappent réellement qu'une fenêtre, comme `rom.on { w0 rom_lo }`.
 
 ### P4 — la surcharge
 
-- [ ] Le script gagne sur le source
-- [ ] Un avertissement nomme les deux placements et la section
-- [ ] Une section que seul le source place n'avertit de rien
-- [ ] Un script qui place une section **inexistante** garde son diagnostic actuel
+- [x] Le script gagne sur le source
+- [x] Un avertissement nomme les deux placements et la section
+- [x] Une section que seul le source place n'avertit de rien
+- [x] Un script qui place une section **inexistante** garde son diagnostic actuel
+
+**Venue avec P3, et non après.** La relecture a montré que le piège n'est pas
+cosmétique : un source qui se place lui-même commute avec la valeur de **sa**
+configuration — `__val_ram_ext_w1_1` —, qui est la mauvaise dès que le script
+l'a posé ailleurs. La faute est indétectable à la lecture des deux fichiers pris
+séparément, et ne se voit qu'à l'exécution. Livrer P3 en la laissant muette
+aurait été livrer le piège avec son mode d'emploi.
 
 ### P5 — l'exemple et les tests
 

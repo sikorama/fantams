@@ -65,7 +65,7 @@ static void bad(const char *desc, const std::string &text, int line) {
     ++g_pass;
 }
 
-static const char *kHead = "fantams-object 1\n";
+static const char *kHead = "fantams-object 2\n";
 
 int main() {
     printf("Tests fichier objet (.fo)\n");

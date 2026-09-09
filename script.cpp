@@ -304,4 +304,25 @@ Script parse(const std::string &text, const std::string &file) {
     return p.out;
 }
 
+bool parseConfigRef(const std::string &text, ConfigRef &out, std::string &error) {
+    Parser p;
+    p.file.clear();
+    std::string err;
+    int line = 0;
+    if (!lex::tokenize(text, p.t, err, line)) { error = err; return false; }
+    if (!p.configRef(out)) {
+        error = "'" + text + "' is not a configuration name (write 'state', "
+                "'state<n>' or 'axis.state<n>')";
+        return false;
+    }
+    // RIEN NE DOIT RESTER. Un reliquat voudrait dire qu'on a lu la moitié d'un
+    // nom et accepté l'autre en silence, ce qui est la façon dont un placement
+    // devient faux sans un mot.
+    if (!p.atEnd()) {
+        error = "'" + text + "' has trailing characters after the configuration name";
+        return false;
+    }
+    return true;
+}
+
 } // namespace script

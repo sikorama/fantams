@@ -114,4 +114,15 @@ struct Script {
 // ignorerait à moitié produirait un binaire faux sans un mot.
 Script parse(const std::string &text, const std::string &file);
 
+// Analyse UNE référence de configuration — `[axe.]état[<n>]` — telle qu'une
+// **déclaration de section** l'écrit après son `IN`.
+//
+// Le script et le source nomment une configuration de la MÊME façon, et c'est
+// cette fonction qui le garantit : une graphie, un analyseur. En écrire un
+// second pour le source aurait fait deux langages qui se ressemblent, et la
+// ressemblance aurait fini par se défaire.
+//
+// Rend false et remplit `error` sur une graphie fautive.
+bool parseConfigRef(const std::string &text, ConfigRef &out, std::string &error);
+
 } // namespace script

@@ -437,8 +437,9 @@ cap. Reopening the section without an `IN` keeps it; reopening it with a
 different one is refused — letting it move at a reopening, from an included file
 say, would move the section without a word.
 
-`IN` and `OF` are **not reserved words**. They mean something only among the
-operands of a `SECTION`, so a label named `in` still assembles.
+`IN` and `OF` add **no new reserved words**. They mean something only among the
+operands of a `SECTION`, and are recognised there and nowhere else — `IN` was
+already the Z80 instruction, and it still is everywhere a mnemonic is expected.
 
 Placing a section in the source **couples it to the machine**, which a `.asm`
 otherwise is not: it will not build for another target without being edited,

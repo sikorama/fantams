@@ -588,8 +588,13 @@ struct Linker {
     //
     // Les identifiants de section sont LOCAUX à leur objet : c'est pour cela
     // qu'il y a une table de bases par objet, et non une seule.
+    // `sc` est la carte qui PLACE — celle du script, augmentée de ce que les
+    // sections portent. `declared` est le script tel que l'auteur l'a écrit :
+    // les symboles de commutation s'en tiennent à lui, et le commentaire de
+    // `offerSwitchSymbols` dit pourquoi.
     std::vector<std::map<int, int>> placeRelocSections(const std::vector<asmb::Object> &objects,
                                                        const script::Script &sc,
+                                                       const script::Script &declared,
                                                        const profile::Profile &pr) {
         int cursor = 0;
         for (const asmb::Object &obj : objects)
@@ -675,7 +680,14 @@ struct Linker {
             // est décidé : un `EXTERN` sur `__val_...` doit se résoudre au même
             // temps que les autres, et il ne peut pas l'être avant que la
             // configuration de chaque section soit connue.
-            offerSwitchSymbols(sc, pr);
+            // LES CLÉS PAR SECTION S'EN TIENNENT AU SCRIPT, et c'est pourquoi
+            // c'est `declared` qui est passé ici. `switchSymbols` tourne aussi
+            // AVANT d'assembler, où le placement du source n'est pas lisible :
+            // offrir `__val_ram_gfx1` ici et pas là ferait d'un même nom deux
+            // langages selon la façon dont on compile. Un source qui se place
+            // lui-même nomme sa configuration — `__val_ram_ext_w1_1` —, et ce
+            // nom-là vaut par les deux chemins.
+            offerSwitchSymbols(declared, pr);
             // `__off_<section>` : son offset DANS sa banque. Celui-là dépend du
             // placement — pour un loader, ou pour une recopie (§12.3) — et il ne
             // peut donc pas être une constante calculée avant d'assembler. C'est
@@ -1260,6 +1272,192 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
 
 } // namespace
 
+// --- LE PLACEMENT QUE LE SOURCE PORTE, VERSÉ DANS LA CARTE ------------------
+// Rien ici ne place. On construit une CARTE — la même structure qu'un `.ld`
+// produit — et tout ce qui suit s'applique sans savoir d'où elle vient : le
+// chevauchement, le mou chiffré, l'`ORG` déduit, le découpage. C'est ce qui
+// fait de `IN` une seconde syntaxe d'entrée et non un second moteur, et c'est
+// aussi ce qui garantit qu'un même défaut se diagnostique d'une seule voix.
+std::string statesOf(const profile::Profile &pr) {
+    // UN NOM QUE DEUX AXES PORTENT est qualifie de son axe, les autres non. Un
+    // profil a plusieurs axes de recouvrement nomme volontiers `on` et `off`
+    // dans chacun : les lister nus ferait une liste ou le meme mot revient
+    // deux fois sans dire lequel est lequel, et un lecteur ne saurait pas que
+    // `rom_upper.on<n>` demande sa qualification pour designer une chose.
+    std::map<std::string, int> seen;
+    for (const profile::Axis &ax : pr.axes)
+        for (const profile::State &st : ax.states) ++seen[st.name];
+    std::string list;
+    for (const profile::Axis &ax : pr.axes)
+        for (const profile::State &st : ax.states) {
+            if (!list.empty()) list += ", ";
+            if (seen[st.name] > 1) list += ax.name + ".";
+            list += st.name;
+            if (st.hasParam) list += "<" + st.param + ">";
+        }
+    return list;
+}
+std::string windowsOf(const profile::State &st) {
+    std::string list;
+    for (const profile::Slot &sl : st.slots) {
+        if (!list.empty()) list += ", ";
+        list += sl.window;
+    }
+    return list;
+}
+
+script::Script withSourcePlacements(const script::Script &sc,
+                                    const std::vector<asmb::Object> &objects,
+                                    const profile::Profile &pr,
+                                    std::vector<asmb::Diagnostic> &errors,
+                                    std::vector<asmb::Diagnostic> &warnings) {
+    script::Script out = sc;
+    // CE QUE LE SCRIPT PLACE DÉJÀ lui appartient : il est plus tardif et plus
+    // spécifique que le source, et reprendre un source dont on ne veut pas
+    // éditer les sections est un usage réel — le refus l'interdirait.
+    //
+    // Mais la surcharge ne peut pas être MUETTE, et le piège n'est pas cosmétique :
+    // un source qui se place lui-même commute avec la valeur de SA configuration
+    // — `__val_ram_ext_w1_1` —, qui est la mauvaise dès que le script l'a posé
+    // ailleurs. La faute est alors indétectable à la lecture des deux fichiers
+    // pris séparément, et ne se voit qu'à l'exécution.
+    std::map<std::string, std::pair<std::string, int>> byScript;   // section -> (fichier, ligne)
+    for (const script::ConfigBlock &cb : sc.map)
+        for (const script::Placement &p : cb.placements)
+            for (const std::string &n : p.sections) byScript[n] = {p.file, p.line};
+
+    // La même identité qu'une clé de commutation : l'axe résolu, l'état, et
+    // l'argument. Deux graphies — `ext_w1<1>` et `ram.ext_w1<1>` — nomment une
+    // seule configuration, et doivent atterrir dans un seul bloc.
+    auto identity = [&](const script::ConfigRef &r) {
+        std::string axis;
+        if (!findState(pr, r, axis)) axis = r.axis;
+        return axis + "." + r.state + (r.hasArg ? "<" + std::to_string(r.arg) + ">" : "");
+    };
+
+    // Un nom de section est placé UNE fois, même si plusieurs unités le
+    // déclarent — c'est la fusion par nom de C1.0. Deux unités qui le placent
+    // AILLEURS l'une que l'autre sont en revanche en désaccord, et le taire
+    // ferait dépendre le programme de l'ordre des fichiers.
+    std::map<std::string, std::pair<std::string, std::string>> placedBy;
+    for (const asmb::Object &obj : objects) {
+        for (const asmb::Section &sec : obj.sections) {
+            if (sec.place.empty()) continue;
+            const std::string want = sec.placeWindow.empty()
+                ? sec.place : sec.placeWindow + " OF " + sec.place;
+
+            script::ConfigRef ref;
+            std::string err;
+            if (!script::parseConfigRef(sec.place, ref, err)) {
+                errors.push_back({sec.file, sec.line, "section '" + sec.name + "': " + err});
+                continue;
+            }
+            std::string axisName;
+            const profile::State *st = findState(pr, ref, axisName);
+            if (!st) {
+                errors.push_back({sec.file, sec.line,
+                    "section '" + sec.name + "' is placed 'IN " + sec.place +
+                    "', which the profile does not declare (it declares: " +
+                    statesOf(pr) + ")"});
+                continue;
+            }
+            // LA FENÊTRE. La forme courte ne vaut que si la configuration n'en
+            // mappe qu'une : sinon la section irait où ? Le refus nomme les
+            // fenêtres et la forme qui tranche, plutôt que d'en choisir une.
+            std::string window = sec.placeWindow;
+            if (window.empty()) {
+                if (st->slots.empty()) {
+                    errors.push_back({sec.file, sec.line,
+                        "section '" + sec.name + "' is placed 'IN " + sec.place +
+                        "', a configuration that maps no window: nothing can be placed in it"});
+                    continue;
+                }
+                if (st->slots.size() > 1) {
+                    errors.push_back({sec.file, sec.line,
+                        "section '" + sec.name + "' is placed 'IN " + sec.place +
+                        "', which maps several windows (" + windowsOf(*st) +
+                        "): name the one you mean — 'IN <window> OF " + sec.place + "'"});
+                    continue;
+                }
+                window = st->slots.front().window;
+            } else {
+                bool mapped = false;
+                for (const profile::Slot &sl : st->slots) if (sl.window == window) mapped = true;
+                if (!mapped) {
+                    errors.push_back({sec.file, sec.line,
+                        "section '" + sec.name + "' is placed in window '" + window +
+                        "', which the configuration '" + sec.place + "' does not map (it maps: " +
+                        (st->slots.empty() ? std::string("none") : windowsOf(*st)) + ")"});
+                    continue;
+                }
+            }
+
+            // DEUX UNITES QUI PLACENT LE MEME NOM se comparent sur l'identité
+            // RESOLUE, et non sur le texte : `ext_w1<1>` et `ram.ext_w1<1>`
+            // nomment une seule configuration, et le versement, quelques lignes
+            // plus bas, les traite déjà comme une seule. Comparer les graphies
+            // refuserait un accord parfait pour une différence d'écriture.
+            const std::string me = identity(ref) + "/" + window;
+            auto seen = placedBy.find(sec.name);
+            if (seen != placedBy.end()) {
+                if (seen->second.first != me)
+                    errors.push_back({sec.file, sec.line,
+                        "section '" + sec.name + "' is placed 'IN " + want +
+                        "' here and 'IN " + seen->second.second + "' by another unit: a "
+                        "section is placed once, and the two would not agree"});
+                continue;
+            }
+            placedBy[sec.name] = {me, want};
+            auto over = byScript.find(sec.name);
+            if (over != byScript.end()) {
+                warnings.push_back({sec.file, sec.line,
+                    "section '" + sec.name + "' is placed 'IN " + want +
+                    "' here, and the script places it too: the script wins, and this "
+                    "'IN' does not apply — a switching value derived from '" + sec.place +
+                    "' would be wrong for where the section actually lands"});
+                warnings.push_back({over->second.first, over->second.second,
+                    "this is the placement of section '" + sec.name + "' that wins"});
+                continue;
+            }
+
+            // Verser dans le bloc qui existe déjà, quand il existe : deux blocs
+            // pour une même configuration et une même fenêtre seraient lus par
+            // le contrôle de recouvrement comme deux grilles qui se disputent
+            // la banque — un refus dont aucune des deux lignes ne serait fautive.
+            script::Placement *slot = nullptr;
+            for (script::ConfigBlock &cb : out.map) {
+                if (identity(cb.config) != identity(ref)) continue;
+                for (script::Placement &p : cb.placements)
+                    if (p.window == window && !p.hasRange) slot = &p;
+                if (!slot) {
+                    script::Placement p;
+                    p.window = window;
+                    p.file = sec.file;
+                    p.line = sec.line;
+                    cb.placements.push_back(std::move(p));
+                    slot = &cb.placements.back();
+                }
+                break;
+            }
+            if (!slot) {
+                script::ConfigBlock cb;
+                cb.config = ref;
+                cb.file = sec.file;
+                cb.line = sec.line;
+                script::Placement p;
+                p.window = window;
+                p.file = sec.file;
+                p.line = sec.line;
+                cb.placements.push_back(std::move(p));
+                out.map.push_back(std::move(cb));
+                slot = &out.map.back().placements.back();
+            }
+            slot->sections.push_back(sec.name);
+        }
+    }
+    return out;
+}
+
 Image build(const std::vector<asmb::Object> &objects,
             const script::Script &sc, const profile::Profile &pr) {
     Linker lk;
@@ -1282,9 +1480,35 @@ Image build(const std::vector<asmb::Object> &objects,
     // diagnostic qui ne peut pas nommer son unite ne sert a rien.
     for (const asmb::Object &obj : objects) lk.objectNames_.push_back(obj.name);
 
+    // LE PLACEMENT QUE LE SOURCE PORTE rejoint la carte du script, AVANT que
+    // quoi que ce soit ne place. Un seul moteur en aval, donc un seul jeu de
+    // diagnostics — et le contrôle qui le prouve est que rien, plus bas, n'a eu
+    // besoin de savoir d'où vient une section.
+    bool sourcePlaces = false;
+    for (const asmb::Object &obj : objects)
+        for (const asmb::Section &sec : obj.sections)
+            if (!sec.place.empty()) sourcePlaces = true;
+    if (sourcePlaces && pr.windows.empty()) {
+        const asmb::Section *first = nullptr;
+        for (const asmb::Object &obj : objects)
+            for (const asmb::Section &sec : obj.sections)
+                if (!first && !sec.place.empty()) first = &sec;
+        lk.out.ok = false;
+        lk.out.errors.push_back({first->file, first->line,
+            "section '" + first->name + "' places itself 'IN " + first->place +
+            "', which needs a profile: the window gives the address, the configuration "
+            "gives the bank, and the profile gives both — pass --target or -P"});
+        return lk.out;
+    }
+    script::Script placement = sc;
+    if (sourcePlaces) {
+        placement = withSourcePlacements(sc, objects, pr, lk.out.errors, lk.out.warnings);
+        if (!lk.out.errors.empty()) { lk.out.ok = false; return lk.out; }
+    }
+
     // Trois temps, et l'ordre est force. D'abord : ou vont les sections que
     // personne n'a placees.
-    lk.bases_ = lk.placeRelocSections(objects, sc, pr);
+    lk.bases_ = lk.placeRelocSections(objects, placement, sc, pr);
 
     // Ensuite : ce que les objets EXPORTENT. Il faut que TOUTES les bases soient
     // decidees avant, sans quoi un `PUBLIC` d'une section relocalisable n'aurait

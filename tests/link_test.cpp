@@ -1473,6 +1473,203 @@ int main() {
            val("__mask_rom") == 0x04);
     }
 
+    // --- P3 : le linker honore le placement que le SOURCE porte -------------
+    // Le placement du source entre dans LA MEME CARTE que celle du script : un
+    // seul moteur, donc un seul jeu de diagnostics. Les controles ci-dessous
+    // n'exercent pas des mecanismes neufs — ils verifient que les anciens
+    // s'appliquent, ce qui est la preuve qu'aucun second moteur n'est ne.
+    auto place = [](asmb::Object &o, const char *sec, const char *cfg, const char *win = "") {
+        for (asmb::Section &s : o.sections)
+            if (s.name == sec) { s.place = cfg; s.placeWindow = win; }
+    };
+    auto pal3 = [] {
+        return profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "WINDOW w2 [0x8000..0xBFFF]\n"
+            "BANK base0..base2 SIZE 0x4000 rw STORE 0..2\n"
+            "BANK ext0..ext3   SIZE 0x4000 rw STORE 4..7\n"
+            "BANK rom_lo       SIZE 0x4000 ro STORE 8\n"
+            "CONFIG SET ram {\n"
+            "  linear    [CODE %000]     { w0 base0  w1 base1  w2 base2 }\n"
+            "  ext_w1<b> [CODE %100 | b] { w1 ext<b> }\n"
+            "}\n"
+            "CONFIG SET rom OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo } }\n"
+            "SELECT ram = OUT 0x7F00, %11000000 | CODE\n"
+            "SELECT rom = OUT 0x7F00, MASK %00000100, CODE << 2\n", "m.prof");
+    };
+    {
+        // Le cas en titre : sans un mot de script, la section va dans la banque
+        // que sa configuration designe, a l'adresse que la fenetre donne.
+        asmb::Object o = secObj("a.fo", {{"gfx1", {0xA1, 0x10}}});
+        place(o, "gfx1", "ext_w1<1>");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("une section que le SOURCE place est placee, sans script", img.ok);
+        ok("dans la banque que la configuration designe, a l'adresse de la fenetre",
+           img.ok && img.banksWritten.size() == 1 && img.banksWritten[0] == 5);
+        const link::Flat flat = link::flatten(img);
+        ok("et les octets y sont", flat.bytes.size() > (5 * 0x4000 + 1) &&
+           flat.bytes[5 * 0x4000] == 0xA1 && flat.bytes[5 * 0x4000 + 1] == 0x10);
+    }
+    {
+        // La forme verbeuse designe la fenetre elle-meme.
+        asmb::Object o = secObj("a.fo", {{"main", {0xAA}}});
+        place(o, "main", "linear", "w2");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("la forme verbeuse place dans la fenetre nommee",
+           img.ok && !img.bin.empty() && img.loadAddress == 0x8000);
+    }
+    {
+        asmb::Object o = secObj("a.fo", {{"gfx1", {1}}});
+        place(o, "gfx1", "nulle_part");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("une configuration que le profil ne declare pas est refusee", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus nomme celles qu'il declare",
+           m.find("nulle_part") != std::string::npos &&
+           m.find("linear") != std::string::npos && m.find("ext_w1") != std::string::npos);
+    }
+    {
+        // La forme COURTE ne vaut que si la configuration ne mappe qu'une
+        // fenetre. `linear` en mappe trois : la section irait ou ?
+        asmb::Object o = secObj("a.fo", {{"main", {1}}});
+        place(o, "main", "linear");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("la forme courte sur une config a plusieurs fenetres est refusee", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus nomme les fenetres, et la forme verbeuse",
+           m.find("w0") != std::string::npos && m.find("w2") != std::string::npos &&
+           m.find("OF") != std::string::npos);
+    }
+    {
+        asmb::Object o = secObj("a.fo", {{"gfx1", {1}}});
+        place(o, "gfx1", "ext_w1<1>", "w2");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("une fenetre que la configuration ne mappe pas est refusee", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus nomme celles qu'elle mappe",
+           m.find("w2") != std::string::npos && m.find("w1") != std::string::npos);
+    }
+    {
+        // LE CHEVAUCHEMENT S'APPLIQUE, sans une ligne de plus. C'est le controle
+        // qui prouve qu'aucun second moteur de placement n'est ne.
+        asmb::Object o = secObj("a.fo", {{"gfx1", std::vector<uint8_t>(0x3000, 1)},
+                                         {"gfx2", std::vector<uint8_t>(0x3000, 2)}});
+        place(o, "gfx1", "ext_w1<1>");
+        place(o, "gfx2", "ext_w1<1>");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("deux sections que le source place au-dela de la banque sont refusees", !img.ok);
+    }
+    {
+        // Et le MOU est chiffre, par le meme chemin qu'un placement de script.
+        asmb::Object o = secObj("a.fo", {{"gfx1", std::vector<uint8_t>(0x2000, 1)}});
+        place(o, "gfx1", "ext_w1<1>");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        bool said = false;
+        for (const auto &p : img.prints)
+            if (p.message.find("unused") != std::string::npos) said = true;
+        ok("le mou de la banque est signale et chiffre", img.ok && said);
+    }
+    {
+        // L'ORDRE DE CONCATENATION est celui de la fusion par nom de C1.0 :
+        // les objets dans l'ordre de la ligne de commande, puis l'ordre de
+        // declaration dans chacun.
+        asmb::Object a = secObj("a.fo", {{"un", {0x11}}});
+        asmb::Object b = secObj("b.fo", {{"deux", {0x22}}});
+        place(a, "un", "ext_w1<1>");
+        place(b, "deux", "ext_w1<1>");
+        link::Image img = link::build({a, b}, script::Script(), pal3());
+        const link::Flat flat = link::flatten(img);
+        ok("deux sections dans la meme fenetre se concatenent dans cet ordre",
+           img.ok && flat.bytes.size() > (5 * 0x4000 + 1) &&
+           flat.bytes[5 * 0x4000] == 0x11 && flat.bytes[5 * 0x4000 + 1] == 0x22);
+    }
+    {
+        // Le SCRIPT gagne sur le source, mais PAS EN SILENCE. Le piege n'est pas
+        // cosmetique : le source commute avec la valeur de SA configuration, qui
+        // est la mauvaise des que le script l'a pose ailleurs — et la faute ne se
+        // voit ni dans l'un ni dans l'autre fichier pris seul.
+        asmb::Object o = secObj("a.fo", {{"gfx1", {0xEE}}});
+        place(o, "gfx1", "ext_w1<1>");
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<3> { w1 { SECTION gfx1 } } }"), pal3());
+        ok("quand le script place aussi, c'est lui qui decide",
+           img.ok && img.banksWritten.size() == 1 && img.banksWritten[0] == 7);
+        bool said = false, pointed = false;
+        for (const auto &w : img.warnings) {
+            if (w.message.find("the script wins") != std::string::npos) said = true;
+            if (w.message.find("that wins") != std::string::npos) pointed = true;
+        }
+        ok("et un avertissement dit que le IN ne s'applique pas", said);
+        ok("en montrant le placement qui l'emporte", pointed);
+    }
+    {
+        // Une section que SEUL le source place n'avertit de rien.
+        asmb::Object o = secObj("a.fo", {{"gfx1", {1}}});
+        place(o, "gfx1", "ext_w1<1>");
+        link::Image img = link::build({o}, script::Script(), pal3());
+        bool said = false;
+        for (const auto &w : img.warnings)
+            if (w.message.find("the script wins") != std::string::npos) said = true;
+        ok("un placement que rien ne surcharge est silencieux", img.ok && !said);
+    }
+    {
+        // Deux unites qui placent le meme nom se comparent sur l'identite
+        // RESOLUE : `ext_w1<1>` et `ram.ext_w1<1>` nomment une seule chose, et le
+        // versement les traite deja comme une seule.
+        asmb::Object a = secObj("a.fo", {{"gfx1", {0x11}}});
+        asmb::Object b = secObj("b.fo", {{"gfx1", {0x22}}});
+        place(a, "gfx1", "ext_w1<1>");
+        place(b, "gfx1", "ram.ext_w1<1>");
+        link::Image img = link::build({a, b}, script::Script(), pal3());
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        ok("deux graphies d'une meme configuration ne sont pas un desaccord", img.ok);
+        asmb::Object c = secObj("c.fo", {{"gfx1", {0x33}}});
+        place(c, "gfx1", "ext_w1<2>");
+        link::Image bad = link::build({a, c}, script::Script(), pal3());
+        ok("deux configurations differentes en sont un", !bad.ok);
+    }
+    {
+        // Un nom que deux axes portent est qualifie de son axe dans la liste ;
+        // les autres restent nus.
+        // Deux axes de recouvrement nomment volontiers `on` et `off` chacun :
+        // les lister nus ferait revenir le meme mot deux fois sans dire lequel
+        // est lequel — c'est le cas du profil livre, qui en porte deux.
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "WINDOW w3 [0xC000..0xFFFF]\n"
+            "BANK base0 SIZE 0x4000 rw STORE 0\n"
+            "BANK rom_lo SIZE 0x4000 ro STORE 8\n"
+            "BANK rom_hi SIZE 0x4000 ro STORE 9\n"
+            "CONFIG SET ram { linear [CODE 0] { w0 base0 } }\n"
+            "CONFIG SET lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo } }\n"
+            "CONFIG SET upper OVER ram { off [CODE 1] { }  on [CODE 0] { w3 rom_hi } }\n"
+            "SELECT ram = OUT 0x7F00, CODE\n"
+            "SELECT lower = OUT 0x7F00, MASK %100, CODE << 2\n"
+            "SELECT upper = OUT 0x7F00, MASK %1000, CODE << 3\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"s", {1}}});
+        place(o, "s", "nulle_part");
+        link::Image img = link::build({o}, script::Script(), pr);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("la liste des configurations qualifie ce qui serait ambigu",
+           m.find("lower.on") != std::string::npos && m.find("upper.on") != std::string::npos);
+        ok("et laisse nu ce qui ne l'est pas",
+           m.find("ram.linear") == std::string::npos && m.find("linear") != std::string::npos);
+    }
+    {
+        // Les cles PAR SECTION restent script-seul : `switchSymbols` tourne
+        // avant d'assembler, et une cle qui existerait au linkage mais pas a
+        // l'assemblage vaudrait deux langages pour un nom.
+        asmb::Object o = secObj("a.fo", {{"gfx1", {1}}});
+        place(o, "gfx1", "ext_w1<1>");
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_gfx1";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o}, script::Script(), pal3());
+        ok("un placement porte par le source n'offre PAS de cle par section", !img.ok);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
