@@ -1038,18 +1038,103 @@ bool evalSel(const profile::Expr &e, const std::map<std::string, int64_t> &bind,
     // valeur BORNÉE AUX BITS DE L'AXE, et le masque de ces bits.
 std::map<std::string, int64_t> compute(const script::Script &sc,
                                        const profile::Profile &pr) {
-    std::map<std::string, int64_t> out;
-    std::set<std::string> ambiguous;
+    std::map<std::string, int64_t> out, fromProfile;
+    std::set<std::string> ambiguous, profileAmbiguous;
+    // Les deux chemins offrent dans DEUX paniers, et le second ne peut pas
+    // defaire le premier : voir la fusion, en bas de cette fonction.
+    std::map<std::string, int64_t> *dest = &out;
+    std::set<std::string> *destAmbiguous = &ambiguous;
     // Offrir un symbole. Une seconde offre du même nom avec une AUTRE valeur le
     // retire : un symbole qui vaudrait deux choses selon l'ordre de lecture est
     // pire qu'un symbole absent, et l'absence a déjà son diagnostic — celui de
     // l'`EXTERN` non résolu.
     auto offer = [&](const std::string &name, int64_t v) {
-        if (ambiguous.count(name)) return;
-        auto it = out.find(name);
-        if (it == out.end()) { out[name] = v; return; }
-        if (it->second != v) { ambiguous.insert(name); out.erase(it); }
+        if (destAmbiguous->count(name)) return;
+        auto it = dest->find(name);
+        if (it == dest->end()) { (*dest)[name] = v; return; }
+        if (it->second != v) { destAmbiguous->insert(name); dest->erase(it); }
     };
+    // Le SELECT d'un axe : les écritures qui l'atteignent.
+    auto selFor = [&](const std::string &axisName) -> const profile::Select * {
+        const profile::Select *sel = nullptr;
+        for (const profile::Select &sl : pr.selects)
+            for (const std::string &ax : sl.axes)
+                if (ax == axisName) sel = &sl;
+        return sel;
+    };
+
+    // LE CALCUL D'UNE CARTE : un axe, un état, son argument s'il en a un, et
+    // UNE fenêtre. Il ne dépend d'aucune adresse — c'est ce qui permet de
+    // l'appeler par DEUX chemins sans le dupliquer : les blocs du script, qui
+    // savent quelle section va où, et le profil seul, qui n'en sait rien mais
+    // connaît toutes les cartes atteignables. Une fonction, donc une valeur :
+    // les deux chemins ne peuvent pas diverger.
+    auto emit = [&](const std::string &axisName, const profile::State &st,
+                    bool hasArg, int64_t arg, const profile::Slot *slot,
+                    const std::vector<std::string> &keys) {
+        const profile::Select *sel = selFor(axisName);
+        if (!sel || sel->writes.empty()) return;
+        const profile::Write &w = sel->writes.front();
+        // Un axe peut demander DEUX ecritures, et la seconde porte alors le
+        // numero que le §12.3 nomme `__romnum_` : la premiere dit « cette
+        // banque-la apparait », la seconde dit LAQUELLE.
+        const profile::Write *second = sel->writes.size() > 1 ? &sel->writes[1] : nullptr;
+
+        std::string bankName;
+        int64_t bankPage = 0;
+        if (slot) {
+            // UNE CARTE DONT LA BANQUE N'EXISTE PAS N'EST PAS UNE CARTE. Le
+            // placement la refuse déjà — « the profile declares no such bank »
+            // — et lui donner `PAGE = 0` pour continuer rendrait un nombre
+            // vraisemblable que rien n'a décidé, sur un chemin où plus personne
+            // ne le contredira.
+            if (!resolveBank(pr, *slot, arg, bankName, bankPage)) return;
+        }
+        // Les liaisons : le paramètre de l'état, puis `CODE` qui s'en
+        // déduit, puis `PAGE`, qui est le nombre que porte la banque —
+        // l'indice d'une banque déclarée en plage, ou le numéro que
+        // l'argument donne à une banque paramétrique. Un état qui ne mappe
+        // AUCUNE fenêtre — le `off` d'un recouvrement — n'a pas de banque, et
+        // sa valeur ne tient qu'à son `CODE`.
+        std::map<std::string, int64_t> bind;
+        if (st.hasParam && hasArg) bind[st.param] = arg;
+        bind["PAGE"] = bankPage;
+        std::string missing;
+        int64_t code = 0;
+        if (st.hasCode && !evalSel(st.code, bind, code, missing)) return;
+        bind["CODE"] = code;
+
+        int64_t port = 0, val = 0, mask = 0;
+        if (!evalSel(w.port, bind, port, missing)) return;
+        if (!evalSel(w.value, bind, val, missing)) return;
+        const bool hasMask = w.hasMask && evalSel(w.mask, bind, mask, missing);
+        // La valeur est BORNÉE AUX BITS DE L'AXE dès qu'un masque les
+        // nomme : c'est ce qui permet au source d'écrire
+        // `(état & ~masque) | valeur` sans toucher aux axes voisins.
+        if (hasMask) val &= mask;
+
+        int64_t port2 = 0, val2 = 0, mask2 = 0;
+        bool has2 = false, has2Mask = false;
+        if (second) {
+            has2 = evalSel(second->port, bind, port2, missing) &&
+                   evalSel(second->value, bind, val2, missing);
+            has2Mask = has2 && second->hasMask &&
+                       evalSel(second->mask, bind, mask2, missing);
+            if (has2Mask) val2 &= mask2;
+        }
+        for (const std::string &k : keys) {
+            offer("__port_" + axisName + "_" + k, port);
+            offer("__val_" + axisName + "_" + k, val);
+            if (has2) {
+                offer("__port2_" + axisName + "_" + k, port2);
+                offer("__romnum_" + axisName + "_" + k, val2);
+            }
+        }
+        if (hasMask) offer("__mask_" + axisName, mask);
+        if (has2Mask) offer("__mask2_" + axisName, mask2);
+    };
+
+    // --- Premier chemin : LES BLOCS DU SCRIPT -------------------------------
         // Combien de fois chaque état est nommé : la graphie « par état » n'est
         // offerte que si elle désigne une seule chose. Un état paramétrique
         // nommé deux fois avec deux arguments n'en désigne pas une.
@@ -1060,73 +1145,118 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
             std::string axisName;
             const profile::State *st = findState(pr, cb.config, axisName);
             if (!st) continue;
-            const profile::Select *sel = nullptr;
-            for (const profile::Select &sl : pr.selects)
-                for (const std::string &ax : sl.axes)
-                    if (ax == axisName) sel = &sl;
-            if (!sel || sel->writes.empty()) continue;
-            const profile::Write &w = sel->writes.front();
-            // Un axe peut demander DEUX ecritures, et la seconde porte alors le
-            // numero que le §12.3 nomme `__romnum_` : la premiere dit « cette
-            // banque-la apparait », la seconde dit LAQUELLE.
-            const profile::Write *second = sel->writes.size() > 1 ? &sel->writes[1] : nullptr;
-
             for (const script::Placement &p : cb.placements) {
                 const profile::Slot *slot = nullptr;
                 for (const profile::Slot &sl : st->slots)
                     if (sl.window == p.window) slot = &sl;
                 if (!slot) continue;
-                std::string bankName;
-                int64_t bankPage = 0;
-                const profile::Bank *bk = resolveBank(pr, *slot, cb.config.arg, bankName, bankPage);
-
-                // Les liaisons : le paramètre de l'état, puis `CODE` qui s'en
-                // déduit, puis `PAGE`, qui est le nombre que porte la banque —
-                // l'indice d'une banque déclarée en plage, ou le numéro que
-                // l'argument donne à une banque paramétrique.
-                std::map<std::string, int64_t> bind;
-                if (st->hasParam && cb.config.hasArg) bind[st->param] = cb.config.arg;
-                bind["PAGE"] = bk ? bankPage : 0;
-                std::string missing;
-                int64_t code = 0;
-                if (st->hasCode && !evalSel(st->code, bind, code, missing)) continue;
-                bind["CODE"] = code;
-
-                int64_t port = 0, val = 0, mask = 0;
-                if (!evalSel(w.port, bind, port, missing)) continue;
-                if (!evalSel(w.value, bind, val, missing)) continue;
-                const bool hasMask = w.hasMask && evalSel(w.mask, bind, mask, missing);
-                // La valeur est BORNÉE AUX BITS DE L'AXE dès qu'un masque les
-                // nomme : c'est ce qui permet au source d'écrire
-                // `(état & ~masque) | valeur` sans toucher aux axes voisins.
-                if (hasMask) val &= mask;
-
                 std::vector<std::string> keys(p.sections.begin(), p.sections.end());
                 if (named[cb.config.state] == 1) keys.push_back(cb.config.state);
-                int64_t port2 = 0, val2 = 0, mask2 = 0;
-                bool has2 = false, has2Mask = false;
-                if (second) {
-                    has2 = evalSel(second->port, bind, port2, missing) &&
-                           evalSel(second->value, bind, val2, missing);
-                    has2Mask = has2 && second->hasMask &&
-                               evalSel(second->mask, bind, mask2, missing);
-                    if (has2Mask) val2 &= mask2;
-                }
-                for (const std::string &k : keys) {
-                    offer("__port_" + axisName + "_" + k, port);
-                    offer("__val_" + axisName + "_" + k, val);
-                    if (has2) {
-                        offer("__port2_" + axisName + "_" + k, port2);
-                        offer("__romnum_" + axisName + "_" + k, val2);
-                    }
-                }
-                if (hasMask) offer("__mask_" + axisName, mask);
-                if (has2Mask) offer("__mask2_" + axisName, mask2);
+                emit(axisName, *st, cb.config.hasArg, cb.config.arg, slot, keys);
             }
         }
+
+    // --- Second chemin : LE PROFIL SEUL -------------------------------------
+    // `switchSymbols` est appelée AVANT d'assembler : elle ne peut pas savoir
+    // quelles cartes le source nomme, donc ses clés se dérivent du profil seul.
+    //
+    // La clé est L'ÉTAT, plus son argument s'il en a un — `ext_w1_1`. Nommer la
+    // BANQUE ne déterminerait rien : une même banque peut être amenée dans une
+    // même fenêtre par deux états, avec deux valeurs de commutation, et la règle
+    // de retrait effacerait alors le symbole. Un état et son argument désignent
+    // une carte, et une carte donne une valeur.
+    //
+    // C'est la graphie « par état » du premier chemin prolongée d'un argument,
+    // non une quatrième forme : sur un état sans paramètre, les deux chemins
+    // offrent le MÊME nom avec la MÊME valeur, et la règle de retrait ne s'en
+    // émeut pas.
+    dest = &fromProfile;
+    destAmbiguous = &profileAmbiguous;
+    for (const profile::Axis &ax : pr.axes) {
+        for (const profile::State &st : ax.states) {
+            if (!st.hasParam) {
+                // UN ÉTAT QUI NE MAPPE AUCUNE FENÊTRE EN EST UN QUAND MÊME :
+                // le `off` d'un axe de recouvrement est ce qui REND la RAM, et
+                // c'est une valeur qu'aucun script ne pourra jamais offrir —
+                // il n'y a rien à y placer. Sans elle, le masque de l'axe
+                // n'existerait pas non plus, et le §12.3 en a besoin pour
+                // toucher un bit sans écraser les axes voisins du même port.
+                if (st.slots.empty()) { emit(ax.name, st, false, 0, nullptr, {st.name}); continue; }
+                for (const profile::Slot &sl : st.slots)
+                    emit(ax.name, st, false, 0, &sl, {st.name});
+                continue;
+            }
+            // LES VALEURS DU PARAMÈTRE SONT CELLES QUE LES BANQUES DÉCLARÉES
+            // BORNENT. `ext<b>` avec `BANK ext0..ext3` en donne quatre ; un
+            // `rom_hi<n>` déclaré paramétriquement n'en borne aucune — son
+            // numéro vient du matériel, et l'énumérer demanderait d'inventer une
+            // borne que le profil ne dit pas. Un paramètre non borné n'offre
+            // donc rien, et c'est un manque nommé, pas un oubli.
+            //
+            // ET C'EST UNE INTERSECTION, non une réunion : une valeur que l'une
+            // des fenêtres de l'état ne sait pas honorer ne désigne pas une
+            // carte à moitié atteignable, elle n'en désigne aucune.
+            std::set<int64_t> args;
+            bool bounded = false;
+            for (const profile::Slot &sl : st.slots) {
+                if (!sl.hasParam || sl.literal || sl.param != st.param) continue;
+                std::set<int64_t> here;
+                for (const profile::Bank &b : pr.banks) {
+                    if (b.name.size() <= sl.bank.size()) continue;
+                    if (b.name.compare(0, sl.bank.size(), sl.bank) != 0) continue;
+                    const std::string tail = b.name.substr(sl.bank.size());
+                    if (tail.find_first_not_of("0123456789") != std::string::npos) continue;
+                    // Un nombre, et un seul, doit reconduire au MEME nom : c'est
+                    // `sl.bank + to_string(v)` que `resolveBank` cherchera. Un
+                    // `ext01` designerait `ext1`, donc une autre banque que
+                    // lui-meme, et un numero interminable n'est pas un numero.
+                    if (tail.size() > 9) continue;
+                    if (tail.size() > 1 && tail[0] == '0') continue;
+                    here.insert(std::stoll(tail));
+                }
+                if (!bounded) { args = here; bounded = true; continue; }
+                std::set<int64_t> both;
+                for (int64_t v : args) if (here.count(v)) both.insert(v);
+                args.swap(both);
+            }
+            if (!bounded) continue;
+            for (int64_t v : args)
+                for (const profile::Slot &sl : st.slots)
+                    emit(ax.name, st, true, v, &sl, {st.name + "_" + std::to_string(v)});
+        }
+    }
+
+    // UN PORT SANS SA VALEUR N'EST PAS UNE OFFRE. Le port et le masque d'un état
+    // sont les mêmes par toutes ses fenêtres là où la valeur peut différer, si
+    // bien que la règle de retrait n'effaçait que la valeur — et le source se
+    // retrouvait avec la moitié d'un couple que le §12.3 emploie d'un bloc,
+    // `ld bc, __port_x + __val_x`. Le masque, lui, reste : il appartient à
+    // l'AXE, pas à l'état, et le retirer parce qu'un état est ambigu le rendrait
+    // indisponible pour les états qui ne le sont pas.
+    for (const std::string &n : profileAmbiguous) {
+        if (n.compare(0, 6, "__val_") != 0) continue;
+        const std::string key = n.substr(6);
+        fromProfile.erase("__port_" + key);
+        fromProfile.erase("__port2_" + key);
+        fromProfile.erase("__romnum_" + key);
+    }
+
+    // LA FUSION, ET SON SENS UNIQUE : le profil ne RETIRE jamais ce que le
+    // script a offert, et ne le remplace pas non plus.
+    //
+    // La graphie « par etat » est offerte par les deux chemins, et ils ne
+    // repondent pas a la meme question : le script la calcule POUR LA FENETRE
+    // qu'il a placee, le profil pour toutes les fenetres de l'etat. Un etat dont
+    // deux fenetres donnent deux valeurs ferait donc, par la regle de retrait,
+    // DISPARAITRE un symbole qui marchait — le script, lui, savait laquelle.
+    //
+    // Le script est le plus specifique des deux : il gagne. Et un nom que le
+    // script a lui-meme retire reste retire — ce retrait est une decision, pas
+    // un manque a combler.
+    for (const auto &kv : fromProfile)
+        if (!out.count(kv.first) && !ambiguous.count(kv.first)) out[kv.first] = kv.second;
     return out;
 }
-
 
 } // namespace
 

@@ -148,13 +148,37 @@ profile and the link script:
 | `__port2_<axis>_<key>`, `__romnum_<axis>_<key>`, `__mask2_<axis>` | the same three, for an axis that needs a **second** write — the one that says *which* bank, not *that* one appears |
 | `__off_<section>` | its offset inside its bank, for a loader or a copy |
 
-`<key>` is either a **section** name — the section whose configuration you want
-to switch to — or a **state** name from the profile, when the script names that
-state only once.
+`<key>` is one of three things:
 
-When a **link script and a profile are given to the same invocation**, all of
-these except `__off_` are handed to the assembler as plain **constants**: they
-depend on no address, so arithmetic on them is ordinary arithmetic.
+- a **section** name — the section whose configuration you want to switch to.
+  This one needs a link script: the script is what binds a section to a
+  configuration;
+- a **state** name from the profile, when the script names that state only once;
+- a **state** name plus its **argument**, for a parametric state — `ext_w1_1`
+  for the state written `ext_w1<1>`. This one needs **no script at all**: it is
+  derived from the profile alone, so a source that places itself still gets its
+  switching values.
+
+The third spelling exists because naming the *bank* would not determine a value.
+A same bank can be brought into a same window by two different states, with two
+different switching values; a state and its argument name one map, and one map
+gives one value.
+
+A parametric state is enumerated over the values its **declared banks** bound,
+and over those **all** its windows honour: `ext<b>` with `BANK ext0..ext3` gives
+four. A value one window cannot honour names no reachable map at all, so it is
+not offered. A bank declared parametrically — `rom_hi<n>`, whose number comes
+from the hardware — bounds nothing, so that state offers no symbol; use a link
+script, which names the argument.
+
+A state that maps **no window at all** — the `off` of an overlay axis, the one
+that gives the RAM back — is offered too. No script could ever offer it: there is
+nothing to place there. Its value hangs on its `CODE` alone, and without it the
+axis would have no `__mask_` either.
+
+When a **profile is given** — with or without a link script — all of these
+except `__off_` are handed to the assembler as plain **constants**: they depend
+on no address, so arithmetic on them is ordinary arithmetic.
 
 ```
         ld   bc, __port_ram_audio + __val_ram_audio   ; one number, computed here

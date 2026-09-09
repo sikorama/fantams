@@ -104,14 +104,14 @@ décision.
 
 ## 8. Les étapes
 
-| # | Étape | Bloqué par |
-|---|-------|-----------|
-| P1 | Les clés du profil seul dans `switchSymbols` | — |
-| P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — |
-| P3 | Le linker résout le placement du source, et le fusionne | P2 |
-| P4 | La surcharge par le script, et son avertissement | P3 |
-| P5 | L'exemple et les tests d'acceptation | P1, P4 |
-| P6 | L'ADR : le source qui porte son placement, et ce qu'il perd | tout |
+| # | Étape | Bloqué par | État |
+|---|-------|-----------|------|
+| P1 | Les clés du profil seul dans `switchSymbols` | — | **faite** |
+| P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — | à faire |
+| P3 | Le linker résout le placement du source, et le fusionne | P2 | à faire |
+| P4 | La surcharge par le script, et son avertissement | P3 | à faire |
+| P5 | L'exemple et les tests d'acceptation | P1, P4 | à faire |
+| P6 | L'ADR : le source qui porte son placement, et ce qu'il perd | tout | à faire |
 
 ### P1 — les clés du profil seul
 
@@ -131,17 +131,69 @@ C'est la graphie « par état » de C1.7 prolongée, non une quatrième forme : 
 forme sans argument est littéralement celle d'aujourd'hui, et l'argument dans le
 nom est ce qui lève l'ambiguïté que C1.7 avait dû trancher par un retrait.
 
-- [ ] Sans script, avec le seul profil, `switchSymbols` rend les états du profil
-- [ ] `__val_ram_ext_w1_1` = `&C5` et `__val_ram_all_ext` = `&C2` : les deux
+- [x] Sans script, avec le seul profil, `switchSymbols` rend les états du profil
+- [x] `__val_ram_ext_w1_1` = `&C5` et `__val_ram_all_ext` = `&C2` : les deux
       cartes qui voient `ext1` sont **distinguées**, pas fusionnées
-- [ ] Un état sans paramètre garde sa graphie d'aujourd'hui
-- [ ] La valeur reste **bornée aux bits de l'axe** (D7) — l'invariant de C1.7 ne
+- [x] Un état sans paramètre garde sa graphie d'aujourd'hui
+- [x] La valeur reste **bornée aux bits de l'axe** (D7) — l'invariant de C1.7 ne
       se perd pas en changeant de source de clés
-- [ ] `__mask_<axe>` sort aussi sans script
-- [ ] Aucun nom offert par ce chemin ne peut entrer en collision avec un nom
-      offert par le chemin script
-- [ ] **Avec un script, rien ne change** : `accept_banked` et `accept_profile`
+- [x] `__mask_<axe>` sort aussi sans script
+- [x] Aucun nom offert par ce chemin ne peut effacer un nom offert par le chemin
+      script *(la fusion, ci-dessous)*
+- [x] **Avec un script, rien ne change** : `accept_banked` et `accept_profile`
       rendent les mêmes octets
+
+**Quatre défauts trouvés par la relecture, et corrigés** — tous du même genre :
+le chemin du profil offrait des cartes que le matériel ne peut pas atteindre, et
+se taisait sur celles qu'il peut.
+
+- **L'énumération du paramètre est une INTERSECTION, non une réunion.** Avec deux
+  fenêtres dont les familles de banques n'ont pas la même taille — `w0 lo<b>` sur
+  `lo0..lo1` et `w1 hi<b>` sur `hi0..hi3` —, les valeurs 2 et 3 étaient offertes
+  alors que `lo2` n'existe pas. Le placement refuse exactement cela (« the profile
+  declares no such bank ») ; le symbole, lui, rendait un nombre vraisemblable
+  pour une carte inatteignable.
+- **Une banque qui ne résout pas interrompt le calcul.** `PAGE = bk ? page : 0`
+  laissait `emit` aller au bout pour une fenêtre dont la banque n'existe pas.
+  C'est ce qui transformait le défaut ci-dessus en symbole émis plutôt qu'en
+  carte sautée.
+- **Un état qui ne mappe AUCUNE fenêtre en est un quand même.** Le `off` d'un axe
+  de recouvrement est ce qui **rend** la RAM — et c'est une valeur qu'aucun
+  script ne pourra jamais offrir, puisqu'il n'y a rien à y placer. La boucle sur
+  les slots tournait zéro fois : sur le profil livré, `__val_rom_lower_off`
+  n'existait pas, et l'axe `rom_upper` n'offrait **rien du tout**, `__mask_rom_upper`
+  compris — dont le §12.3 a besoin pour toucher un bit du port `&7F00` sans
+  écraser les trois autres axes qui le partagent.
+- **Un port ne survit pas à sa valeur.** Le port et le masque sont les mêmes par
+  toutes les fenêtres d'un état là où la valeur peut différer : la règle de
+  retrait n'effaçait que la valeur, et laissait la moitié d'un couple que le
+  §12.3 emploie d'un bloc. Le masque, lui, reste — il appartient à l'**axe**, pas
+  à l'état.
+
+**Deux choses décidées en cours de route, à relire quand P6 s'écrira.**
+
+- **La fusion est à SENS UNIQUE.** La graphie « par état » est offerte par les
+  deux chemins, et ils ne répondent pas à la même question : le script la calcule
+  **pour la fenêtre qu'il a placée**, le profil pour toutes les fenêtres de
+  l'état. Un état dont deux fenêtres donnent deux valeurs aurait donc, par la
+  règle de retrait, fait **disparaître** un symbole qui marchait. Le profil offre
+  dans un second panier, et ne verse dans le premier que les noms qu'il ne
+  contient pas — le script, plus spécifique, gagne, et un nom que le script a
+  lui-même retiré reste retiré : ce retrait était une décision, pas un manque.
+- **Un paramètre non borné n'offre rien.** Les valeurs énumérées sont celles que
+  les banques **déclarées** bornent : `ext<b>` avec `BANK ext0..ext3` en donne
+  quatre. `rom_hi<n>`, banque déclarée paramétriquement dont le numéro vient du
+  matériel, n'en borne aucune — l'énumérer demanderait d'inventer une borne que
+  le profil ne dit pas. `__val_rom_upper_on_15` n'existe donc pas sans script, et
+  le diagnostic d'`EXTERN` non résolu le dit. C'est un manque **nommé**, dans le
+  code et dans `docs/syntax.md`.
+
+Vérifié de bout en bout sur le profil livré, sans script et sans placement :
+
+        ld  bc, __port_ram_ext_w1_1 + __val_ram_ext_w1_1   →  01 C5 7F
+        ld  bc, __port_ram_ext_w1_3 + __val_ram_ext_w1_3   →  01 C7 7F
+        ld  bc, __port_ram_linear   + __val_ram_linear     →  01 C0 7F
+        ld  bc, __port_ram_all_ext  + __val_ram_all_ext    →  01 C2 7F
 
 ### P2 — la grammaire `IN`
 
@@ -220,8 +272,9 @@ tourne **avant** l'assemblage et ne peut pas le lire. Le linker le pourrait sur
 son chemin `EXTERN` (`link.cpp:496`), au prix d'une seconde définition de la même
 clé selon la provenance. À écarter explicitement, ou à traiter à part.
 
-## 10. Où ranger le chantier — ouvert
+## 10. Où ranger le chantier *(tranché)*
 
-L'étage C1 est **clos** (C1.10) et ceci n'est pas C2 : ça ne vérifie rien, ça
-place et calcule. Rouvrir C1 d'un `C1.11` réécrirait une clôture qui a une
-valeur. Chantier autonome, ou étape hors chemin critique à la manière de C1.V ?
+**Chantier autonome.** L'étage C1 est clos par C1.10 et ceci n'est pas C2 : ça ne
+vérifie rien, ça place et calcule. Rouvrir C1 d'un `C1.11` réécrirait une clôture
+qui a une valeur — et ce chantier rompt le §11, ce qu'aucune étape de C1 n'a
+fait.

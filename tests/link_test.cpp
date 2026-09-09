@@ -10,6 +10,7 @@
 #include "script.h"
 
 #include <cstdio>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -1294,6 +1295,182 @@ int main() {
         link::Image img = link::build({});
         ok("aucun objet donne une image vide et valide",
            img.ok && img.bin.empty() && img.blocks.empty() && img.banksWritten.empty());
+    }
+
+    // --- P1 : les cles du profil seul ---------------------------------------
+    // `switchSymbols` est appelee AVANT d'assembler (asm_main.cpp), donc elle ne
+    // peut pas savoir ce que le source nomme : ses cles doivent se deriver du
+    // PROFIL seul. Sans script, elle ne rendait rien — sa boucle de tete etait
+    // celle des blocs du script.
+    {
+        auto pal = [] {
+            return profile::parse(
+                "WINDOW w1 [0x4000..0x7FFF]\n"
+                "BANK base1 SIZE 0x4000 rw STORE 1\n"
+                "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+                "CONFIG SET ram {\n"
+                "  linear    [CODE %000]     { w1 base1  }\n"
+                "  all_ext   [CODE %010]     { w1 ext1   }\n"
+                "  ext_w1<b> [CODE %100 | b] { w1 ext<b> }\n"
+                "}\n"
+                "SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE\n", "m.prof");
+        };
+        const profile::Profile pr = pal();
+        const script::Script none;
+        const std::map<std::string, int64_t> sy = link::switchSymbols(none, pr);
+        auto val = [&](const char *n) -> int64_t {
+            auto it = sy.find(n);
+            return it == sy.end() ? -1 : it->second;
+        };
+
+        ok("sans script, un etat SANS parametre garde la graphie d'aujourd'hui",
+           val("__val_ram_linear") == 0xC0);
+        ok("et son port sort aussi", val("__port_ram_linear") == 0x7F00);
+        ok("un etat PARAMETRIQUE porte son argument dans le nom",
+           val("__val_ram_ext_w1_1") == 0xC5);
+        ok("les valeurs que les banques DECLAREES bornent sont toutes enumerees",
+           val("__val_ram_ext_w1_0") == 0xC4 && val("__val_ram_ext_w1_2") == 0xC6 &&
+           val("__val_ram_ext_w1_3") == 0xC7);
+        ok("une valeur qu'aucune banque declaree ne porte n'est pas offerte",
+           val("__val_ram_ext_w1_4") == -1);
+        // Le motif meme du chantier : `ext1` est vue en w1 par DEUX cartes, et
+        // une cle par banque vaudrait deux choses. Une cle par ETAT en vaut une.
+        ok("les deux cartes qui voient ext1 sont DISTINGUEES, pas fusionnees",
+           val("__val_ram_all_ext") == 0xC2 && val("__val_ram_ext_w1_1") == 0xC5);
+        ok("l'etat parametrique sans son argument n'est pas offert : il ne designe rien",
+           val("__val_ram_ext_w1") == -1);
+    }
+    {
+        // L'invariant de C1.7 ne se perd pas en changeant de source de cles : la
+        // valeur reste BORNEE AUX BITS DE L'AXE (D7), et le masque sort aussi.
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "BANK rom_lo SIZE 0x4000 ro STORE 8\n"
+            "CONFIG SET rom { on [CODE 0] { w0 rom_lo } }\n"
+            "SELECT rom = OUT 0x7F00, MASK %00000100, %11111111\n", "m.prof");
+        const script::Script none;
+        const std::map<std::string, int64_t> sy = link::switchSymbols(none, pr);
+        auto val = [&](const char *n) -> int64_t {
+            auto it = sy.find(n);
+            return it == sy.end() ? -1 : it->second;
+        };
+        ok("sans script, la valeur reste bornee aux bits de l'axe", val("__val_rom_on") == 0x04);
+        ok("et le masque de l'axe sort", val("__mask_rom") == 0x04);
+    }
+    {
+        // Le contrat de non-regression : AVEC un script, rien ne change. Les
+        // cles par section restent celles du script, et les cles par etat
+        // valent la meme chose par les deux chemins — donc la regle de retrait
+        // ne les efface pas.
+        profile::Profile pr = profile::parse(
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK base1 SIZE 0x4000 rw STORE 1\n"
+            "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+            "CONFIG SET ram {\n"
+            "  linear    [CODE %000]     { w1 base1  }\n"
+            "  ext_w1<b> [CODE %100 | b] { w1 ext<b> }\n"
+            "}\n"
+            "SELECT ram = OUT 0x7F00, %11000000 | (PAGE << 3) | CODE\n", "m.prof");
+        script::Script sc = scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }");
+        const std::map<std::string, int64_t> sy = link::switchSymbols(sc, pr);
+        auto val = [&](const char *n) -> int64_t {
+            auto it = sy.find(n);
+            return it == sy.end() ? -1 : it->second;
+        };
+        ok("avec un script, la cle PAR SECTION est intacte",
+           val("__val_ram_main") == 0xC0 && val("__val_ram_audio") == 0xC5);
+        ok("et la cle PAR ETAT n'est pas effacee par la seconde offre du profil",
+           val("__val_ram_linear") == 0xC0);
+        ok("la cle du profil coexiste avec celles du script",
+           val("__val_ram_ext_w1_1") == 0xC5);
+    }
+
+    {
+        // LA FUSION EST A SENS UNIQUE. La graphie « par etat » est offerte par
+        // les deux chemins, et ils ne repondent pas a la meme question : le
+        // script la calcule POUR LA FENETRE qu'il a placee, le profil pour
+        // toutes les fenetres de l'etat. Ici les deux fenetres de `both` donnent
+        // deux valeurs — le profil doit donc se taire, et NON retirer le symbole
+        // que le script offrait en sachant, lui, de quelle fenetre il parlait.
+        auto pal = [] {
+            return profile::parse(
+                "WINDOW w0 [0x0000..0x3FFF]\n"
+                "WINDOW w1 [0x4000..0x7FFF]\n"
+                "BANK lo SIZE 0x4000 rw PAGE 0 STORE 0\n"
+                "BANK hi SIZE 0x4000 rw PAGE 1 STORE 1\n"
+                "CONFIG SET ram { both [CODE 0] { w0 lo  w1 hi } }\n"
+                "SELECT ram = OUT 0x7F00, (PAGE << 3) | CODE\n", "m.prof");
+        };
+        auto val = [](const std::map<std::string, int64_t> &m, const char *n) -> int64_t {
+            auto it = m.find(n);
+            return it == m.end() ? -1 : it->second;
+        };
+        const profile::Profile pr = pal();
+        const script::Script none;
+        const std::map<std::string, int64_t> alone = link::switchSymbols(none, pr);
+        ok("un etat dont deux fenetres donnent deux valeurs n'est pas offert par le profil seul",
+           val(alone, "__val_ram_both") == -1);
+        // Le port est le meme par les deux fenetres la ou la valeur differe : la
+        // regle de retrait n'effacait que la valeur, et laissait la moitie d'un
+        // couple que le §12.3 emploie d'un bloc.
+        ok("et son port ne lui survit pas", val(alone, "__port_ram_both") == -1);
+
+        script::Script sc = scr("MEMORY_MAP { CONFIG both { w1 { SECTION s } } }");
+        const std::map<std::string, int64_t> sy = link::switchSymbols(sc, pr);
+        ok("mais le script, qui sait DE QUELLE FENETRE il parle, l'offre toujours",
+           val(sy, "__val_ram_both") == 0x08 && val(sy, "__val_ram_s") == 0x08);
+    }
+
+    {
+        // Les valeurs du parametre sont une INTERSECTION, non une reunion. Une
+        // valeur que l'une des fenetres de l'etat ne sait pas honorer ne designe
+        // pas une carte a moitie atteignable : elle n'en designe aucune, et le
+        // placement la refuse deja — « the profile declares no such bank ».
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK lo0..lo1 SIZE 0x4000 rw STORE 0..1\n"
+            "BANK hi0..hi3 SIZE 0x4000 rw STORE 2..5\n"
+            "CONFIG SET x { s<b> [CODE b] { w0 lo<b>  w1 hi<b> } }\n"
+            "SELECT x = OUT 0x1234, CODE\n", "m.prof");
+        const script::Script none;
+        const std::map<std::string, int64_t> sy = link::switchSymbols(none, pr);
+        auto val = [&](const char *n) -> int64_t {
+            auto it = sy.find(n);
+            return it == sy.end() ? -1 : it->second;
+        };
+        ok("une valeur que TOUTES les fenetres honorent est offerte",
+           val("__val_x_s_0") == 0 && val("__val_x_s_1") == 1);
+        ok("une valeur qu'une seule fenetre honore ne l'est pas",
+           val("__val_x_s_2") == -1 && val("__val_x_s_3") == -1);
+        ok("et pas davantage son port : une carte inatteignable n'offre rien",
+           val("__port_x_s_2") == -1);
+    }
+    {
+        // UN ETAT QUI NE MAPPE AUCUNE FENETRE EN EST UN QUAND MEME. Le `off`
+        // d'un axe de recouvrement est ce qui REND la RAM, et c'est une valeur
+        // qu'aucun script ne pourra jamais offrir — il n'y a rien a y placer.
+        // Sans elle, le masque de l'axe n'existerait pas non plus.
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "BANK base0 SIZE 0x4000 rw STORE 0\n"
+            "BANK rom_lo SIZE 0x4000 ro STORE 8\n"
+            "CONFIG SET ram { flat [CODE 0] { w0 base0 } }\n"
+            "CONFIG SET rom OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo } }\n"
+            "SELECT ram = OUT 0x7F00, %11000000 | CODE\n"
+            "SELECT rom = OUT 0x7F00, MASK %00000100, CODE << 2\n", "m.prof");
+        const script::Script none;
+        const std::map<std::string, int64_t> sy = link::switchSymbols(none, pr);
+        auto val = [&](const char *n) -> int64_t {
+            auto it = sy.find(n);
+            return it == sy.end() ? -1 : it->second;
+        };
+        ok("l'etat qui REND la RAM est offert, bien qu'il ne place rien",
+           val("__val_rom_off") == 0x04 && val("__port_rom_off") == 0x7F00);
+        ok("celui qui prend la ROM aussi", val("__val_rom_on") == 0x00);
+        ok("et le masque de l'axe existe, ce qui rend le bit touchable seul",
+           val("__mask_rom") == 0x04);
     }
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
