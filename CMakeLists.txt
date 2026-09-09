@@ -177,6 +177,14 @@ add_test(NAME accept_aliased
 set_tests_properties(accept_aliased PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 
+# L'etage E, etape E6 : un CONST est visible du source ET du SELECT qui
+# l'ecrit, et un profil sans CONST continue d'emettre __port_ a l'identique.
+add_test(NAME accept_const
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_const.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_const PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # L'invariant mecanique du §13.2 : aucun nom de machine dans le code du linker.
 add_test(NAME no_machine_names
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/no_machine_names.sh)

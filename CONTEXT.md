@@ -187,6 +187,16 @@ porte sa propre écriture. Deux banques sont co-visibles si aucun axe ne les met
 dans la même fenêtre — ce qui rend le contrôle décidable sans énumérer les états.
 _Éviter_ : dimension, registre (qui désigne le moyen, pas l'axe)
 
+**Constante de profil** (`CONST`) :
+Une valeur littérale déclarée dans un profil, indépendante de tout placement —
+un port de commutation qui ne varie jamais par axe (`GA_PORT`), par exemple.
+Ne pas confondre avec « Export » (§Export ci-dessous), qui désigne la
+construction d'un artefact **livrable** : les deux emploient le mot au sens
+courant de « rendre disponible », mais à des étages différents et pour des
+objets sans rapport — l'un une donnée de profil que le source lit, l'autre un
+morceau que le builder écrit sur disque.
+_Éviter_ : export, constante exportée (collision avec le sens builder)
+
 **Section** :
 Une unité logique d'assemblage, nommée, et classée par la **nature de son
 contenu** : code et constantes, données modifiables, ou emplacement réservé. Elle

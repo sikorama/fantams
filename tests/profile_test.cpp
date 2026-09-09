@@ -372,8 +372,8 @@ int main() {
     {
         profile::Profile p = parse("BUILDSNA\n");
         ok("un mot inconnu est refuse", !p.ok);
-        ok("le refus nomme les cinq mots d'un profil",
-           says(p, "TARGET, WINDOW, BANK, CONFIG SET and SELECT"));
+        ok("le refus nomme les six mots d'un profil",
+           says(p, "TARGET, WINDOW, BANK, CONFIG SET, SELECT and CONST"));
     }
     {
         profile::Profile p = parse("TARGET a\nTARGET b\n");
@@ -390,6 +390,64 @@ int main() {
         ok("un CONFIG sans SET est refuse", !p.ok);
         ok("et le refus dit qui declare et qui nomme",
            says(p, "a profile declares axes") && says(p, "a script names their states"));
+    }
+
+    // --- CONST : une constante litterale, independante du placement ---------
+    {
+        profile::Profile p = parse(with("CONST GA_PORT = 0x7F00\n"));
+        ok("CONST se lit sans erreur", p.ok);
+        if (!p.ok) firstError(p);
+        ok("un seul CONST, nomme et calcule",
+           p.consts.size() == 1 && p.consts[0].name == "GA_PORT" &&
+           p.consts[0].value == 0x7F00);
+    }
+
+    {
+        profile::Profile p = parse(with("CONST __port_ram_audio = 1\n"));
+        ok("un CONST prefixe __ est refuse", !p.ok);
+        ok("et le refus nomme le prefixe reserve", says(p, "reserved"));
+    }
+
+    {
+        profile::Profile p = parse(with("CONST GA_PORT = 0x7F00\nCONST GA_PORT = 0x7F00\n"));
+        ok("deux CONST du meme nom sont refuses, meme meme valeur", !p.ok);
+        ok("et le refus nomme les deux lignes",
+           says(p, "'GA_PORT' is declared twice") && says(p, "first at line"));
+    }
+
+    {
+        profile::Profile p = parse(with(
+            "CONFIG SET ram { s<b> [CODE b] { w0 b0 } }\n"
+            "SELECT ram = OUT 0x7F00, b\n"
+            "CONST b = 1\n"));
+        ok("un CONST du meme nom qu'un parametre d'etat est refuse", !p.ok);
+        ok("et le refus nomme le parametre et l'etat",
+           says(p, "'b'") && says(p, "state parameter"));
+    }
+
+    {
+        profile::Profile p = parse(with("CONST M = %11 << 5\n"));
+        ok("le membre droit d'un CONST prend des operateurs", p.ok);
+        if (!p.ok) firstError(p);
+        ok("et calcule leur resultat",
+           p.consts.size() == 1 && p.consts[0].value == (3 << 5));
+    }
+    {
+        profile::Profile p = parse(with("CONST X = CODE\n"));
+        ok("un CONST ne peut pas referencer CODE", !p.ok);
+        ok("et le refus dit que ca n'a pas de valeur avant placement",
+           says(p, "before placement"));
+    }
+
+    {
+        profile::Profile p = parse(with("CONST CODE = 1\n"));
+        ok("un CONST ne peut pas s'appeler CODE", !p.ok);
+        ok("et le refus le dit", says(p, "CODE") && says(p, "reserved"));
+    }
+    {
+        profile::Profile p = parse(with("CONST PAGE = 1\n"));
+        ok("un CONST ne peut pas s'appeler PAGE", !p.ok);
+        ok("et le refus le dit", says(p, "PAGE") && says(p, "reserved"));
     }
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);

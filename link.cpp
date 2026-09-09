@@ -1118,7 +1118,11 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
         // l'argument donne à une banque paramétrique. Un état qui ne mappe
         // AUCUNE fenêtre — le `off` d'un recouvrement — n'a pas de banque, et
         // sa valeur ne tient qu'à son `CODE`.
+        // Un CONST du profil (ADR 0032) est un repli, jamais une priorite : le
+        // parametre de l'etat, PAGE et CODE, inseres APRES, l'emportent sur un
+        // CONST du meme nom — refuse a l'analyse de toute facon (profile.cpp).
         std::map<std::string, int64_t> bind;
+        for (const profile::Const &c : pr.consts) bind[c.name] = c.value;
         if (st.hasParam && hasArg) bind[st.param] = arg;
         bind["PAGE"] = bankPage;
         std::string missing;
@@ -1293,6 +1297,10 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
         for (const std::string &n : ambiguous) if (!out.count(n)) withdrawn->insert(n);
         for (const std::string &n : profileAmbiguous) if (!out.count(n)) withdrawn->insert(n);
     }
+    // UN CONST EST AUSSI OFFERT AU SOURCE (ADR 0032) : il ne depend d'aucune
+    // section, donc rien ne peut jamais le rendre ambigu — a la difference du
+    // triplet, il n'y a rien a balayer ici.
+    for (const profile::Const &c : pr.consts) out[c.name] = c.value;
     return out;
 }
 

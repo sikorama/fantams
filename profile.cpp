@@ -30,7 +30,7 @@ struct Parser : lex::Cursor {
             if (cur().kind != Tok::Name) continue;
             const std::string &w = cur().s;
             if (w == "TARGET" || w == "WINDOW" || w == "BANK" || w == "CONFIG" ||
-                w == "SELECT" || w == "PAGING")
+                w == "SELECT" || w == "PAGING" || w == "CONST")
                 return;
         }
     }
@@ -137,6 +137,82 @@ struct Parser : lex::Cursor {
         if (!wantName(n)) { sync(); return; }
         out.hasTarget = true;
         out.target = n;
+    }
+
+    // Un CONST n'a, par construction, ni CODE, ni PAGE, ni paramètre, ni un
+    // autre CONST à lire : rien de tout cela n'a de valeur avant que le script
+    // place une section (ADR 0032, décision 1). Un Name qui apparaît ici est
+    // donc toujours un refus, jamais une résolution — au contraire du Name
+    // d'un SELECT, résolu par `compute()` en E2.
+    bool literal(const Expr &e, int64_t &v) {
+        switch (e.kind) {
+            case Expr::Num: v = e.num; return true;
+            case Expr::Name: return false;
+            case Expr::Unary: {
+                int64_t a;
+                if (!literal(e.args[0], a)) return false;
+                v = e.op == "~" ? ~a : -a;
+                return true;
+            }
+            case Expr::Binary: {
+                int64_t a, b;
+                if (!literal(e.args[0], a) || !literal(e.args[1], b)) return false;
+                if (e.op == "|") v = a | b;
+                else if (e.op == "^") v = a ^ b;
+                else if (e.op == "&") v = a & b;
+                else if (e.op == "<<") v = a << b;
+                else if (e.op == ">>") v = a >> b;
+                else if (e.op == "+") v = a + b;
+                else if (e.op == "-") v = a - b;
+                else if (e.op == "*") v = a * b;
+                else if (e.op == "/") v = a / b;
+                else return false;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // --- CONST nom = expr -----------------------------------------------------
+    void constDecl() {
+        const int line = cur().line;
+        next();
+        std::string n;
+        if (!wantName(n)) { sync(); return; }
+        for (const Const &c : out.consts) {
+            if (c.name != n) continue;
+            err(line, "CONST '" + n + "' is declared twice (first at line " +
+                      std::to_string(c.line) + ")");
+            sync();
+            return;
+        }
+        if (n.rfind("__", 0) == 0) {
+            err(line, "CONST '" + n + "' cannot start with '__': that prefix is "
+                      "reserved for the generated switching symbols");
+            sync();
+            return;
+        }
+        if (n == "CODE" || n == "PAGE") {
+            err(line, "CONST '" + n + "' cannot be named '" + n + "': that name is "
+                      "reserved for a SELECT expression's own value");
+            sync();
+            return;
+        }
+        if (!want("=")) { sync(); return; }
+        Expr e;
+        if (!expr(e, 0)) { sync(); return; }
+        int64_t v;
+        if (!literal(e, v)) {
+            err(line, "CONST '" + n + "' is not a literal: it can only be a number, "
+                      "made of numbers — no CODE, no PAGE, no state parameter and no "
+                      "other CONST, none of which has a value before placement");
+            return;
+        }
+        Const c;
+        c.name = n;
+        c.value = v;
+        c.line = line;
+        out.consts.push_back(std::move(c));
     }
 
     // --- WINDOW nom [lo..hi] ------------------------------------------------
@@ -484,6 +560,7 @@ struct Parser : lex::Cursor {
             else if (isName("BANK")) { bankDecl(); }
             else if (isName("CONFIG")) { configSet(); }
             else if (isName("SELECT")) { selectStmt(); }
+            else if (isName("CONST")) { constDecl(); }
             else if (isName("PAGING")) {
                 // `PAGING LOCKS`, `PAGING WRITE_ONLY` : l'irréversibilité et le
                 // port en écriture seule sont des contraintes, donc C2.
@@ -503,7 +580,7 @@ struct Parser : lex::Cursor {
             }
             else {
                 err("unknown keyword " + got() +
-                    " (a profile has TARGET, WINDOW, BANK, CONFIG SET and SELECT)");
+                    " (a profile has TARGET, WINDOW, BANK, CONFIG SET, SELECT and CONST)");
                 sync();
             }
             if (i == before) next();
@@ -537,6 +614,17 @@ struct Parser : lex::Cursor {
             for (const std::string &ax : s.axes)
                 if (!axisKnown(ax))
                     err(s.line, "SELECT '" + ax + "' names no declared axis");
+        // Un CONST qui porterait le nom d'un paramètre d'état : le repli d'un
+        // SELECT le lirait pour l'autre, en silence, selon lequel est déclaré
+        // le premier (ADR 0032, Round 2 : « état d'abord, CONST en repli »).
+        for (const Const &c : out.consts)
+            for (const Axis &a : out.axes)
+                for (const State &s : a.states)
+                    if (s.hasParam && s.param == c.name)
+                        err(c.line, "CONST '" + c.name + "' has the same name as the "
+                                    "state parameter of CONFIG SET '" + a.name +
+                                    "', state '" + s.name + "': a SELECT could read "
+                                    "either for the other");
         for (const Axis &a : out.axes) {
             bool reached = false;
             for (const Select &s : out.selects)

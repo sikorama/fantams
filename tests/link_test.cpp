@@ -1079,6 +1079,47 @@ int main() {
                 mi.blocks.empty() ? std::vector<uint8_t>() : mi.blocks[0].bytes, {0x04, 0x00});
     }
     {
+        // CONST DANS UN SELECT (ADR 0032, E1) : le port sort du triplet et
+        // devient une constante du profil, lue par le SELECT lui-meme — pas
+        // seulement offerte au source. `bind` la seede avant CODE/PAGE/le
+        // parametre de l'etat, qui restent prioritaires (round 2 du grilling).
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "BANK rom_lo SIZE 0x4000 ro STORE 8\n"
+            "CONST GA_PORT = 0x7F00\n"
+            "CONFIG SET rom { on [CODE 0] { w0 rom_lo } }\n"
+            "SELECT rom = OUT GA_PORT, MASK %00000100, %11111111\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"boot", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__port_rom_boot";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG on { w0 { SECTION boot } } }"), pr);
+        ok("un CONST se resout DANS un SELECT", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("__port_rom_boot vaut GA_PORT, 0x7F00",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x00, 0x7F});
+    }
+    {
+        // UN CONST EST AUSSI OFFERT AU SOURCE, comme le §12.3 le fait pour
+        // __port_/__val_/__mask_ — meme s'il ne sert dans AUCUN SELECT.
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\nBANK b0 SIZE 0x4000 rw STORE 0\n"
+            "CONST GA_PORT = 0x7F00\n"
+            "CONFIG SET ram { s [CODE 0] { w0 b0 } }\n"
+            "SELECT ram = OUT 0x7F00, CODE\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"boot", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "GA_PORT";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG s { w0 { SECTION boot } } }"), pr);
+        ok("un CONST est offert au source, sans SELECT", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("GA_PORT vaut 0x7F00",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x00, 0x7F});
+    }
+    {
         // LE PORT PEUT ETRE FONCTION DE LA BANQUE (§13.1) : sur une machine assez
         // grande, une partie du numero est dans l'ADRESSE du port. Le langage
         // l'exprime, le profil livre ne l'emploie pas, et ce profil de test

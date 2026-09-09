@@ -151,6 +151,18 @@ struct Axis {
     int line = 0;
 };
 
+// `CONST <nom> = <expr>` : une valeur littérale du profil, indépendante de tout
+// placement — un port de commutation qui ne varie pas par axe (`GA_PORT`), par
+// exemple. Calculée à l'analyse, pas au calcul de commutation : son expression
+// ne peut donc contenir ni `CODE`, ni `PAGE`, ni le paramètre d'un état, ni la
+// référence à un autre `CONST` (ADR 0032, décision 1 ; voir `docs/spec-etage-e.md`
+// §E1 pour ce que ça exclut et pourquoi).
+struct Const {
+    std::string name;
+    int64_t value = 0;
+    int line = 0;
+};
+
 struct Profile {
     bool ok = true;
     bool hasTarget = false;
@@ -159,6 +171,7 @@ struct Profile {
     std::vector<Bank> banks;
     std::vector<Axis> axes;
     std::vector<Select> selects;
+    std::vector<Const> consts;
     std::vector<asmb::Diagnostic> errors;
 };
 

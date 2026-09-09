@@ -708,7 +708,23 @@ Aucune divergence.
 
 **La séquence de déverrouillage elle-même n'a pas été relevée dans cette
 recherche** : les deux sources renvoient à la documentation ASIC officielle, non
-consultée. À traiter comme non trouvé plutôt que reconstitué.
+consultée. À traiter comme non trouvé plutôt que reconstitué. Une cinquième
+source, secondaire mais concordante — Longshot, *ACPC* n°41 (1991), reproduit sur
+<https://cpcrulez.fr/coding_cpcplus41.htm> — confirme l'exigence dans les mêmes
+termes (« il est nécessaire d'envoyer 17 octets précis sur le port `#BC00` » pour
+que « ce fameux bit 5 » — RMR2 — devienne opérationnel), sans davantage donner
+les 17 octets ; elle renvoie elle aussi à des numéros antérieurs, non consultés.
+
+**Hors de portée d'un profil de linker, pour une raison de nature et non de
+lacune documentaire.** Le verrou ASIC est un **état d'exécution** — la séquence
+se joue en runtime, à l'endroit du programme qui en a besoin — et rien dans un
+objet ou un script ne le porte à l'instant du linkage. Le linker n'a donc ni le
+moyen ni la matière pour vérifier si l'ASIC est verrouillé à telle ou telle
+instruction : ce n'est pas une valeur qu'une mesure ultérieure viendrait trancher,
+c'est une question qui ne se pose qu'à l'exécution. Un profil peut décrire *ce
+que `RMR2` fait* une fois déverrouillé (les fenêtres, la redirection de ROM
+basse) — c'est de la donnée statique, utile à la construction d'un `CPR` — mais
+pas *quand* l'ASIC l'est, qui n'est calculable par personne avant l'exécution.
 
 Conséquence pratique pour un profil de cible : sur Plus, un programme qui
 n'utilise pas `RMR2` doit garder **bit 5 = 0** dans toutes ses écritures `RMR`,

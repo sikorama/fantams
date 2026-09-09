@@ -153,6 +153,34 @@ as a `jr`/`djnz` target, for instance — the parser reads a register first, so
 `e` there means the register E, not the placeholder. Use `n`, `nn`, `imm`,
 `imm8` or `imm16` in a bare position instead.
 
+#### Combining with other operators
+
+`opcode()` returns a plain number, so it combines with any operator, `xor`
+included — nothing about it is special:
+
+```
+        xor  opcode("scf") xor opcode("or a")   ; EE 80 — xor n, n = 0x37 ^ 0xB7
+        ld   a, opcode("scf") xor opcode("or a")  ; 3E 80 — ld a,n, same n
+```
+
+The leading `xor` on the first line is the Z80 **mnemonic**; the one inside
+the operand is the **bitwise operator**, same as in `ld a,b and 3` — two
+homonyms, evaluated at different levels.
+
+**Parenthesizing the whole expression changes what it means**, and this bites
+because it looks like harmless grouping:
+
+```
+        ld   a,(opcode("scf") xor opcode("or a"))   ; 3A 80 00 — ld a,(nn)!
+```
+
+`(...)` in operand position is not an arithmetic grouping here: the parser
+reads it as `ld a,(nn)` — absolute memory addressing — so this reads the byte
+**at address `0x0080`**, not the value `0x80` itself. That is an existing
+Z80 ambiguity (`ld a,(nn)` vs `ld a,n`), not something specific to `opcode()`
+— but `opcode()` expressions make it easy to write by reflex when only
+grouping was intended. Drop the parentheses to get the immediate.
+
 ### Relocatable values
 
 A section that carries **no `org` of its own** is placed by the linker. Its
