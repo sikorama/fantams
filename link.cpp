@@ -15,7 +15,8 @@
 namespace link {
 
 std::map<std::string, int64_t> switchSymbols(const script::Script &script,
-                                             const profile::Profile &profile);
+                                             const profile::Profile &profile,
+                                             std::set<std::string> *withdrawn);
 
 namespace {
 
@@ -493,8 +494,11 @@ struct Linker {
     // AVANT d'assembler : c'est ce qui donne à ces symboles l'arithmétique que
     // le §12.2 emploie. Les deux chemins lisent donc la même valeur.
     void offerSwitchSymbols(const script::Script &sc, const profile::Profile &pr) {
-        for (const auto &kv : switchSymbols(sc, pr)) exported_[kv.first] = kv.second;
+        for (const auto &kv : switchSymbols(sc, pr, &withdrawn_)) exported_[kv.first] = kv.second;
     }
+    // Les symboles que le calcul a RETIRES, pour que l'`EXTERN` non resolu
+    // puisse dire pourquoi il manque au lieu de constater qu'il manque.
+    std::set<std::string> withdrawn_;
 
     // Deux régions qui se disputent les mêmes octets d'un même emplacement.
     //
@@ -818,7 +822,12 @@ struct Linker {
                     if (unresolved_.insert(r.symbol).second)
                         diagAt(obj, f, r.offset,
                                "unresolved EXTERN symbol '" + r.symbol + "': " +
-                               objectLabel(curObject_) + " asks for it, no object exports it");
+                               objectLabel(curObject_) + " asks for it, no object exports it" +
+                               (withdrawn_.count(r.symbol)
+                                    ? std::string(" — the profile offers this name, but it would "
+                                                  "have two values depending on the window: name "
+                                                  "the window, or let a link script decide")
+                                    : std::string()));
                     continue;
                 }
                 target = it->second + r.addend;
@@ -1049,7 +1058,8 @@ bool evalSel(const profile::Expr &e, const std::map<std::string, int64_t> &bind,
     // pagination écraserait les trois autres, en silence. D'où un port, une
     // valeur BORNÉE AUX BITS DE L'AXE, et le masque de ces bits.
 std::map<std::string, int64_t> compute(const script::Script &sc,
-                                       const profile::Profile &pr) {
+                                       const profile::Profile &pr,
+                                       std::set<std::string> *withdrawn = nullptr) {
     std::map<std::string, int64_t> out, fromProfile;
     std::set<std::string> ambiguous, profileAmbiguous;
     // Les deux chemins offrent dans DEUX paniers, et le second ne peut pas
@@ -1238,21 +1248,6 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
         }
     }
 
-    // UN PORT SANS SA VALEUR N'EST PAS UNE OFFRE. Le port et le masque d'un état
-    // sont les mêmes par toutes ses fenêtres là où la valeur peut différer, si
-    // bien que la règle de retrait n'effaçait que la valeur — et le source se
-    // retrouvait avec la moitié d'un couple que le §12.3 emploie d'un bloc,
-    // `ld bc, __port_x + __val_x`. Le masque, lui, reste : il appartient à
-    // l'AXE, pas à l'état, et le retirer parce qu'un état est ambigu le rendrait
-    // indisponible pour les états qui ne le sont pas.
-    for (const std::string &n : profileAmbiguous) {
-        if (n.compare(0, 6, "__val_") != 0) continue;
-        const std::string key = n.substr(6);
-        fromProfile.erase("__port_" + key);
-        fromProfile.erase("__port2_" + key);
-        fromProfile.erase("__romnum_" + key);
-    }
-
     // LA FUSION, ET SON SENS UNIQUE : le profil ne RETIRE jamais ce que le
     // script a offert, et ne le remplace pas non plus.
     //
@@ -1267,10 +1262,39 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
     // un manque a combler.
     for (const auto &kv : fromProfile)
         if (!out.count(kv.first) && !ambiguous.count(kv.first)) out[kv.first] = kv.second;
+
+    // UN PORT SANS SA VALEUR N'EST PAS UNE OFFRE, et la balayage se fait ICI,
+    // sur le résultat, plutôt que sur chaque panier avant la fusion.
+    //
+    // Le port d'un état est le même par toutes ses fenêtres là où la valeur peut
+    // différer : la règle de retrait n'efface donc que la valeur, et laisse la
+    // moitié d'un couple que le §12.3 emploie d'un bloc — `ld bc, __port_x +
+    // __val_x`. Balayer apres la fusion couvre les DEUX chemins d'un seul geste,
+    // et le cas ou l'un rend le port pendant que l'autre retire la valeur.
+    //
+    // Le masque, lui, reste : il appartient a l'AXE et non a l'etat, et le
+    // retirer parce qu'un etat est ambigu le rendrait indisponible pour les
+    // etats qui ne le sont pas.
+    for (const char *pair : {"__port_", "__port2_"}) {
+        const std::string prefix = pair;
+        const std::string mate = prefix == "__port_" ? "__val_" : "__romnum_";
+        for (auto it = out.begin(); it != out.end();) {
+            if (it->first.compare(0, prefix.size(), prefix) != 0) { ++it; continue; }
+            if (out.count(mate + it->first.substr(prefix.size()))) { ++it; continue; }
+            if (withdrawn) withdrawn->insert(it->first);
+            it = out.erase(it);
+        }
+    }
+    // CE QUI A ETE RETIRE, et que l'appelant peut citer. Un symbole absent parce
+    // qu'il vaudrait deux choses ne se distingue pas, pour celui qui l'emploie,
+    // d'un symbole qui n'a jamais existe — et le diagnostic d'`EXTERN` non
+    // resolu dit alors qu'il manque, sans dire POURQUOI.
+    if (withdrawn) {
+        for (const std::string &n : ambiguous) if (!out.count(n)) withdrawn->insert(n);
+        for (const std::string &n : profileAmbiguous) if (!out.count(n)) withdrawn->insert(n);
+    }
     return out;
 }
-
-} // namespace
 
 // --- LE PLACEMENT QUE LE SOURCE PORTE, VERSÉ DANS LA CARTE ------------------
 // Rien ici ne place. On construit une CARTE — la même structure qu'un `.ld`
@@ -1425,10 +1449,24 @@ script::Script withSourcePlacements(const script::Script &sc,
             // le contrôle de recouvrement comme deux grilles qui se disputent
             // la banque — un refus dont aucune des deux lignes ne serait fautive.
             script::Placement *slot = nullptr;
+            bool carved = false;
+            std::string carvedFile;
+            int carvedLine = 0;
             for (script::ConfigBlock &cb : out.map) {
                 if (identity(cb.config) != identity(ref)) continue;
-                for (script::Placement &p : cb.placements)
-                    if (p.window == window && !p.hasRange) slot = &p;
+                for (script::Placement &p : cb.placements) {
+                    if (p.window != window) continue;
+                    if (!p.hasRange) { slot = &p; continue; }
+                    // UN DECOUPAGE `[OFFSET, SIZE]` NE SE REJOINT PAS DE DEHORS.
+                    // Un bloc de plus, pleine fenetre, chevaucherait le
+                    // decoupage et ferait prononcer un refus de RECOUVREMENT
+                    // dont aucune des deux lignes n'est fautive ; et verser la
+                    // section DANS le decoupage la confinerait a des bornes que
+                    // le source n'a jamais ecrites. Le refus se dit ici, ou la
+                    // vraie raison se dit encore.
+                    if (!carved) { carved = true; carvedFile = p.file; carvedLine = p.line; }
+                }
+                if (!slot && carved) break;
                 if (!slot) {
                     script::Placement p;
                     p.window = window;
@@ -1438,6 +1476,16 @@ script::Script withSourcePlacements(const script::Script &sc,
                     slot = &cb.placements.back();
                 }
                 break;
+            }
+            if (!slot && carved) {
+                errors.push_back({sec.file, sec.line,
+                    "section '" + sec.name + "' is placed 'IN " + want +
+                    "', a window the script carves into [OFFSET, SIZE] blocks: a section "
+                    "placed by the source does not say which block it belongs to — place "
+                    "this one in the script"});
+                errors.push_back({carvedFile, carvedLine,
+                    "this is the block that carves window '" + window + "'"});
+                continue;
             }
             if (!slot) {
                 script::ConfigBlock cb;
@@ -1457,6 +1505,8 @@ script::Script withSourcePlacements(const script::Script &sc,
     }
     return out;
 }
+
+} // namespace
 
 Image build(const std::vector<asmb::Object> &objects,
             const script::Script &sc, const profile::Profile &pr) {
@@ -1644,8 +1694,9 @@ Image build(const std::vector<asmb::Object> &objects,
 // Le calcul du §12.3, expose : le CLI l'appelle AVANT d'assembler, et le linker
 // s'en sert pour ses `EXTERN`. Une seule fonction, donc une seule valeur.
 std::map<std::string, int64_t> switchSymbols(const script::Script &script,
-                                             const profile::Profile &profile) {
-    return compute(script, profile);
+                                             const profile::Profile &profile,
+                                             std::set<std::string> *withdrawn) {
+    return compute(script, profile, withdrawn);
 }
 
 Flat flatten(const Image &img) {

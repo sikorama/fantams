@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -110,8 +111,15 @@ Image build(const std::vector<asmb::Object> &objects,
 //
 // Le linker les offre AUSSI à ses `EXTERN`, pour l'unité qui a été assemblée
 // sans script. Les deux chemins lisent la même fonction, donc la même valeur.
+//
+// `withdrawn`, s'il est donné, reçoit les noms RETIRÉS : ceux qui auraient valu
+// deux choses selon la fenêtre, et que la règle efface plutôt que de trancher.
+// Sans cette liste, un tel symbole se manifeste par un `EXTERN` non résolu, qui
+// dit qu'il manque et non POURQUOI — alors que tout le placement porté par le
+// source repose sur ces noms.
 std::map<std::string, int64_t> switchSymbols(const script::Script &script,
-                                             const profile::Profile &profile);
+                                             const profile::Profile &profile,
+                                             std::set<std::string> *withdrawn = nullptr);
 
 // L'image PLATE des banques 0..7 — l'octet (banque b, offset o) en b*0x4000+o —
 // et sa coverage, telles que `sna::build` les attend.

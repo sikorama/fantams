@@ -51,6 +51,43 @@ and `tests/accept_separate.sh` checks it.
 The `.fo` is **text**: a wrong object is read by eye, and writing it, reading it
 back and writing it again gives the same file.
 
+**Banked programs the linker places, and switches for you.** A **target profile**
+describes what a machine can do — its windows, its banks, the map states it can
+actually reach, and the port writes that reach them. A **link script** says what
+the profile cannot know: which section goes where. Between the two, a program
+larger than 64 KB is built without a single hard-coded address or switching value:
+
+```asm
+        section gfx1, "ro"          ; the source names sections, nothing else
+gfx1_data:
+        db 0xA1, 0x10, 0x11, 0x12
+```
+```
+MEMORY_MAP { CONFIG ext_w1<1> { w1 { SECTION gfx1 } } }
+```
+
+The linker gives `gfx1` its bank, derives its logical address from the window,
+and offers `__port_ram_ext_w1_1` / `__val_ram_ext_w1_1` — the port and the value
+that page that bank in, **computed** from the profile rather than written by hand.
+Overlaps are refused with both section names, and the unused room in each bank is
+printed. `examples/banked.asm` puts five sections in four banks without one `org`,
+and `--dump-profile cpc6128` prints the text you would edit to describe another
+machine.
+
+**A source can place itself, if placement is a property of the program.** When
+editing a link script is not an option — a source coming from another assembler,
+a host that only passes a `.asm` — a section can say where it goes:
+
+```asm
+        section gfx1, "ro" IN w1 OF ext_w1<1>
+```
+
+The linker places it and still hands back the switching values, so nothing is
+written twice. It couples the source to the machine, which is the trade; ADR 0030
+states it, and `examples/aliased_sym.asm` is the worked example — the same
+program as `examples/aliased.asm` and `examples/aliased_org.asm`, byte for byte,
+by three different routes.
+
 **A machine-readable symbol table.** `--sym` writes a CSV — one line per label
 and constant, with type, owning section, logical address, storage bank, and origin
 file and line
@@ -306,9 +343,11 @@ The exported `.sna` carries 64 KB if the source stays within banks 0–3, and
 ## Command line
 
 ```
-fantams file.asm [-o out] [-s] [-E] [--beautify] [--normalize] [--strict]
-                 [--no-detach-labels] [--no-indent-blocks]
+fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--beautify] [--normalize]
+                 [--strict] [--no-detach-labels] [--no-indent-blocks]
                  [--base base.sna] [--sym[=out.sym]]
+                 [--target name | -P file.prof] [-T file.ld]
+fantams --dump-profile name
 fantams --version
 ```
 
@@ -324,6 +363,12 @@ fantams --version
 | `--no-indent-blocks` | do not indent block bodies |
 | `--base f.sna` | lay the assembled bytes onto a captured machine state (`.sna` output only) |
 | `--sym[=file]` | write the symbol table as CSV; the default path derives from `-o` |
+| `-o out.fo` | assemble **only**, and write the object — no linking |
+| `file.fo...` | link objects already assembled |
+| `--target name` | a built-in target profile (`cpc6128`, …) |
+| `-P file.prof` | a target profile of your own, read by the same code path |
+| `-T file.ld` | the link script — which section goes where |
+| `--dump-profile name` | print a built-in profile on standard output, as the parser reads it |
 | `--version` | the release date and this artifact's build date, on one line, to be read |
 
 `ppdump` is the preprocessor alone, equivalent to `-E`.
@@ -384,5 +429,9 @@ the artifact.
 
 - [`docs/syntax.md`](docs/syntax.md) — the full syntax reference
 - [`docs/principes.md`](docs/principes.md) — design principles
+- [`docs/spec-chaine-outils.md`](docs/spec-chaine-outils.md) — the toolchain spec:
+  memory model, profiles, link scripts, and the stages that build them
+- [`docs/etage-b.md`](docs/etage-b.md), [`docs/etage-c1.md`](docs/etage-c1.md) —
+  what each stage delivered, step by step, and what it deliberately did not
 - [`docs/adr/`](docs/adr) — architecture decision records
 - [`CONTEXT.md`](CONTEXT.md) — the codebase, module by module

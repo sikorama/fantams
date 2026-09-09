@@ -110,8 +110,8 @@ décision.
 | P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — | **faite** |
 | P3 | Le linker résout le placement du source, et le fusionne | P2 | **faite** |
 | P4 | La surcharge par le script, et son avertissement | P3 | **faite** |
-| P5 | L'exemple et les tests d'acceptation | P1, P4 | à faire |
-| P6 | L'ADR : le source qui porte son placement, et ce qu'il perd | tout | à faire |
+| P5 | L'exemple et les tests d'acceptation | P1, P4 | **faite** |
+| P6 | L'ADR : le source qui porte son placement, et ce qu'il perd | tout | **faite** |
 
 ### P1 — les clés du profil seul
 
@@ -280,6 +280,30 @@ n'est pas encore honorée.
   liait la section à une adresse fausse **en silence**. C'est la classe de
   changement que ce champ existe pour attraper. `kVersion` passe à 2.
 
+**Quatre défauts de plus, trouvés par la relecture de P5, et corrigés.**
+
+- **Un découpage `[OFFSET, SIZE]` du script faisait naître un chevauchement
+  faux.** Une section du source visant une fenêtre que le script découpe créait
+  un second bloc pleine fenêtre, et le refus qui suivait nommait deux lignes dont
+  **aucune n'était fautive**. Le refus se dit maintenant à la source, en nommant
+  le découpage. Et c'est la bonne réponse plutôt qu'un versement dans le
+  découpage : un bloc nu à côté d'un bloc découpé est **déjà** refusé au script
+  (C1.5), donc une fenêtre découpée n'a aucune place où loger la section — mieux
+  vaut le lui dire.
+- **Le demi-couple port/valeur n'était réparé que d'un côté.** Le balayage se
+  fait désormais **après la fusion**, sur le résultat : un seul geste couvre les
+  deux chemins, et le cas où l'un rend le port pendant que l'autre retire la
+  valeur.
+- **Un symbole retiré disparaissait sans dire pourquoi.** La règle ne change pas
+  — un symbole qui vaudrait deux choses reste pire qu'un symbole absent —, mais
+  `switchSymbols` rend la liste des noms retirés, et l'`EXTERN` non résolu dit
+  qu'il vaudrait deux valeurs selon la fenêtre. Sans quoi, pour qui l'emploie, un
+  nom retiré ne se distingue pas d'un nom qui n'a jamais existé — et tout le
+  placement porté par le source repose sur ces noms.
+- **Trois fonctions avaient une visibilité externe** : `statesOf`, `windowsOf` et
+  `withSourcePlacements` étaient définies après la fermeture du namespace
+  anonyme, sous des noms très génériques. Elles y sont rentrées.
+
 **Trois choses décidées en cours de route.**
 
 - **Rien ne place dans P3.** L'étape construit une **carte** — la même structure
@@ -335,22 +359,36 @@ valeurs viennent du linker.
 octet. Il affirmerait les **trois**. Aucun oracle extérieur : trois chemins du
 même outil, et leur accord fait la preuve — le moule du dépôt.
 
-- [ ] Les trois fichiers rendent les mêmes octets
-- [ ] `aliased_sym.asm` ne contient ni `equ` de commutation, ni `org bN:`
-- [ ] Déplacer une section d'une config à l'autre **dans le source seul** change
+- [x] Les trois fichiers rendent les mêmes octets
+- [x] `aliased_sym.asm` ne contient ni `equ`, ni `org` — le script d'acceptation
+      le **vérifie** au lieu de l'affirmer, comme il le fait déjà des deux autres
+- [x] Déplacer une section d'une config à l'autre **dans le source seul** change
       sa banque et sa valeur, et pas une adresse logique — le contrôle de C1.9,
       transposé au source
-- [ ] Le cas simple ne paie rien (D12) : sans `--target`, sans script et sans
+- [x] Le cas simple ne paie rien (D12) : sans `--target`, sans script et sans
       `IN`, les cinq exemples rendent les mêmes octets, `--sym` et diagnostics
       compris
-- [ ] Les onze suites vertes, par les deux chaînes
+- [x] Les onze suites vertes, par les deux chaînes
 
 ### P6 — l'ADR
 
-- [ ] Il énonce la rupture du §11, et ce qu'un tel source perd
-- [ ] Il dit pourquoi la section nomme la **config** et non la banque (§3)
-- [ ] Il dit pourquoi `org bN:` reste hors de ce dessin, et n'est pas déprécié
-- [ ] L'ADR 0005 et l'ADR 0026 sont relus à sa lumière
+- [x] Il énonce la rupture du §11, et ce qu'un tel source perd
+- [x] Il dit pourquoi la section nomme la **config** et non la banque (§3)
+- [x] Il dit pourquoi `org bN:` reste hors de ce dessin, et n'est pas déprécié
+- [x] L'ADR 0005 et l'ADR 0026 sont relus à sa lumière
+
+`docs/adr/0030-le-source-peut-porter-son-placement.md`. L'ADR 0005 en sort
+**inchangé et confirmé** : sa règle — l'adresse logique s'écrit, ne se déduit
+jamais du numéro de banque — est exactement ce que fait la fenêtre ici. L'ADR
+0026 voit sa dette éteinte : la migration qu'il annonçait pour l'étage B a eu
+lieu, et sa lettre tient — la section continue de nommer et de classer, ce
+qu'elle porte en plus étant une chaîne que l'assembleur ne lit pas.
+
+**Hors plan, fait en même temps** : `README.md` ignorait entièrement les étages B
+et C1 — ni compilation séparée, ni profils, ni scripts de lien, ni `--target`,
+`-P`, `-T`, `--dump-profile` dans le tableau des options. Deux paragraphes de
+présentation et sept lignes de tableau les y font entrer, avec le placement porté
+par le source.
 
 ## 9. Ce que ce chantier ne livre PAS
 
@@ -360,7 +398,7 @@ tourne **avant** l'assemblage et ne peut pas le lire. Le linker le pourrait sur
 son chemin `EXTERN` (`link.cpp:496`), au prix d'une seconde définition de la même
 clé selon la provenance. À écarter explicitement, ou à traiter à part.
 
-## 10. Où ranger le chantier *(tranché)*
+## 10. Où ranger le chantier *(tranché)* — et il est **clos**
 
 **Chantier autonome.** L'étage C1 est clos par C1.10 et ceci n'est pas C2 : ça ne
 vérifie rien, ça place et calcule. Rouvrir C1 d'un `C1.11` réécrirait une clôture

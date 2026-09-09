@@ -6,11 +6,15 @@
 # 64 K, il en emploie plusieurs, toutes vues par la meme fenetre : c'est la
 # forme reelle, et c'est celle-ci.
 #
-# Le controle en titre est le n°2. Une source qui place ses banques A LA MAIN
-# (`org bN:`, valeurs de commutation en `equ`) et la MEME source qui laisse le
-# linker placer (`SECTION` + script) doivent rendre les MEMES OCTETS. Aucun
-# oracle exterieur n'est convoque : ce sont deux chemins du meme outil, et
-# c'est leur accord qui fait la preuve.
+# Le controle en titre est le n°2, et il porte sur TROIS chemins du meme outil :
+#
+#   aliased.asm     + aliased.ld : le source ne place rien, le script place ;
+#   aliased_org.asm             : le source place a la main, `org bN:` et `equ` ;
+#   aliased_sym.asm             : le source place par ses SECTIONS, et le linker
+#                                 lui rend les valeurs de commutation.
+#
+# Les trois doivent rendre les MEMES OCTETS. Aucun oracle exterieur n'est
+# convoque : c'est leur accord qui fait la preuve.
 set -e
 cd "$(dirname "$0")/.."
 FANTAMS=${FANTAMS:-./fantams}
@@ -20,27 +24,53 @@ trap 'rm -rf "$TMP"' EXIT
 A=examples/aliased.asm
 L=examples/aliased.ld
 O=examples/aliased_org.asm
+S=examples/aliased_sym.asm
 
-# 1. La source liee ne nomme AUCUN emplacement, et sa jumelle les nomme TOUS.
-#    Les deux moities de l'enonce, verifiees plutot qu'affirmees.
+# 1. Chaque source dit ce qu'elle est, et on le VERIFIE plutot que de
+#    l'affirmer : la premiere ne nomme aucun emplacement, la deuxieme les nomme
+#    tous a la main, la troisieme place ses sections SANS ecrire un seul nombre.
 if grep -nE '^[^;]*\b(org|BANK)\b' "$A" >/dev/null; then
     echo "ECHEC : $A nomme un emplacement"; exit 1
 fi
 if ! grep -qE '^[^;]*\borg\s+b[4-7]:' "$O"; then
     echo "ECHEC : $O ne place plus ses banques a la main"; exit 1
 fi
+if ! grep -qE '^[^;]*\bSECTION\b.*\bIN\b' "$S"; then
+    echo "ECHEC : $S ne place plus ses sections"; exit 1
+fi
+if grep -nE '^[^;]*\b(org|equ)\b' "$S" >/dev/null; then
+    echo "ECHEC : $S ecrit un org ou un equ — les valeurs doivent venir du linker"
+    grep -nE '^[^;]*\b(org|equ)\b' "$S" | head -3
+    exit 1
+fi
 
 "$FANTAMS" "$A" -T "$L" -o "$TMP/ld.sna"  --sym="$TMP/ld.sym"  >/dev/null 2>&1
 "$FANTAMS" "$O"           -o "$TMP/org.sna"                    >/dev/null 2>&1
+"$FANTAMS" "$S" --target cpc6128 -o "$TMP/sym.sna" --sym="$TMP/sym.sym" >/dev/null 2>&1
 
-# 2. LE CONTROLE EN TITRE.
-if cmp -s "$TMP/ld.sna" "$TMP/org.sna"; then
-    echo "acceptation : place par le linker == place a la main, $(wc -c < "$TMP/ld.sna" | tr -d ' ') octets"
-else
-    echo "ECHEC : les deux placements divergent"
+# 2. LE CONTROLE EN TITRE : les trois chemins, octet pour octet.
+if ! cmp -s "$TMP/ld.sna" "$TMP/org.sna"; then
+    echo "ECHEC : place par le linker et place a la main divergent"
     cmp -l "$TMP/ld.sna" "$TMP/org.sna" | head -5 || true
     exit 1
 fi
+if ! cmp -s "$TMP/ld.sna" "$TMP/sym.sna"; then
+    echo "ECHEC : place par le linker et place par les sections divergent"
+    cmp -l "$TMP/ld.sna" "$TMP/sym.sna" | head -5 || true
+    exit 1
+fi
+echo "acceptation : script == a la main == sections, $(wc -c < "$TMP/ld.sna" | tr -d ' ') octets"
+
+# 2 bis. Et les valeurs de commutation du troisieme viennent bien du PROFIL :
+#        les memes octets qu'ailleurs, alors qu'aucun `equ` ne les ecrit. Le
+#        controle n°4 les lit ; ici on verifie que la table des symboles place
+#        les quatre banques comme les deux autres chemins.
+symbank() { grep "^$1," "$TMP/sym.sym" | cut -d, -f5; }
+for pair in gfx0_data:4 gfx1_data:5 gfx2_data:6 gfx3_data:7; do
+    n=${pair%:*}; want=${pair#*:}
+    [ "$(symbank "$n")" = "$want" ] || {
+        echo "ECHEC : $n en banque $(symbank "$n") par les sections, attendu $want"; exit 1; }
+done
 
 sym()  { grep "^$1," "$TMP/ld.sym" | cut -d, -f4; }
 bank() { grep "^$1," "$TMP/ld.sym" | cut -d, -f5; }
@@ -99,3 +129,31 @@ if cmp -s "$TMP/ld.sna" "$TMP/sw.sna"; then
 fi
 echo "acceptation : permuter gfx0 et gfx3 echange leurs banques et leurs valeurs"
 echo "              de commutation, et pas une adresse logique"
+
+# 6. LE MEME CONTROLE, DANS LE SOURCE SEUL. Ce que le n°5 prouve du script,
+#    celui-ci le prouve du placement porte par les sections : deplacer une
+#    section d'une configuration a l'autre change sa banque ET sa valeur de
+#    commutation, sans toucher une adresse logique. C'est la propriete qui fait
+#    de `IN` autre chose qu'un `org bN:` deguise.
+sed -e 's/SECTION gfx0, "ro" IN w1 OF ext_w1<0>/SECTION gfx0, "ro" IN w1 OF ext_w1<3>/' \
+    -e 's/SECTION gfx3, "ro" IN w1 OF ext_w1<3>/SECTION gfx3, "ro" IN w1 OF ext_w1<0>/' \
+    "$S" > "$TMP/swapped.asm"
+"$FANTAMS" "$TMP/swapped.asm" --target cpc6128 -o "$TMP/symsw.sna" --sym="$TMP/symsw.sym" >/dev/null 2>&1
+
+swsym() { grep "^$1," "$TMP/symsw.sym" | cut -d, -f5; }
+[ "$(swsym gfx0_data)" = "7" ] || { echo "ECHEC : gfx0 n'a pas suivi le source (banque $(swsym gfx0_data))"; exit 1; }
+[ "$(swsym gfx3_data)" = "4" ] || { echo "ECHEC : gfx3 n'a pas suivi le source (banque $(swsym gfx3_data))"; exit 1; }
+
+cut -d, -f1,4 "$TMP/sym.sym"   | sort > "$TMP/c"
+cut -d, -f1,4 "$TMP/symsw.sym" | sort > "$TMP/d"
+if ! cmp -s "$TMP/c" "$TMP/d"; then
+    echo "ECHEC : deplacer une section dans le source a change une adresse logique"
+    diff "$TMP/c" "$TMP/d" || true
+    exit 1
+fi
+if cmp -s "$TMP/sym.sna" "$TMP/symsw.sna"; then
+    echo "ECHEC : deplacer une section dans le source n'a rien change aux octets"
+    exit 1
+fi
+echo "acceptation : deplacer une section DANS LE SOURCE change sa banque et sa"
+echo "              valeur de commutation, et pas une adresse logique"

@@ -1670,6 +1670,73 @@ int main() {
         ok("un placement porte par le source n'offre PAS de cle par section", !img.ok);
     }
 
+    // --- La relecture de P5 : quatre defauts, epingles ----------------------
+    {
+        // UN DECOUPAGE `[OFFSET, SIZE]` NE SE REJOINT PAS DE DEHORS. Un bloc de
+        // plus, pleine fenetre, chevaucherait le decoupage et ferait prononcer
+        // un refus de RECOUVREMENT dont aucune des deux lignes n'est fautive.
+        asmb::Object o = secObj("a.fo", {{"a", {1}}, {"b", {1}}});
+        place(o, "b", "ext_w1<1>", "w1");
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<1> { w1 [OFFSET 0x0000, SIZE 0x2000]"
+                " { SECTION a } } }"), pal3());
+        ok("une section source dans une fenetre decoupee par le script est refusee", !img.ok);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("et le refus nomme le decoupage, PAS un recouvrement",
+           m.find("carves") != std::string::npos && m.find("place this one in the script") != std::string::npos &&
+           m.find("overlap") == std::string::npos);
+        ok("en montrant la ligne qui decoupe",
+           img.errors.size() > 1 && img.errors[1].message.find("carves window") != std::string::npos);
+    }
+    {
+        // ET C'EST POURQUOI LE REFUS EST LA BONNE REPONSE : un bloc NU a cote
+        // d'un bloc decoupe est deja refuse au SCRIPT, par le controle de
+        // recouvrement de C1.5. Une fenetre decoupee n'a donc aucune place ou
+        // loger un bloc pleine fenetre, et la section venue du source n'a nulle
+        // part ou aller — mieux vaut le lui dire que lui faire prononcer ce
+        // refus-la, dont aucune de ses deux lignes n'est fautive.
+        asmb::Object o = secObj("a.fo", {{"a", {1}}, {"c", {1}}});
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<1> { w1 [OFFSET 0x0000, SIZE 0x2000] { SECTION a }\n"
+                "                                w1 { SECTION c } } }"), pal3());
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("un bloc nu a cote d'un bloc decoupe est deja refuse au script",
+           !img.ok && m.find("overlap") != std::string::npos);
+    }
+    {
+        // UN PORT SANS SA VALEUR N'EST PAS UNE OFFRE, et cela vaut aussi du
+        // chemin SCRIPT : le port est le meme par les deux fenetres la ou la
+        // valeur differe, et la regle de retrait n'effacait que la valeur.
+        profile::Profile pr = profile::parse(
+            "WINDOW w0 [0x0000..0x3FFF]\n"
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK lo SIZE 0x4000 rw PAGE 0 STORE 0\n"
+            "BANK hi SIZE 0x4000 rw PAGE 1 STORE 1\n"
+            "CONFIG SET ram { both [CODE 0] { w0 lo  w1 hi } }\n"
+            "SELECT ram = OUT 0x7F00, (PAGE << 3) | CODE\n", "m.prof");
+        script::Script sc = scr("MEMORY_MAP { CONFIG both { w0 { SECTION x }\n"
+                                "                          w1 { SECTION y } } }");
+        std::set<std::string> gone;
+        const std::map<std::string, int64_t> sy = link::switchSymbols(sc, pr, &gone);
+        ok("la valeur ambigue est retiree, par le chemin script aussi",
+           sy.find("__val_ram_both") == sy.end());
+        ok("et son port ne lui survit pas", sy.find("__port_ram_both") == sy.end());
+        ok("les deux noms sont rendus comme RETIRES, et non comme inexistants",
+           gone.count("__val_ram_both") && gone.count("__port_ram_both"));
+
+        // Et le diagnostic le dit : un symbole absent parce qu'il vaudrait deux
+        // choses ne se distingue pas, pour qui l'emploie, d'un symbole qui n'a
+        // jamais existe.
+        asmb::Object o = secObj("a.fo", {{"x", {1}}, {"y", {2}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_both";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o}, sc, pr);
+        const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
+        ok("l'EXTERN non resolu dit POURQUOI le symbole manque",
+           !img.ok && m.find("two values depending on the window") != std::string::npos);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

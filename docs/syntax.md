@@ -434,8 +434,22 @@ where the section goes, and a section is placed once.
 
 The placement is **frozen at the first declaration**, like the type and the size
 cap. Reopening the section without an `IN` keeps it; reopening it with a
-different one is refused — letting it move at a reopening, from an included file
-say, would move the section without a word.
+different one — or *introducing* one at a reopening — is refused: it would apply
+retroactively to the bytes already in the section, and move them without a word.
+
+Naming a **bank** rather than a configuration is not offered, and the reason is a
+fact rather than a taste: on `cpc6128` the bank `ext1` is brought into `w1` by
+**two** states, `ext_w1<1>` (switching value `&C5`) and `all_ext` (`&C2`). A bank
+does not determine a switching value; a state and its argument do. Note also that
+on that profile a state describes the **whole** map — `ext_w1<b>` is
+`{ w0 base0  w1 ext<b>  w2 base2  w3 base3 }` — so the verbose form is the normal
+one there, and the short form serves configurations that really map one window,
+like `rom_lower.on { w0 rom_lo }`.
+
+When a **link script places the same section**, the script wins and two warnings
+say so. The trap is not cosmetic: a source that places itself switches with the
+value of *its* configuration, which is the wrong one as soon as the script put the
+section elsewhere — a fault invisible in either file read alone.
 
 `IN` and `OF` add **no new reserved words**. They mean something only among the
 operands of a `SECTION`, and are recognised there and nowhere else — `IN` was
@@ -445,7 +459,10 @@ Placing a section in the source **couples it to the machine**, which a `.asm`
 otherwise is not: it will not build for another target without being edited,
 where a section placed by a link script changes machine by changing script. That
 is a trade, and it is yours to make — a placement can be a property of the
-program.
+program. ADR 0030 states it in full, and `examples/aliased_sym.asm` is the worked
+example: the same program as `examples/aliased.asm` (placed by a script) and
+`examples/aliased_org.asm` (placed by hand), with **no `org` and no `equ`** — the
+three produce the same bytes, and `tests/accept_aliased.sh` checks it.
 
 Three types, and they are the only hardware semantics the assembler knows:
 
