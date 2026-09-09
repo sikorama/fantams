@@ -413,6 +413,39 @@ mon_tableau:
         ld (mon_tableau), a     ; refused: writes into a "ro" section
 ```
 
+A section can also say **where it goes**, in the vocabulary of the target
+profile:
+
+```asm
+        section gfx1, "ro" IN ext_w1<1>            ; a configuration
+        section gfx2, "ro" IN w1 OF all_ext        ; a window of one
+        section gfx3, "ro", 0x2000 IN ext_w1<2>    ; and a size cap beside it
+```
+
+The short form is legal when the configuration maps **one** window; when it maps
+several, name the window. Both are refused by the **linker** if the profile
+declares no such configuration or window — the assembler carries the text
+without reading it, and knows no profile at all.
+
+A section placed this way is **relocatable**: the linker decides its address. An
+`org` inside it is therefore an **offset**, not an address, and does not place
+it. An `org` with a **bank prefix** inside it is refused: `IN` has already said
+where the section goes, and a section is placed once.
+
+The placement is **frozen at the first declaration**, like the type and the size
+cap. Reopening the section without an `IN` keeps it; reopening it with a
+different one is refused — letting it move at a reopening, from an included file
+say, would move the section without a word.
+
+`IN` and `OF` are **not reserved words**. They mean something only among the
+operands of a `SECTION`, so a label named `in` still assembles.
+
+Placing a section in the source **couples it to the machine**, which a `.asm`
+otherwise is not: it will not build for another target without being edited,
+where a section placed by a link script changes machine by changing script. That
+is a trade, and it is yours to make — a placement can be a property of the
+program.
+
 Three types, and they are the only hardware semantics the assembler knows:
 
 | Type | Content | Emits bytes |

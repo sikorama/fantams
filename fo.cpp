@@ -140,6 +140,12 @@ std::string write(const asmb::Object &obj) {
           << (s.relocatable ? " reloc" : " abs")
           << " size=" << hex(s.size);
         if (s.hasMax) o << " max=" << hex(s.max);
+        // OU LE SOURCE DIT QU'ELLE VA. Deux cles, et non une : `IN <config>`
+        // n'ecrit que `place`, `IN <fenetre> OF <config>` ecrit les deux. Ce
+        // sont des CHAINES que l'assembleur n'a pas lues — le linker les
+        // resout contre le profil, qui seul sait ce qu'elles nomment.
+        if (!s.place.empty()) o << " place=" << quoted(s.place);
+        if (!s.placeWindow.empty()) o << " window=" << quoted(s.placeWindow);
         // La ligne de sa premiere declaration. Sans elle, un desaccord de type
         // ou de plafond entre deux `.fo` se signalerait sans nommer une ligne —
         // et c'est le cas MULTI-OBJET qui est la raison d'etre du refus.
@@ -322,6 +328,8 @@ bool read(const std::string &text, asmb::Object &out, std::string &error) {
             if (!ok) return fail("section: 'size' is not a number");
             if (kv.count("max")) { s.hasMax = true; s.max = num("max", 0, ok); }
             if (!ok) return fail("section: 'max' is not a number");
+            if (kv.count("place")) s.place = kv["place"];
+            if (kv.count("window")) s.placeWindow = kv["window"];
             if (kv.count("at")) s.file = kv["at"];
             s.line = (int)num("line", 0, ok);
             if (!ok) return fail("section: 'line' is not a number");

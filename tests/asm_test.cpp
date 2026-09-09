@@ -1021,6 +1021,87 @@ int main() {
         okc("chacun reclame sa definition", o.errors.size() == 2);
     }
 
+    // --- P2 : le placement porte par la declaration de section --------------
+    // L'assembleur PORTE la chaine, il ne la lit pas : il ne connait aucun
+    // profil, et `ext_w1<1>` ne veut rien dire pour lui. C'est le linker qui la
+    // resout — le §1 tient, et l'assembleur recoit un texte comme il recoit
+    // deja des nombres par `switchSymbols`.
+    auto sectionOf = [](const asmb::Object &o, const char *name) -> const asmb::Section * {
+        for (const asmb::Section &s : o.sections) if (s.name == name) return &s;
+        return nullptr;
+    };
+    {
+        Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1,2,3\n", "t.asm");
+        const asmb::Section *s = sectionOf(b.obj, "gfx1");
+        okc("la forme courte est analysee", b.obj.ok && s && s->place == "ext_w1<1>");
+        okc("et elle ne nomme aucune fenetre", s && s->placeWindow.empty());
+        okc("une section ainsi declaree est RELOCALISABLE", s && s->relocatable);
+    }
+    {
+        Built b = build("  section gfx1, \"ro\" IN w1 OF ext_w1<1>\n  db 1\n", "t.asm");
+        const asmb::Section *s = sectionOf(b.obj, "gfx1");
+        okc("la forme verbeuse nomme la fenetre et la configuration",
+            b.obj.ok && s && s->placeWindow == "w1" && s->place == "ext_w1<1>");
+    }
+    {
+        Built b = build("  section gfx1, \"ro\", 0x2000 IN ext_w1<1>\n  db 1\n", "t.asm");
+        const asmb::Section *s = sectionOf(b.obj, "gfx1");
+        okc("le plafond de taille cohabite avec le placement",
+            b.obj.ok && s && s->hasMax && s->max == 0x2000 && s->place == "ext_w1<1>");
+    }
+    {
+        // Ce qui ne change pas : une section SANS `IN` est exactement ce qu'elle
+        // etait. C'est l'invariant D12, a l'echelle de cette etape.
+        Built b = build("  section code, \"ro\"\n  db 1\n", "t.asm");
+        const asmb::Section *s = sectionOf(b.obj, "code");
+        okc("sans IN, une section ne porte aucun placement",
+            b.obj.ok && s && s->place.empty() && s->placeWindow.empty());
+    }
+    {
+        // `org` DANS une section placee est un DECALAGE, et ne place pas : la
+        // section reste relocalisable, et le linker garde la main.
+        Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  org 0x100\nhere:\n  db 0xAA\n", "t.asm");
+        const asmb::Section *s = sectionOf(b.obj, "gfx1");
+        okc("un org dans une section placee ne la rend pas absolue",
+            b.obj.ok && s && s->relocatable);
+        // Le decalage se lit sur les OFFSETS : le label qui suit l'`org` est a
+        // 0x100 de la base que le linker donnera, et non a l'adresse 0x100.
+        int64_t off = -1;
+        for (const asmb::Symbol &sy : b.obj.symbolTable)
+            if (sy.name == "here") off = sy.value;
+        okc("et il vaut un DECALAGE : ce qui suit est a l'offset 0x100 de la base", off == 0x100);
+    }
+    {
+        // Mais un PREFIXE DE BANQUE y est un second placement, et deux porteurs
+        // pour une decision est la faute que ce chantier existe pour eviter.
+        Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  org b5:0x4000\n  db 1\n", "t.asm");
+        okc("un org prefixe dans une section placee est refuse", !b.obj.ok);
+        const std::string m = b.errors.empty() ? std::string() : b.errors[0].message;
+        okc("et le refus nomme les deux placements",
+            m.find("gfx1") != std::string::npos && m.find("IN") != std::string::npos);
+    }
+    {
+        // Le placement suit la regle du type et du plafond : FIGE a la premiere
+        // declaration. Le laisser changer a la reouverture deplacerait la
+        // section en silence, depuis un fichier inclus par exemple.
+        Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1\n"
+                        "  section gfx1, \"ro\" IN ext_w1<2>\n  db 2\n", "t.asm");
+        okc("une reouverture qui deplace la section est refusee", !b.obj.ok);
+        Built c = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1\n"
+                        "  section gfx1, \"ro\"\n  db 2\n", "t.asm");
+        const asmb::Section *s = sectionOf(c.obj, "gfx1");
+        okc("une reouverture muette garde le placement de la premiere",
+            c.obj.ok && s && s->place == "ext_w1<1>");
+    }
+    {
+        Built b = build("  section gfx1, \"ro\" IN\n  db 1\n", "t.asm");
+        okc("un IN sans configuration est refuse", !b.obj.ok);
+        Built c = build("  section gfx1, \"ro\" IN w1 OF\n  db 1\n", "t.asm");
+        okc("un OF sans configuration est refuse", !c.obj.ok);
+        Built d = build("  section gfx1, \"ro\" IN a OF b OF c\n  db 1\n", "t.asm");
+        okc("une configuration qui n'en est pas une syntaxiquement est refusee", !d.obj.ok);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

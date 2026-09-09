@@ -107,7 +107,7 @@ décision.
 | # | Étape | Bloqué par | État |
 |---|-------|-----------|------|
 | P1 | Les clés du profil seul dans `switchSymbols` | — | **faite** |
-| P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — | à faire |
+| P2 | La grammaire `IN`, portée opaquement jusqu'à l'objet | — | **faite** |
 | P3 | Le linker résout le placement du source, et le fusionne | P2 | à faire |
 | P4 | La surcharge par le script, et son avertissement | P3 | à faire |
 | P5 | L'exemple et les tests d'acceptation | P1, P4 | à faire |
@@ -197,16 +197,38 @@ Vérifié de bout en bout sur le profil livré, sans script et sans placement :
 
 ### P2 — la grammaire `IN`
 
-- [ ] `section <nom>, "<type>"[, <max>] IN <config>` est analysé
-- [ ] `... IN <fenêtre> OF <config>` aussi
-- [ ] La chaîne est portée **sans être interprétée** : l'assembleur ne lit aucun
+- [x] `section <nom>, "<type>"[, <max>] IN <config>` est analysé
+- [x] `... IN <fenêtre> OF <config>` aussi
+- [x] La chaîne est portée **sans être interprétée** : l'assembleur ne lit aucun
       profil
-- [ ] Une section ainsi déclarée est **relocalisable** ; `org` à l'intérieur est
+- [x] Une section ainsi déclarée est **relocalisable** ; `org` à l'intérieur est
       un décalage et ne place pas
-- [ ] L'objet la porte : deux clés additives dans l'enregistrement `section`
-- [ ] Aller-retour d'objet conservé (la propriété de `fo_test`)
-- [ ] `beautify` connaît la forme ; `docs/syntax.md` la décrit
-- [ ] Sans `IN`, une `section` est **exactement** ce qu'elle est aujourd'hui
+- [x] L'objet la porte : deux clés additives dans l'enregistrement `section`
+- [x] Aller-retour d'objet conservé (la propriété de `fo_test`)
+- [x] `beautify` connaît la forme ; `docs/syntax.md` la décrit
+- [x] Sans `IN`, une `section` est **exactement** ce qu'elle est aujourd'hui
+
+**Trois choses décidées en cours de route.**
+
+- **`IN` et `OF` ne sont PAS des mots réservés.** Ils ne valent que parmi les
+  opérandes d'un `SECTION`, et un source qui nomme un label `in` continue
+  d'assembler. Les réserver aurait cassé des sources existantes pour un mot qui
+  n'est ambigu nulle part — `section in, "ro"` se distingue de `IN` par ce qui
+  le suit, et la détection le voit.
+- **Un `org` préfixé d'une banque dans une section placée est refusé.** `IN` a
+  déjà dit où elle va ; le préfixe le redit, et rien ne garantirait qu'ils
+  restent d'accord. Un `org` **nu**, lui, est licite et vaut un décalage : c'est
+  ce que l'auteur écrit quand sa section ne commence pas à zéro.
+- **Le placement est figé à la première déclaration**, comme le type et le
+  plafond. Une réouverture muette le garde ; une réouverture qui le change est
+  refusée. Le laisser bouger depuis un fichier inclus déplacerait la section
+  sans un mot.
+
+**Ce que P2 ne fait pas encore, et qu'il ne faut pas prendre pour un oubli :**
+le linker **ignore** `place` pour l'instant. Une section déclarée `IN` est
+relocalisable et se pose comme n'importe quelle section que personne n'a placée.
+C'est P3, et c'est l'étape suivante — la syntaxe est acceptée et portée, elle
+n'est pas encore honorée.
 
 ### P3 — le linker résout et fusionne
 

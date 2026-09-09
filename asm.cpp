@@ -168,7 +168,9 @@ public:
             Section sec;
             sec.name = name;
             sec.id = it->second.id;
-            sec.relocatable = it->second.id >= 0 && !it->second.hasOrg;
+            sec.relocatable = it->second.id >= 0 && (!it->second.hasOrg || it->second.hasPlace);
+            sec.place = it->second.place;
+            sec.placeWindow = it->second.placeWindow;
             sec.kind = it->second.kind;
             sec.hasMax = it->second.hasMax;
             sec.max = it->second.max;
@@ -308,6 +310,77 @@ public:
         t = upper(t);
         if (t == "RO" || t == "RW" || t == "UNINIT") return t;
         return std::string();
+    }
+
+    // DETACHER LE PLACEMENT d'une declaration de section : `IN <config>` ou
+    // `IN <fenetre> OF <config>`. `IN` termine la liste des parametres, si bien
+    // que ce qui reste a gauche est exactement la declaration d'hier.
+    //
+    // Rien ici ne SAIT ce qu'est `ext_w1<1>` : l'assembleur ne lit aucun profil,
+    // et ne verifie que la FORME. La fenetre inexistante, la configuration que
+    // le profil ne declare pas, la forme courte sur une config qui mappe deux
+    // fenetres : ce sont des refus du linker, qui lit le profil.
+    //
+    // Rend false, et remplit `err`, sur une forme mal ecrite. `found` dit si un
+    // `IN` etait la — sans lui, rien n'a change.
+    static bool peelPlacement(std::string &rest, std::string &window,
+                              std::string &config, bool &found, std::string &err) {
+        found = false;
+        window.clear(); config.clear();
+        // Chercher `IN` comme un MOT, hors des chaines : le type est un litteral
+        // entre guillemets, et un `IN` qui y figurerait n'est pas une syntaxe.
+        size_t at = std::string::npos;
+        char quote = 0;
+        for (size_t i = 0; i < rest.size(); ++i) {
+            const char c = rest[i];
+            if (quote) { if (c == quote) quote = 0; continue; }
+            if (c == '"' || c == '\'') { quote = c; continue; }
+            if ((c != 'i' && c != 'I') || i + 1 >= rest.size()) continue;
+            if (rest[i + 1] != 'n' && rest[i + 1] != 'N') continue;
+            const bool leftOk = i == 0 || isspace((unsigned char)rest[i - 1]) || rest[i - 1] == ',';
+            const bool rightOk = i + 2 >= rest.size() || isspace((unsigned char)rest[i + 2]);
+            if (leftOk && rightOk) { at = i; break; }
+        }
+        if (at == std::string::npos) return true;
+        found = true;
+        std::string tail = trim(rest.substr(at + 2));
+        rest = trim(rest.substr(0, at));
+        // `<fenetre> OF <config>` : la fenetre est un mot, `OF` en est un autre.
+        const std::string w = firstToken(tail);
+        std::string afterW = trim(tail.substr(w.size()));
+        if (upper(firstToken(afterW)) == "OF") {
+            window = w;
+            tail = trim(afterW.substr(firstToken(afterW).size()));
+        }
+        // La configuration est UN mot. Ses espaces ne sont tolerés qu'entre les
+        // chevrons — `ext_w1< 1 >` et `ext_w1<1>` nomment la meme chose —, et un
+        // second mot au dehors n'est pas un argument : c'est une forme fautive,
+        // `IN a OF b OF c` par exemple, qu'oter les espaces ferait passer.
+        int depth = 0;
+        for (char c : tail) {
+            if (c == '<') ++depth;
+            else if (c == '>') --depth;
+            if (isspace((unsigned char)c)) {
+                if (depth > 0 || config.empty()) continue;
+                err = "'" + tail + "' is not a configuration name (write "
+                      "'IN <config>' or 'IN <window> OF <config>')";
+                return false;
+            }
+            config += c;
+        }
+        if (config.empty()) {
+            err = window.empty() ? "IN without a configuration"
+                                 : "OF without a configuration";
+            return false;
+        }
+        // La seule verification qui ne demande pas de profil : la FORME.
+        for (char c : config)
+            if (!isalnum((unsigned char)c) && c != '_' && c != '.' && c != '<' && c != '>') {
+                err = "'" + config + "' is not a configuration name (write "
+                      "'IN <config>' or 'IN <window> OF <config>')";
+                return false;
+            }
+        return true;
     }
 
     static bool closesBoundary(const SourceLine &sl) {
@@ -551,12 +624,17 @@ private:
         auto it = sections_.find(name);
         // Une section absolue : rien ne change, c'est son `org` qui decide. Une
         // section que le prescan n'a pas vue non plus — il n'invente pas.
-        if (it == sections_.end() || it->second.hasOrg || it->second.id < 0) return;
+        if (it == sections_.end() || it->second.id < 0) return;
+        // Une section absolue : rien ne change, c'est son `org` qui decide. Une
+        // section que le SOURCE a placee garde en revanche ses offsets — son
+        // `org` y vaut un decalage, pas une adresse.
+        if (it->second.hasOrg && !it->second.hasPlace) return;
         // Un `org` rencontre AVANT la section ne la place pas : il ne vaut que
         // pour les octets hors section. Le dire, plutot que de deplacer le bloc
         // en silence — meme raison que l'avertissement sur une banque remanente
         // (ADR 0005), et meme forme : la lecture est defendable, l'oubli aussi.
-        if (sawOrg_ && pass_ == 2 && !measuring_ && warnedReloc_.insert(name).second)
+        if (sawOrg_ && !it->second.hasPlace && pass_ == 2 && !measuring_ &&
+            warnedReloc_.insert(name).second)
             warn("section '" + name + "' has no 'org' of its own: the linker places it, and "
                  "the 'org' above does not apply to it (write an 'org' inside the section "
                  "to place it yourself)");
@@ -672,6 +750,12 @@ private:
     struct SectionInfo {
         int id = -1;              // identite stable, celle que porte une expr::Value
         bool hasOrg = false;      // un `org` s'y trouve : la section est ABSOLUE
+        // Ou le SOURCE dit qu'elle va. Une section placee reste RELOCALISABLE
+        // malgre son `org` : le `org` y vaut un decalage dans la section, et
+        // c'est le linker qui decide l'adresse.
+        bool hasPlace = false;
+        std::string place;        // la configuration, telle qu'ecrite
+        std::string placeWindow;  // la fenetre, si l'auteur l'a nommee
         std::string kind;         // "RO" / "RW" / "UNINIT", fige a la premiere declaration
         bool hasMax = false;      // un plafond a-t-il ete declare ?
         int64_t max = 0;          // le plafond, fige a la premiere declaration
@@ -729,11 +813,22 @@ private:
                 if (w1 == "SECTION" || w1 == "ORG") { w0 = w1; rest = trim(rest.substr(firstToken(rest).size())); }
             }
             if (w0 == "SECTION") {
+                // Le placement se detache DES LE PRESCAN : la premiere ligne
+                // d'une section doit deja savoir si son `pc_` compte en
+                // adresses ou en offsets, et un `org` ne la rend pas absolue
+                // quand le source l'a placee. Une forme fautive est refusee
+                // plus bas, par la vraie analyse ; ici on se tait.
+                std::string win, cfg, ignored;
+                bool has = false;
+                peelPlacement(rest, win, cfg, has, ignored);
                 auto parts = splitTopLevel(rest, ',');
                 cur = parts.empty() ? std::string() : trim(parts[0]);
                 if (cur.empty()) continue;
                 SectionInfo &sec = sections_[cur];
                 if (sec.id < 0) { sec.id = nextId_++; sectionOrder_.push_back(cur); }
+                if (has && !cfg.empty() && !sec.hasPlace) {
+                    sec.hasPlace = true; sec.place = cfg; sec.placeWindow = win;
+                }
             } else if (w0 == "ORG" && !cur.empty()) {
                 sections_[cur].hasOrg = true;
             }
@@ -1035,6 +1130,21 @@ private:
 
         int bank = -1;
         if (!peelBank(displaced ? storage : logical, bank)) return;
+        // DEUX PORTEURS POUR UNE DECISION. Une section que le source a placee
+        // par `IN` a deja dit ou elle va ; un prefixe de banque le redit, et
+        // rien ne garantit que les deux restent d'accord.
+        if (bank >= 0 && !curSection_.empty()) {
+            auto it = sections_.find(curSection_);
+            if (it != sections_.end() && it->second.hasPlace) {
+                structErr("ORG with a bank prefix inside section '" + curSection_ +
+                          "', which is already placed 'IN " +
+                          (it->second.placeWindow.empty()
+                               ? it->second.place
+                               : it->second.placeWindow + " OF " + it->second.place) +
+                          "': a section is placed once, and the linker decides its bank");
+                return;
+            }
+        }
         if (bank >= 0) orgBank_ = bank;
         else if (orgBank_ >= 4) {
             // La banque est REMANENTE, mais un ORG nu qui en herite une hors des
@@ -1264,7 +1374,13 @@ private:
         // --- SECTION : une unite logique d'assemblage (§4.1) ----------------
         if (W0 == "SECTION") {
             if (!label.empty()) defineLabel(label);
-            auto parts = splitTopLevel(after0, ',');
+            std::string declared = after0, placeWin, placeCfg, placeErr;
+            bool hasPlace = false;
+            if (!peelPlacement(declared, placeWin, placeCfg, hasPlace, placeErr)) {
+                structErr("SECTION: " + placeErr);
+                return;
+            }
+            auto parts = splitTopLevel(declared, ',');
             if (parts.empty() || trim(parts[0]).empty()) { structErr("SECTION without a name"); return; }
             if (parts.size() < 2 || trim(parts[1]).empty()) {
                 structErr("SECTION '" + trim(parts[0]) + "': missing type "
@@ -1294,6 +1410,22 @@ private:
                 structErr("SECTION '" + curSection_ + "' was already declared \"" +
                           lower(sec.kind) + "\": a section keeps the type of its first declaration");
             else sec.kind = ty;
+            // LE PLACEMENT SUIT LA REGLE DU TYPE : fige a la premiere
+            // declaration. Le laisser changer a la reouverture deplacerait la
+            // section en silence — depuis un fichier inclus, par exemple —, et
+            // c'est exactement la faute que ce placement existe pour eviter.
+            // Une reouverture MUETTE, elle, garde le placement de la premiere :
+            // rouvrir une section n'est pas la redeclarer.
+            if (hasPlace) {
+                const std::string was = sec.hasPlace
+                    ? (sec.placeWindow.empty() ? sec.place : sec.placeWindow + " OF " + sec.place)
+                    : std::string();
+                const std::string now = placeWin.empty() ? placeCfg : placeWin + " OF " + placeCfg;
+                if (sec.hasPlace && was != now)
+                    structErr("SECTION '" + curSection_ + "' was already placed 'IN " + was +
+                              "': a section keeps the placement of its first declaration");
+                else { sec.hasPlace = true; sec.place = placeCfg; sec.placeWindow = placeWin; }
+            }
             // Le site est retenu a la PREMIERE declaration, plafond ou pas : le
             // linker doit pouvoir citer cette ligne pour un desaccord de type
             // entre deux unites, ou l'accepter comme la ligne qui porte le

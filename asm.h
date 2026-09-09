@@ -102,6 +102,13 @@ struct Section {
     // et c'est ce qui donne à « relocalisable » une définition sans nouvelle
     // syntaxe (D1). Une section avec `org` va où son `org` le dit.
     bool relocatable = false;
+    // OÙ LE SOURCE DIT QUE CETTE SECTION VA, quand il le dit : la configuration
+    // du profil, telle qu'écrite, et la fenêtre si l'auteur l'a nommée. Deux
+    // CHAÎNES, que l'assembleur ne lit pas — il ne connaît aucun profil, et
+    // c'est le linker qui les résout. `IN <config>` remplit la seconde seule ;
+    // `IN <fenêtre> OF <config>` les deux.
+    std::string place;       // vide : le source ne place pas cette section
+    std::string placeWindow; // vide : la configuration ne mappe qu'une fenêtre
     std::string kind;        // "RO" / "RW" / "UNINIT"
     bool hasMax = false;
     int64_t max = 0;

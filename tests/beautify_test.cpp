@@ -449,6 +449,22 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
                     "  org 0\nmacro m\n  push hl,de\nmend\n  repeat 2\n  m\n  rend\n");
 
 
+    // --- P2 : la mise en forme ne touche pas au placement -------------------
+    // `IN` et `OF` ne sont PAS des mots reserves : ils ne valent que dans les
+    // operandes d'un `SECTION`, et un source qui nomme un label `in` continue
+    // d'assembler. Ce que la mise en forme doit garantir est plus simple, et
+    // c'est le contrat de cette suite : ne rien casser en passant.
+    keep("le placement traverse la mise en forme intact",
+         "    section gfx1, \"ro\" IN ext_w1<1>\n");
+    keep("la forme verbeuse aussi",
+         "    section gfx2, \"ro\" IN w1 OF all_ext\n");
+    keep("et un plafond de taille a cote",
+         "    section gfx3, \"ro\", 0x2000 IN ext_w1<2>\n");
+    idem("la mise en forme d'un placement est idempotente",
+         "section gfx1,\"ro\" IN ext_w1<1>\n    db 1\n");
+    sameBytes("et elle ne change pas un octet",
+              "    section gfx1, \"ro\" IN ext_w1<1>\n    db 1,2,3\n");
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

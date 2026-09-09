@@ -215,6 +215,32 @@ int main() {
            b.symbols.count("start") != 0 && b.symbols.count("tbl") != 0);
     }
 
+    {
+        // P2 : le placement porte par la declaration de section fait l'aller et
+        // le retour. C'est la propriete de cette suite — ecrire, relire,
+        // reecrire rend le meme texte —, appliquee aux deux nouvelles cles.
+        asmb::Object o = asmb::assembleText(
+            "  section gfx1, \"ro\" IN ext_w1<1>\n  db 1\n"
+            "  section gfx2, \"ro\" IN w1 OF all_ext\n  db 2\n"
+            "  section code, \"ro\"\n  db 3\n", "t.asm");
+        ok("la source s'assemble", o.ok);
+        const std::string text = fo::write(o);
+        ok("la forme courte s'ecrit", text.find("place=\"ext_w1<1>\"") != std::string::npos);
+        ok("la forme verbeuse ecrit ses deux cles",
+            text.find("place=\"all_ext\"") != std::string::npos &&
+            text.find("window=\"w1\"") != std::string::npos);
+        ok("une section sans placement n'ecrit ni l'une ni l'autre",
+            text.find("\"code\" id=2 type=RO reloc size=0x1 at=") != std::string::npos);
+        std::string err;
+        asmb::Object back;
+        const bool read = fo::read(text, back, err);
+        ok("et la relecture le rend", read && back.sections.size() == 3 &&
+            back.sections[0].place == "ext_w1<1>" && back.sections[0].placeWindow.empty() &&
+            back.sections[1].place == "all_ext" && back.sections[1].placeWindow == "w1" &&
+            back.sections[2].place.empty());
+        ok("ecrire, relire, reecrire rend le meme texte", fo::write(back) == text);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }
