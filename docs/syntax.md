@@ -97,6 +97,7 @@ are interchangeable, and `'A'` is in no way different from `"A"`.
 | `floor` `ceil` `int` `round` | 1 | toward −∞ / +∞ / zero / nearest |
 | `min` `max` | 2 | |
 | `sizeof` | 1 | size of a `struct` |
+| `opcode` | 1–3 | a fixed byte of an instruction's encoding — see below |
 
 Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 
@@ -106,6 +107,51 @@ Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 `high` and `low` are the explicit way to take one byte of a value; `hi` and `lo`
 are spellings of the same two functions. They are also the **only** functions
 that accept a relocatable address — see below.
+
+### `opcode()`
+
+`opcode("instruction"[, index[, len]])` extracts one or more **fixed** bytes
+from the encoding of a Z80 instruction written as a string — usable anywhere
+an expression is, exactly like `sizeof()`:
+
+```
+        ld   a, opcode("ld (bc),a", 0)   ; 0x02
+```
+
+`index` (default `0`) is the 0-based position of the first byte, in the order
+the instruction encodes to; `len` (default `1`) is how many bytes to compose.
+A positive `len` reads them in that same order, the byte at `index` weighing
+most; a negative `len` reads the same `|len|` bytes but reverses which end
+weighs most — `opcode("...", 0, 2)` and `opcode("...", 0, -2)` read the same
+two bytes in opposite order.
+
+The instruction string writes registers, conditions and memory forms
+literally, but any operand that ends up as a **separate byte after the
+opcode** — an 8/16-bit immediate, an absolute address, an `(ix+d)`/`(iy+d)`
+displacement, a `jr`/`djnz` relative target — is written as one of seven
+interchangeable placeholders instead of a real value: `n`, `nn`, `d`, `e`,
+`imm`, `imm8`, `imm16` (case-insensitive; which one you pick does not matter
+today). Conversely, an operand that changes the **opcode byte itself** — the
+bit number of `bit`/`set`/`res`, the vector of `rst`, the mode of `im` — must
+be a real number, never a placeholder:
+
+```
+        ld   a, opcode("ld a,n", 0)       ; 0x3E — the fixed byte
+        ld   a, opcode("bit 3,(hl)", 1)   ; 0x5E — the bit number is real
+```
+
+Using a placeholder where a real value is required, or a real value where a
+placeholder is required, is refused. So is asking for a byte that is not
+fixed: the placeholder's own byte, or a `jr`/`djnz` displacement — there is no
+program counter outside a real emission, so only the instruction's fixed
+first byte is ever available. `opcode()` never resolves a label or a symbol,
+and it is not available while a preprocessor variable (`LET`) is resolved —
+only where an `Assembler` exists to encode the instruction.
+
+`d` and `e` are unambiguous only **inside** `(ix+d)`/`(iy+d)`: written bare —
+as a `jr`/`djnz` target, for instance — the parser reads a register first, so
+`e` there means the register E, not the placeholder. Use `n`, `nn`, `imm`,
+`imm8` or `imm16` in a bare position instead.
 
 ### Relocatable values
 
