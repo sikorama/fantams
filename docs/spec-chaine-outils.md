@@ -852,21 +852,21 @@ loop:   call   sysbank_audio_play
 ;--- résident : jamais recouvert par une commutation ----------------------
         SECTION sysbank, "ro"
 sysbank_audio_init:
-        ld     bc, __port_ram_audio + __val_ram_audio   ; port ET valeur : §12.3
+        ld     bc, __port_ram_audio | __val_ram_audio   ; port ET valeur : §12.3
         out    (c), c
         call   audio_init          ; vaut &4000 + offset : le linker le sait
-        ld     bc, __port_ram_linear + __val_ram_linear
+        ld     bc, __port_ram_linear | __val_ram_linear
         out    (c), c
         ret
 
 sysbank_unpack:
-        ld     bc, __port_ram_music_lz + __val_ram_music_lz
+        ld     bc, __port_ram_music_lz | __val_ram_music_lz
         out    (c), c
         ld     hl, music_lz        ; &4000 + offset dans la fenêtre
         ld     de, unpacked        ; &C000
         ld     bc, __size_music_lz ; taille COMPRESSÉE, connue au linkage
         call   depack
-        ld     bc, __port_ram_linear + __val_ram_linear
+        ld     bc, __port_ram_linear | __val_ram_linear
         out    (c), c
         ret
 
@@ -962,7 +962,7 @@ Le linker expose donc un **triplet par axe**, jamais un octet global :
 
 | symbole | ce que c'est | valeur, pour l'exemple du §12.2 |
 |---------|--------------|---------------------------------|
-| `__port_<axe>_<config>` | l'adresse d'écriture — port pour un `OUT`, adresse mémoire pour un `POKE`. Indexée par la configuration parce qu'elle peut en dépendre. | `__port_ram_audio` = `&7F00` |
+| `__port_<axe>_<config>` | l'adresse d'écriture, **sur seize bits** — port pour un `OUT`, adresse mémoire pour un `POKE`. Indexée par la configuration parce qu'elle peut en dépendre. | `__port_ram_audio` = `&7F00` |
 | `__val_<axe>_<config>` | la valeur à écrire, **bornée aux bits de l'axe** | `__val_ram_audio` = `%11000101` = `&C5` ; `__val_ram_music_lz` = `&C4` ; `__val_ram_linear` = `&C0` |
 | `__mask_<axe>` | les bits du port qui appartiennent à l'axe, pour que le source écrive `(état & ~__mask) \| __val` sans toucher aux autres | sans objet sur l'axe `ram` du CPC, indispensable sur `&7FFD` |
 
@@ -974,11 +974,96 @@ S'y ajoutent les symboles qui ne relèvent d'aucun axe :
 | `__romnum_myrom` | `15` | numéro de ROM haute : la **seconde** écriture d'un `SELECT` qui en compte deux (`&DF00`) |
 | `__off_<section>` | l'offset dans sa banque | pour un loader, ou une recopie |
 
-Le source écrit `ld bc, __port_ram_audio + __val_ram_audio`, jamais `&7F00 +
+Le source écrit `ld bc, __port_ram_audio | __val_ram_audio`, jamais `&7F00 |
 &C5`. Le gain n'est pas cosmétique : déplacer une section change la valeur, et
 une valeur écrite en dur serait devenue fausse **en silence**. Les noms préfixés
 de `__` appartiennent au linker, et sont réservés au même titre que les mots de
 la machine.
+
+#### Composer, et prendre un octet
+
+`__port_` est une **adresse sur seize bits**, jamais un numéro de port sur huit :
+un `SELECT` peut être un `POKE`, dont l'adresse ne tiendrait pas dans un octet,
+et un port peut dépendre de la banque dans son octet **haut** — `OUT &7F00 -
+(PAGE << 8)`. « Le port du PAL est &7F » est le raccourci d'usage pour *l'octet
+haut du bus d'adresse*, et c'est exactement ce que B porte.
+
+D'où **deux graphies, et une seule composition** :
+
+```
+        ld   bc, __port_ram_audio | __val_ram_audio   ; 3 octets
+        out  (c), c
+
+        ld   b,  high(__port_ram_audio)               ; 4 octets
+        ld   c,  low(__val_ram_audio)
+        out  (c), c
+```
+
+Trois choses à en retenir.
+
+**La composition s'écrit `|`, jamais `+`.** Les deux rendent le même octet quand
+l'octet bas du port est nul et que la valeur tient dans huit bits — le cas du
+CPC —, et une somme rend un nombre **vraisemblable et faux** dès que l'une des
+deux conditions tombe. Un `POKE &6000` en est un.
+
+**Prendre un octet s'écrit `high()` / `low()`, jamais `>> 8`.** C'est la seule
+graphie qui traverse la couture : `high(__port_…)` s'assemble dans une unité
+compilée **séparément**, où `>> 8` et `|` sont tous deux refusés — « `'|'` cannot
+be applied to a relocatable value ». C'est aussi celle que le refus de
+l'assembleur nomme de lui-même.
+
+**Un octet qui n'en est pas un est refusé.** `ld b, __port_ram_audio` sortait
+`06 00` sans un mot, et l'écriture partait sur `&00C5` : le port du PAL manqué,
+en silence, par l'outil dont ce paragraphe dit qu'il combat cette faute. La
+borne est vérifiée sur tout immédiat de huit bits — `ld`, l'ALU, `in`, `out`,
+`db`, le remplissage de `ds` — et le déplacement de `(IX+d)` a la sienne.
+
+**La séquence d'écriture n'est pas portable, et n'a pas à l'être.** Chaque
+machine câble son port à sa façon, et le CPC est un cas particulier : sur l'axe
+`ram`, seul A15 est décodé — `docs/recherche/cpc-gate-array-rmr.md` arbitre le
+décodage du PAL à **A15 = 0 seul**, « tous les autres bits indifférents » —, et
+la valeur voyage sur le bus de **données**, ce que la contradiction relevée dans
+ce même document confirme en citant `D7`, `D6`. C'est ce câblage-là qui rend
+`out (c), c` possible, et lui seul.
+
+Le §13.4 en tire déjà la conséquence : la section qui commute est **le seul
+morceau à réécrire par machine**. Il n'y a donc pas d'idiome portable à chercher
+ici, et trois séquences dont le coût, lui, est bien réel — sur CPC, où toute
+instruction est arrondie au µs :
+
+| séquence | octets | µs | sur A7..A0 |
+|---|---|---|---|
+| `ld bc, __port_ \| __val_` puis `out (c), c` | 5 | 6 | la valeur |
+| `ld b, high(__port_)` / `ld a, __val_` puis `out (c), a` | 6 | 7 | **ce que C contenait** |
+| `ld bc, __port_` / `ld a, __val_` puis `out (c), a` | 7 | 8 | `&00` |
+
+**Sur CPC, la première est LA forme.** Elle est la plus courte et la plus rapide,
+et la clause dont elle dépend est attestée. Les deux autres coûtent un tiers de
+temps de plus pour une portabilité que cette section n'a pas ; dans une
+démo, ce tiers ne se justifie pas. La troisième n'est pas une recommandation :
+c'est la réponse à *si l'octet bas comptait* — `&7FFD`, `&243B` —, sur une
+machine où la première serait fausse.
+
+Cette clause est écrite **dans le profil, en commentaire**, avec ses citations —
+`SELECT ram` du profil `cpc6128` la porte. Elle n'y prend pas la forme d'un
+énoncé : une clause syntaxique ne ferait calculer au linker qu'un symbole
+composé, que rien ne réclame, et le §12.3 se juge lui-même à ce critère — le
+profil est la table à partir de laquelle le linker **calcule**, non un endroit où
+ranger ce qui ne se calcule pas.
+
+La séquence appartient donc à l'auteur, et une **macro de source** qui la nomme
+une fois — `switch(gfx0)` — n'ajoute aucun porteur : l'hypothèse est déjà
+présente à chacun de ses sites d'appel, et la macro la fait passer de N à un.
+Aucun nombre n'y est recopié, les valeurs continuant de venir du linker ; ce que
+l'ADR 0028 retire est un **nombre** en double, pas un nom.
+
+**Et le port s'écrit en dur, lui.** `ga equ &7F00` : c'est le seul nombre
+matériel de cette famille qui ne dépend d'aucun placement, donc le seul dont une
+copie ne peut pas devenir fausse en silence — tout l'argument de ce §12.3 porte
+sur les valeurs qui bougent quand une section change de banque. Sur CPC il y en
+a deux pour la machine entière, `&7F00` et `&DF00`, et un auteur mono-machine n'a
+aucune raison de passer par un symbole pour les retrouver. `__val_`, lui, se
+demande au linker, parce qu'il bouge.
 
 Ce que le linker ne fournit **pas** : la copie de l'état. Un port en écriture
 seule oblige le source à tenir en RAM la dernière valeur écrite — c'est de la

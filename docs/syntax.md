@@ -142,7 +142,7 @@ profile and the link script:
 
 | Name | What it is |
 |---|---|
-| `__port_<axis>_<key>` | the address to write — a port for an `OUT`, a memory address for a `POKE` |
+| `__port_<axis>_<key>` | the address to write, **sixteen bits** — a port for an `OUT`, a memory address for a `POKE` |
 | `__val_<axis>_<key>` | the value, **bounded to the bits of that axis** |
 | `__mask_<axis>` | which bits of the port belong to that axis, so a source can write `(state & ~mask) \| val` |
 | `__port2_<axis>_<key>`, `__romnum_<axis>_<key>`, `__mask2_<axis>` | the same three, for an axis that needs a **second** write — the one that says *which* bank, not *that* one appears |
@@ -181,10 +181,61 @@ except `__off_` are handed to the assembler as plain **constants**: they depend
 on no address, so arithmetic on them is ordinary arithmetic.
 
 ```
-        ld   bc, __port_ram_audio + __val_ram_audio   ; one number, computed here
+        ld   bc, __port_ram_audio | __val_ram_audio   ; one number, computed here
         out  (c), c
         ld   c,  __val_ram_linear                     ; and it fits in a byte
 ```
+
+#### Composing a port and a value
+
+`__port_` is a **sixteen-bit address**, never an eight-bit port number: a
+`SELECT` may be a `POKE`, whose address would not fit in a byte, and a port may
+depend on the bank in its **high** byte — `OUT 0x7F00 - (PAGE << 8)`. On a
+machine where only the high address bits are decoded, "the port is 0x7F" is the
+shorthand for *the high byte of the address bus*, and that is exactly what B
+holds.
+
+Hence two spellings, and one composition:
+
+```
+        ld   bc, __port_ram_audio | __val_ram_audio   ; 3 bytes
+        out  (c), c
+
+        ld   b,  high(__port_ram_audio)               ; 4 bytes
+        ld   c,  low(__val_ram_audio)
+        out  (c), c
+```
+
+- **Compose with `|`, never `+`.** Both give the same byte while the port's low
+  byte is zero and the value fits in eight bits, and a sum gives a plausible
+  wrong number as soon as either stops being true — a `POKE 0x6000` is one.
+- **Take a byte with `high()` / `low()`, never `>> 8`.** It is the only spelling
+  that crosses the seam: `high(__port_…)` assembles in a **separately compiled**
+  unit, where both `>> 8` and `|` are refused on a relocatable value. It is also
+  the one the refusal names.
+- **A byte that is not a byte is refused.** `ld b, __port_ram_audio` used to emit
+  `06 00` without a word, sending the write to `0x00C5`. Every eight-bit
+  immediate is now bounded to `-128..255` — `ld`, the ALU, `in`, `out`, `db`, the
+  fill byte of `ds` — and an `(IX+d)` displacement to `-128..127`.
+
+What the source still writes itself is **how the port is reached**, and that is
+never portable: each machine wires its port its own way, and the section that
+switches is the one piece rewritten per machine anyway. So take the shortest
+sequence your target allows — on a machine that decodes only the high address
+bits, `ld bc, __port_ | __val_` then `out (c), c`, 5 bytes, is it. Going through
+`A` costs a byte and a third more time for a portability this section does not
+have; it is the answer only where the port's low byte matters (`0x7FFD`,
+`0x243B`), and there the first form would be wrong.
+
+Which address bits are free is stated **in the profile's comments**, with its
+sources, not as a clause: nothing in the toolchain would compute from such a
+clause. So the sequence is the author's, and naming it in a **source macro** —
+one place instead of every call site — carries no number of its own.
+
+And write the port itself as a plain `equ`. It is the one hardware number here
+that depends on no placement, so a copy of it cannot go silently wrong; on a
+CPC there are two for the whole machine. `__val_` is the one to ask the linker
+for, because it moves when the script moves a section.
 
 `__off_<section>` is the exception: its value depends on where the section
 landed, so it is resolved at link time and a source must declare it with
@@ -200,6 +251,7 @@ placement's — without a word.
         extern __port_ram_audio
         extern __val_ram_audio
         ld   bc, __port_ram_audio    ; the port the profile declares
+        ld   b,  high(__port_ram_audio) ; and its high byte, across the seam
         ld   hl, __val_ram_audio     ; the value that switches to audio's bank
 ```
 

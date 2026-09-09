@@ -54,7 +54,7 @@ sans promettre C2.
 
 Ce que l'auteur gagne, concrètement : l'exemple du §12.2 s'assemble, se linke et
 s'exporte ; un `org` disparaît de la source au profit d'une ligne de script ;
-`ld bc, __port_ram_audio + __val_ram_audio` se résout ; et `--dump-profile
+`ld bc, __port_ram_audio | __val_ram_audio` se résout ; et `--dump-profile
 cpc6128` rend le texte à partir duquel modifier sa propre machine.
 
 ## Histoires
@@ -70,7 +70,7 @@ configuration dit que `ext1` y apparaît.
 change `ext_w1<1>` en `ext_w1<2>` dans le script. Les adresses logiques sont les
 mêmes, la banque de rangement change, et les symboles de commutation suivent.
 
-**Je commute sans écrire un seul nombre.** `ld bc, __port_ram_audio +
+**Je commute sans écrire un seul nombre.** `ld bc, __port_ram_audio |
 __val_ram_audio`. Si je déplace la section, la valeur change avec elle ; si je
 l'avais écrite en dur, elle serait devenue fausse sans un mot.
 

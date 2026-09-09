@@ -195,6 +195,38 @@ int main() {
     chk("LD IXH,5",   I(Mnemo::LD, R(Reg::IXH), N("5")), {0xDD, 0x26, 0x05});
     chk("ADD A,IYL",  I(Mnemo::ADD, R(Reg::A), R(Reg::IYL)), {0xFD, 0x85});
 
+    // --- un octet doit EN ETRE UN --------------------------------------------
+    // Tronquer en silence est la faute que le §12.3 combat dans le linker, et
+    // elle vivait ici : `ld b, __port_ram_audio` — un port sur seize bits —
+    // sortait `06 00`, et l'ecriture partait sur &00C5. Les deux ecritures d'un
+    // octet restent licites, `-128..255`, parce que `ld a,-1` et `ld a,&FF`
+    // designent le meme octet.
+    chk("LD A,255",   I(Mnemo::LD, R(Reg::A), N("255")),  {0x3E, 0xFF});
+    chk("LD A,-1",    I(Mnemo::LD, R(Reg::A), N("-1")),   {0x3E, 0xFF});
+    chk("LD A,-128",  I(Mnemo::LD, R(Reg::A), N("-128")), {0x3E, 0x80});
+    chkErr("LD B,0x7F00 (un port n'est pas un octet)", I(Mnemo::LD, R(Reg::B), N("0x7F00")));
+    chkErr("LD A,256",  I(Mnemo::LD, R(Reg::A), N("256")));
+    chkErr("LD A,-129", I(Mnemo::LD, R(Reg::A), N("-129")));
+    chkErr("AND 300",   I(Mnemo::AND, N("300")));
+    chkErr("IN A,(0x100)",  I(Mnemo::IN, R(Reg::A), M("0x100")));
+    chkErr("OUT (0x100),A", I(Mnemo::OUT, M("0x100"), R(Reg::A)));
+    // La taille ne depend pas de la valeur : refuser ne doit pas cesser
+    // d'emettre, sinon la seconde passe ne mesurerait plus ce que la premiere a
+    // mesure. C'est la regle que le numero de bit suivait deja.
+    {
+        TestCtx ctx;
+        encode(ctx, I(Mnemo::LD, R(Reg::B), N("0x7F00")));
+        if (ctx.out.size() != 2) { ++g_fail; printf("  \033[31mFAIL\033[0m un octet refuse est emis quand meme\n"); }
+        else ++g_pass;
+    }
+    // Le deplacement de `(IX+d)` est SIGNE, et il n'a pas d'autre graphie : ni
+    // `high()` ni `low()` ne s'y appliquent, d'ou ses bornes a lui.
+    chk("LD A,(IX+127)",  I(Mnemo::LD, R(Reg::A), IDX(Reg::IX, "127")),  {0xDD, 0x7E, 0x7F});
+    chk("LD A,(IX-128)",  I(Mnemo::LD, R(Reg::A), IDX(Reg::IX, "-128")), {0xDD, 0x7E, 0x80});
+    chkErr("LD A,(IX+128)",  I(Mnemo::LD, R(Reg::A), IDX(Reg::IX, "128")));
+    chkErr("LD A,(IX-129)",  I(Mnemo::LD, R(Reg::A), IDX(Reg::IX, "-129")));
+    chkErr("BIT 0,(IX+200)", I(Mnemo::BIT, N("0"), IDX(Reg::IX, "200")));
+
     // --- résolution nom -> mnémonique ---
     if (mnemoFromString("LD") != Mnemo::LD) { ++g_fail; printf("  \033[31mFAIL\033[0m mnemoFromString LD\n"); } else ++g_pass;
     if (mnemoFromString("ZZZ") != Mnemo::Invalid) { ++g_fail; printf("  \033[31mFAIL\033[0m mnemoFromString ZZZ\n"); } else ++g_pass;

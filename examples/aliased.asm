@@ -23,15 +23,15 @@
 ; placement changeait, l'ordre des octets lus changerait — et rien d'autre.
 start:
         ld     de, 0xC000
-        ld     bc, __port_ram_gfx0 + __val_ram_gfx0
+        ld     bc, __port_ram_gfx0 | __val_ram_gfx0
         call   read_one
-        ld     bc, __port_ram_gfx1 + __val_ram_gfx1
+        ld     bc, __port_ram_gfx1 | __val_ram_gfx1
         call   read_one
-        ld     bc, __port_ram_gfx2 + __val_ram_gfx2
+        ld     bc, __port_ram_gfx2 | __val_ram_gfx2
         call   read_one
-        ld     bc, __port_ram_gfx3 + __val_ram_gfx3
+        ld     bc, __port_ram_gfx3 | __val_ram_gfx3
         call   read_one
-        ld     bc, __port_ram_resident + __val_ram_resident   ; on rend la fenetre
+        ld     bc, __port_ram_resident | __val_ram_resident   ; on rend la fenetre
         out    (c), c
 stop:   jr     stop
 

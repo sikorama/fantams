@@ -112,10 +112,18 @@ pour retirer.
 
 ## Une seconde décision : les symboles de commutation sont des CONSTANTES
 
-Le §12.3 écrit `ld bc, __port_ram_audio + __val_ram_audio`, et cette somme n'est
-possible que si les deux termes sont des **nombres**. Un `EXTERN` ne le permet
-pas : il déclare une **adresse**, deux inconnues ne se somment pas dans une
-relocalisation qui n'en porte qu'une, et une adresse ne tient pas dans un octet.
+Le §12.3 écrit `ld bc, __port_ram_audio | __val_ram_audio`, et cette composition
+n'est possible que si les deux termes sont des **nombres**. Un `EXTERN` ne le
+permet pas : il déclare une **adresse**, deux inconnues ne se composent pas dans
+une relocalisation qui n'en porte qu'une, et une adresse ne tient pas dans un
+octet.
+
+*Amendement.* Cet ADR citait la somme — `__port_ram_audio + __val_ram_audio` —,
+et l'argument ne change pas d'un opérateur à l'autre : `|` exige les mêmes
+nombres, plus strictement encore, puisque `+` est le seul opérateur que
+l'assembleur laisse relocalisable. Ce qui a changé est la raison d'écrire `|` :
+une somme rend un nombre vraisemblable quand l'octet bas du port n'est pas nul —
+un `POKE` en donne un —, là où la composition dit ce qu'elle fait.
 
 **Ces symboles ne dépendent d'aucune adresse.** Un port, une valeur bornée aux
 bits de son axe et un masque se calculent dès que l'état, son argument et sa

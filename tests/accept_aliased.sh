@@ -86,7 +86,7 @@ echo "acceptation : gfx0..gfx3 en banques 4,5,6,7 et TOUTES a 0x4000"
 
 # 4. Les valeurs de commutation sont dans les octets emis, et ce sont celles
 #    que le profil dicte : OUT 0x7F00, %11000000 | CODE, CODE = %100|b.
-#    `ld bc, __port_ram_gfx0 + __val_ram_gfx0` -> 01 C4 7F, puis 0xC5, 0xC6, 0xC7.
+#    `ld bc, __port_ram_gfx0 | __val_ram_gfx0` -> 01 C4 7F, puis 0xC5, 0xC6, 0xC7.
 #    `resident` est en banque 2 : offset 256 + 2*0x4000.
 head=$(od -An -tx1 -j $((256 + 2 * 16384)) -N 6 "$TMP/ld.sna" | tr -d ' \n')
 case "$head" in

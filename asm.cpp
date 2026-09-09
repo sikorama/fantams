@@ -565,7 +565,16 @@ private:
     void emitByte(const std::string &e) {
         const int64_t v = evalExpr(e);
         if (evalOk_ && lastValue_.relocatable()) addReloc(z80::RelocKind::Byte, lastValue_);
+        else checkByte(v);
         emit((uint8_t)(v & 0xFF));
+    }
+    // Un octet qui n'en est pas un est REFUSE, ici comme dans l'encodeur, et par
+    // le meme porteur : `z80::fitsByte`. L'octet est emis quand meme, pour que la
+    // taille ne depende pas de la valeur.
+    void checkByte(int64_t v) {
+        if (!evalOk_) return;
+        std::string why;
+        if (!z80::fitsByte(v, why)) error(why);
     }
     int curFrag_ = -1;    // index dans `frags_`, -1 tant qu'aucun octet n'est ecrit
     int fragBase_ = 0;    // adresse de rangement de l'octet 0 du fragment courant
@@ -1263,6 +1272,7 @@ private:
                 reserve(n);
                 continue;
             }
+            if (p + 1 < parts.size()) checkByte(fill);
             for (int64_t k = 0; k < n; ++k) emit((uint8_t)(fill & 0xFF));
         }
     }

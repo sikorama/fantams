@@ -175,6 +175,13 @@ int main() {
     chk("ds fill", "  ds 2,0xFF\n", {0xFF, 0xFF});
     chk("db expr", "  db 2*3+1, 1<<4\n", {0x07, 0x10});
     chk("db char", "  db 'A','Z'\n", {0x41, 0x5A});
+    // Un octet doit EN ETRE UN, ici comme dans l'encodeur, et par le meme
+    // porteur — `z80::fitsByte`. Les deux ecritures d'un octet restent
+    // licites : `db -1` et `db &FF` designent le meme octet.
+    chk("db signe", "  db -1,-128\n", {0xFF, 0x80});
+    chkErr("db 256", "  db 256\n");
+    chkErr("db -129", "  db -129\n");
+    chkErr("ds fill de deux octets", "  ds 4,0x1FF\n");
 
     // label sans ':' (toléré, comme l'assembleur de référence) tant que le 1er mot n'est pas un mnémo/directive connu
     chk("label sans ':'", "start\n  ld a,1\n  jp start\n", {0x3E, 0x01, 0xC3, 0x00, 0x00});
@@ -949,14 +956,59 @@ int main() {
         // des chiffres.
         asmb::Constants given = {{"__port_ram_audio", 0x7F00}, {"__val_ram_audio", 0xC5}};
         asmb::Object o = asmb::assembleText(
-            "  org #8000\n  ld bc,__port_ram_audio + __val_ram_audio\n"
+            "  org #8000\n  ld bc,__port_ram_audio | __val_ram_audio\n"
             "  ld c,__val_ram_audio\n", "t.asm", given);
-        okc("une constante du linker s'additionne a une autre", o.ok);
+        okc("une constante du linker se compose avec une autre", o.ok);
         std::vector<uint8_t> got;
         for (const auto &f : o.fragments) for (uint8_t b : f.bytes) got.push_back(b);
-        okc("et la somme est calculee a l'assemblage",
+        okc("et la composition est calculee a l'assemblage",
             got == std::vector<uint8_t>{0x01, 0xC5, 0x7F, 0x0E, 0xC5});
         okc("aucune relocalisation n'est demandee", o.relocs.empty());
+    }
+    {
+        // LES DEUX GRAPHIES DU §12.3, et elles doivent rendre le meme port.
+        // `|` compose en un coup ; `high()` / `low()` prennent l'octet, et c'est
+        // la seule des deux qui traverse la couture (test suivant).
+        asmb::Constants given = {{"__port_ram_audio", 0x7F00}, {"__val_ram_audio", 0xC5}};
+        asmb::Object o = asmb::assembleText(
+            "  org #8000\n  ld b,high(__port_ram_audio)\n"
+            "  ld c,low(__val_ram_audio)\n  out (c),c\n", "t.asm", given);
+        std::vector<uint8_t> got;
+        for (const auto &f : o.fragments) for (uint8_t b : f.bytes) got.push_back(b);
+        okc("high()/low() rendent le meme port et la meme valeur",
+            o.ok && got == std::vector<uint8_t>{0x06, 0x7F, 0x0E, 0xC5, 0xED, 0x49});
+    }
+    {
+        // LE PIEGE QUE LE §12.3 COMBATTAIT DANS LE LINKER, ET QUI VIVAIT DANS
+        // L'ASSEMBLEUR : `__port_` est une adresse sur SEIZE bits, et
+        // `ld b, __port_ram_audio` sortait `06 00` sans un mot — l'ecriture
+        // partait sur &00C5. Le refus nomme la sortie.
+        asmb::Constants given = {{"__port_ram_audio", 0x7F00}};
+        asmb::Object o = asmb::assembleText(
+            "  org #8000\n  ld b,__port_ram_audio\n", "t.asm", given);
+        bool named = !o.errors.empty() &&
+                     o.errors[0].message.find("does not fit in one byte") != std::string::npos &&
+                     o.errors[0].message.find("high()") != std::string::npos;
+        okc("un port de seize bits ne tient pas dans B, et le refus le dit",
+            !o.ok && named);
+    }
+    {
+        // ET c'est `high()` qui traverse la couture : dans une unite compilee
+        // separement, `>> 8` et `|` sont refuses sur une valeur relocalisable —
+        // ils exigent un nombre —, la ou `high()` pose une relocalisation
+        // `High8`. Sans elle, la graphie deux-registres n'existerait qu'avec un
+        // profil sous la main.
+        asmb::Object o = asmb::assembleText(
+            "  extern __port_ram_audio\n  org #8000\n"
+            "  ld b,high(__port_ram_audio)\n", "t.asm");
+        okc("high() sur un EXTERN passe, et demande sa relocalisation",
+            o.ok && o.relocs.size() == 1);
+        okc("la ou '>> 8' est refuse sur la meme valeur",
+            !asmb::assembleText("  extern __port_ram_audio\n  org #8000\n"
+                                "  ld b,__port_ram_audio >> 8\n", "t.asm").ok);
+        okc("et '|' aussi",
+            !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
+                                "  ld bc,__a | __b\n", "t.asm").ok);
     }
     {
         // Sans elles, le meme source les declare par EXTERN et c'est le linker
@@ -965,7 +1017,7 @@ int main() {
         asmb::Object o = asmb::assembleText(
             "  extern __val_ram_audio\n  org #8000\n  ld hl,__val_ram_audio\n", "t.asm");
         okc("sans constantes, l'EXTERN prend le relais", o.ok && o.relocs.size() == 1);
-        okc("et la source ne peut plus en additionner deux",
+        okc("et la source ne peut plus en composer deux",
             !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
                                 "  ld hl,__a + __b\n", "t.asm").ok);
     }

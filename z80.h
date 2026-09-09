@@ -142,6 +142,14 @@ struct IAsmContext {
 // invalide (dans ce cas ctx.error() a été appelé et rien n'est émis).
 bool encode(IAsmContext &ctx, const Instruction &in);
 
+// Le refus d'un octet qui n'en est pas un : rend false et remplit `why`.
+//
+// Exporté parce que l'hôte émet lui aussi des octets — `db`, le remplissage de
+// `ds` — et que deux graphies du même refus seraient deux refus à tenir. Les
+// deux écritures d'un octet sont admises, `-128..255` : `ld a, -1` et `ld a,
+// &FF` désignent le même octet, et aucune des deux n'est fautive.
+bool fitsByte(int64_t v, std::string &why);
+
 // Utilitaires exposés (pratiques pour le futur parseur et les tests).
 Mnemo mnemoFromString(const std::string &s); // "LD" -> Mnemo::LD, sinon Invalid
 const char *mnemoName(Mnemo m);

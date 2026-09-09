@@ -1101,6 +1101,32 @@ int main() {
                 img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x00, 0x7D});
     }
     {
+        // LA GRAPHIE DEUX-REGISTRES TRAVERSE LA COUTURE, et c'est la seule.
+        // `__port_` est une adresse sur SEIZE bits : `ld b, __port_...` sortait
+        // un octet nul en silence, et `>> 8` comme `|` sont refuses par
+        // l'assembleur sur une valeur relocalisable — ils exigent un nombre. Il
+        // reste `high()` / `low()`, qui posent une relocalisation, et le linker
+        // doit les honorer sur un symbole que LUI SEUL offre.
+        profile::Profile pr = profile::parse(
+            "WINDOW w1 [0x4000..0x7FFF]\n"
+            "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
+            "CONFIG SET ram { ext_w1<b> [CODE %100 | b] { w1 ext<b> } }\n"
+            "SELECT ram = OUT 0x7F00, %11000000 | CODE\n", "m.prof");
+        asmb::Object o = secObj("a.fo", {{"gfx0", {0, 0}}});
+        asmb::Reloc hi;
+        hi.frag = 0; hi.offset = 0; hi.kind = asmb::Reloc::High8; hi.symbol = "__port_ram_gfx0";
+        asmb::Reloc lo;
+        lo.frag = 0; lo.offset = 1; lo.kind = asmb::Reloc::Low8; lo.symbol = "__val_ram_gfx0";
+        o.relocs.push_back(hi);
+        o.relocs.push_back(lo);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG ext_w1<0> { w1 { SECTION gfx0 } } }"), pr);
+        ok("high()/low() se resolvent sur un symbole du linker", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("high(&7F00) = &7F, low(&C4) = &C4",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0x7F, 0xC4});
+    }
+    {
         // Un etat PARAMETRIQUE nomme deux fois avec deux arguments ne designe pas
         // une seule chose : la graphie par etat n'est alors PAS offerte, et celle
         // par section reste la bonne. C'est exactement le tableau du §12.3, ou

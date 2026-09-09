@@ -7,6 +7,7 @@
 #include "z80.h"
 
 #include <array>
+#include <cstdio>
 #include <string>
 
 namespace z80 {
@@ -122,6 +123,21 @@ struct Emitter {
     void op(uint8_t b) { ctx.emit(b); }
     void prefix(uint8_t p) { if (p) ctx.emit(p); }
     void imm8(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); }
+    // Un octet DOIT en etre un. Tronquer en silence est la faute meme que le
+    // §12.3 combat dans le linker : `ld b, __port_ram_audio` sortait `06 00`, et
+    // l'ecriture partait sur &00C5 sans un mot. Les deux graphies d'un octet
+    // sont admises — [-128, 255] —, parce que `ld a, -1` et `ld a, &FF`
+    // designent le meme octet et qu'aucune des deux n'est fautive.
+    //
+    // L'octet est emis QUAND MEME : la taille de l'instruction ne doit pas
+    // dependre de la valeur, sinon la seconde passe ne mesurerait plus ce que la
+    // premiere a mesure. C'est la regle que le numero de bit suit deja.
+    bool fitsByte(int64_t v) {
+        std::string why;
+        if (z80::fitsByte(v, why)) return true;
+        ctx.error(why);
+        return false;
+    }
     void imm16(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); ctx.emit((uint8_t)((v >> 8) & 0xFF)); }
     void disp(int64_t v) { ctx.emit((uint8_t)(v & 0xFF)); }
 
@@ -139,8 +155,23 @@ struct Emitter {
     void byte8(const std::string &e) {
         bool rel = false;
         const int64_t v = ctx.evalAddr(e, rel);
+        // Sur une valeur relocalisable, la partie connue n'est pas la valeur : le
+        // linker y ajoutera une base. `high()` et `low()` rendent un octet par
+        // construction, et c'est le contexte qui refuse ce qui n'est ni l'un ni
+        // l'autre — la borner ici rapporterait sur un nombre incomplet.
         if (rel) ctx.reloc(e, RelocKind::Byte);
+        else fitsByte(v);
         imm8(v);
+    }
+    // Le deplacement de `(IX+d)` est SIGNE sur un octet, et il n'a pas d'autre
+    // graphie : ni `high()` ni `low()` ne s'y appliquent, d'ou des bornes et un
+    // message a lui.
+    void idxDisp(const std::string &e) {
+        const int64_t v = ctx.eval(e);
+        if (v < -128 || v > 127)
+            ctx.error("index displacement " + std::to_string(v) +
+                      " is out of range (-128..127)");
+        disp(v);
     }
 };
 
@@ -198,7 +229,7 @@ bool encodeAlu(IAsmContext &ctx, int idx, const Operand &src) {
     if (!s.ok) { ctx.error("invalid 8-bit ALU operand"); return false; }
     e.prefix(s.prefix);
     e.op((uint8_t)(0x80 + idx * 8 + s.code));
-    if (s.indexed) e.disp(ctx.eval(s.disp));
+    if (s.indexed) e.idxDisp(s.disp);
     return true;
 }
 
@@ -220,7 +251,7 @@ bool encodeRot(IAsmContext &ctx, int idx, const Operand &tgt) {
     if (!t.ok) { ctx.error("invalid rotate/shift target"); return false; }
     e.prefix(t.prefix);
     e.op(0xCB);
-    if (t.indexed) e.disp(ctx.eval(t.disp)); // DD CB d op
+    if (t.indexed) e.idxDisp(t.disp); // DD CB d op
     e.op((uint8_t)(idx * 8 + t.code));
     return true;
 }
@@ -235,7 +266,7 @@ bool encodeBit(IAsmContext &ctx, uint8_t base, const Operand &nb, const Operand 
     if (!t.ok) { ctx.error("invalid bit-operation target"); return false; }
     e.prefix(t.prefix);
     e.op(0xCB);
-    if (t.indexed) e.disp(ctx.eval(t.disp));
+    if (t.indexed) e.idxDisp(t.disp);
     e.op((uint8_t)(base + (b & 7) * 8 + t.code));
     return true;
 }
@@ -259,15 +290,15 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         if (!mergePrefix(da.prefix, sb.prefix, pfx)) { ctx.error("mixed DD/FD prefixes"); return false; }
         e.prefix(pfx);
         e.op((uint8_t)(0x40 + da.code * 8 + sb.code));
-        if (da.indexed) e.disp(ctx.eval(da.disp));
-        else if (sb.indexed) e.disp(ctx.eval(sb.disp));
+        if (da.indexed) e.idxDisp(da.disp);
+        else if (sb.indexed) e.idxDisp(sb.disp);
         return true;
     }
     // LD r,n
     if (da.ok && B.kind == Operand::Kind::Imm) {
         e.prefix(da.prefix);
         e.op((uint8_t)(0x06 + da.code * 8));
-        if (da.indexed) e.disp(ctx.eval(da.disp));
+        if (da.indexed) e.idxDisp(da.disp);
         e.byte8(B.expr);
         return true;
     }
@@ -358,7 +389,7 @@ bool encodeIncDec(IAsmContext &ctx, Mnemo m, const Operand &A, const Operand &B)
     if (!t.ok) { ctx.error("invalid INC/DEC operand"); return false; }
     e.prefix(t.prefix);
     e.op((uint8_t)((m == Mnemo::INC ? 0x04 : 0x05) + t.code * 8));
-    if (t.indexed) e.disp(ctx.eval(t.disp));
+    if (t.indexed) e.idxDisp(t.disp);
     return true;
 }
 
@@ -390,6 +421,18 @@ bool encode16Add(IAsmContext &ctx, Mnemo m, const Operand &A, const Operand &B) 
 }
 
 } // namespace
+
+// Le refus d'un octet qui n'en est pas un — un seul porteur pour l'encodeur et
+// pour l'hote, qui emet aussi des octets (`db`, le remplissage de `ds`).
+bool fitsByte(int64_t v, std::string &why) {
+    if (v >= -128 && v <= 255) return true;
+    char b[32];
+    if (v < 0) snprintf(b, sizeof b, "%lld", (long long)v);
+    else snprintf(b, sizeof b, "0x%llX", (unsigned long long)v);
+    why = std::string("value ") + b + " does not fit in one byte (-128..255): "
+          "use high() or low() to take the byte you mean";
+    return false;
+}
 
 // ---------------------------------------------------------------------------
 // Point d'entrée : encode()

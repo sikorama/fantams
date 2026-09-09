@@ -83,6 +83,18 @@ CONFIG SET ram {
 // selon les sources, l'une d'elles se contredisant d'une page a l'autre.
 // Sans consequence si l'on ecrit sur &7F00, et c'est ce qui est fait ici.
 //
+// ATTESTE, et c'est ce qui rend `out (c), c` legitime ICI : les bits bas de
+// l'adresse sont INDIFFERENTS, et la valeur est la donnee ecrite, non
+// l'octet bas de l'adresse. [CW-MEMEXP] intitule le registre « Port 7Fxxh »
+// — le `xx` est l'attestation ; [CT-IOPORD] : « RAM Configuration | Write
+// Only | b15 = 0 », tous les autres bits indifferents ; [GRIM-IO] donne le
+// masque `PAL | W | &7F00 | 0 xxxxxxx xxxxxxxx`. D'ou la forme la plus
+// courte, `ld bc, __port_ram_<cle> | __val_ram_<cle>` puis `out (c), c` : la
+// valeur part sur le bus de donnees, et le sosie qu'elle laisse sur A7..A0
+// ne selectionne rien. Sur un port dont l'octet bas COMPTE — &7FFD sur ZX,
+// &243B sur Next —, cette forme serait fausse, et c'est pourquoi le fait est
+// ecrit ici plutot que suppose dans les sources.
+//
 // NON TRANCHE — le nombre de bits de page reellement decodes : 2 (256 K),
 // 3 (512 K), ou zero sur un 6128 nu. Ce profil n'expose qu'une page, celle
 // que les banques ext0..ext3 portent, ce qui ne depend d'aucune des trois

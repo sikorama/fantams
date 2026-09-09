@@ -27,18 +27,18 @@ loop:   call   sysbank_audio_play
 ; le linker si — et c'est l'etage C2 qui la refusera.
         SECTION sysbank, "ro"
 sysbank_audio_init:
-        ld     bc, __port_ram_audio + __val_ram_audio   ; port ET valeur : §12.3
+        ld     bc, __port_ram_audio | __val_ram_audio   ; port ET valeur : §12.3
         out    (c), c
         call   audio_init          ; vaut 0x4000 + offset : le linker le sait
-        ld     bc, __port_ram_linear + __val_ram_linear
+        ld     bc, __port_ram_linear | __val_ram_linear
         out    (c), c
         ret
 
 sysbank_audio_play:
-        ld     bc, __port_ram_audio + __val_ram_audio
+        ld     bc, __port_ram_audio | __val_ram_audio
         out    (c), c
         call   audio_play
-        ld     bc, __port_ram_linear + __val_ram_linear
+        ld     bc, __port_ram_linear | __val_ram_linear
         out    (c), c
         ret
 

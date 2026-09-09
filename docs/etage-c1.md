@@ -401,6 +401,7 @@ l'assembleur.
 - [x] Le langage sait exprimer un port **fonction de la banque** (§13.1) ; le profil livré ne l'emploie pas, et un profil de test l'exerce
 - [x] `beautify` connaît `bankof`
 - [x] `docs/syntax.md` : `bankof()`, et les noms `__` comme réservés
+- [x] La composition s'écrit `|`, et prendre un octet s'écrit `high()` / `low()` — un octet qui n'en est pas un est **refusé** *(correction d'usage, plus bas)*
 
 Les trois valeurs du §12.3 sortent au chiffre près, et elles se **calculent** :
 `__port_ram_audio` = `&7F00`, `__val_ram_audio` = `&C5` — soit
@@ -441,8 +442,8 @@ Deux conséquences :
 
 - `ld c, __val_ram_audio` est refusé, en nommant `high()` / `low()` — un
   diagnostic juste pour une adresse, trompeur pour une valeur ;
-- `ld bc, __port_ram_audio + __val_ram_audio`, l'idiome que le §12.3 écrit noir
-  sur blanc, est refusé : deux inconnues ne se somment pas dans une
+- `ld bc, __port_ram_audio | __val_ram_audio`, l'idiome que le §12.3 écrit noir
+  sur blanc, est refusé : deux inconnues ne se composent pas dans une
   relocalisation qui n'en porte qu'une.
 
 Chacun **seul** fonctionnait déjà — `ld bc, __port_ram_audio` sort `&7F00`.
@@ -454,7 +455,7 @@ aucun genre de relocalisation de plus : ce sont des nombres, et l'arithmétique
 sur des nombres est ordinaire.
 
 ```
-        ld   bc, __port_ram_audio + __val_ram_audio   →  01 C5 7F
+        ld   bc, __port_ram_audio | __val_ram_audio   →  01 C5 7F
         out  (c), c
         ld   c,  __val_ram_linear                    →  0E C0
 ```
@@ -470,6 +471,125 @@ Trois choses que ce dessin tient :
   déclare par `EXTERN` et le linker les résout, au prix de l'arithmétique dans
   cette unité-là. Et l'unité qui commute est précisément, par le §13.4, le seul
   morceau non portable d'un programme — celle qu'on assemble avec sa carte.
+
+### Deux corrections, après usage
+
+Ce §12.3 écrivait la composition avec un `+`, et l'usage a montré deux fautes
+que la somme cachait. Elles sont corrigées ici, dans la spec, les exemples et
+les tests.
+
+**La somme devient un `|`.** `__port_ | __val_` et `__port_ + __val_` rendent le
+même octet tant que l'octet bas du port est nul et que la valeur tient dans
+huit bits — le cas du CPC, et de tous les profils livrés. Dès que l'une des deux
+conditions tombe, la somme rend un nombre **vraisemblable et faux** : un
+`SELECT` peut être un `POKE`, et `POKE &6000 + &C5` n'est pas l'adresse voulue.
+La composition dit ce qu'elle fait ; la somme le disait par coïncidence.
+
+**Un octet qui n'en est pas un est refusé.** `__port_` est une adresse sur
+**seize bits** — un `POKE` l'exige, et un port fonction de la banque varie dans
+son octet **haut** —, donc `ld b, __port_ram_audio` sortait `06 00` et
+l'écriture partait sur `&00C5`. Sans un mot, par l'outil dont ce §12.3 dit
+qu'il combat exactement cette faute. La troncature n'était pas propre à ces
+symboles : `ld a, 300` passait aussi. La borne est désormais vérifiée sur tout
+immédiat de huit bits — `ld`, l'ALU, `in`, `out`, `db`, le remplissage de `ds` —
+par un seul porteur, `z80::fitsByte`, que l'encodeur et l'hôte appellent tous
+les deux ; le déplacement de `(IX+d)` a la sienne, `-128..127`, puisque ni
+`high()` ni `low()` ne s'y appliquent.
+
+D'où la **graphie deux-registres**, qui manquait :
+
+```
+        ld   b,  high(__port_ram_audio)   →  06 7F
+        ld   c,  low(__val_ram_audio)     →  0E C5
+        out  (c), c
+```
+
+Elle coûte un octet de plus que la forme en `bc`, et elle a ceci que la forme en
+`bc` n'a pas : **elle traverse la couture**. Dans une unité compilée séparément,
+`>> 8` et `|` sont tous deux refusés sur une valeur relocalisable — ils exigent
+un nombre —, là où `high()` pose une relocalisation `High8` que le linker
+honore. C'est aussi la graphie que le refus de l'assembleur nommait déjà de
+lui-même, sans que rien ne l'écrive.
+
+Ce que ces corrections ne tranchent **pas** : quels bits de l'adresse du port
+sont indifférents. Le profil déclare `OUT &7F00` et se tait là-dessus.
+
+Mais la question n'est pas celle de la portabilité, et une première rédaction de
+ce paragraphe se trompait deux fois. **La séquence d'écriture n'est portable sur
+aucune machine** — chaque câblage est le sien, et celui du CPC est un cas
+particulier : A15 seul décodé sur l'axe `ram`, la valeur sur le bus de données,
+ce qui est exactement ce qui rend `out (c), c` possible. Le §13.4 en tirait déjà
+la conséquence, et elle vaut ici : la section qui commute est le seul morceau à
+réécrire par machine. Il n'y a pas d'idiome portable à chercher.
+
+Ce qui est réel, en revanche, est le **coût** : `ld bc, __port_ | __val_` puis
+`out (c), c` fait 5 octets et 6 µs, là où passer par `A` en fait 6 ou 7 pour 7
+ou 8 µs. Un tiers de temps de plus pour une portabilité que cette section n'a
+pas ne se justifie pas dans une démo. Sur CPC, la forme en `bc` est LA forme, et
+la spec le dit maintenant ainsi.
+
+**Et une macro de source n'y change rien**, seconde erreur de cette rédaction,
+qui en faisait un « second porteur de valeur machine ». L'hypothèse est déjà
+présente à chaque site d'appel ; une macro qui la nomme une fois la fait passer
+de N à un, et aucun nombre n'y est recopié — les valeurs continuent de venir du
+linker. Ce que l'ADR 0028 retire est un **nombre** en double, pas un nom.
+
+**Le fait va donc dans le profil, mais en COMMENTAIRE et non en syntaxe.** Une
+clause du genre `OUT &7F00 ANY &00FF` ne ferait calculer au linker qu'une seule
+chose — un symbole composé —, et ce symbole ne donne rien qu'une macro de source
+ne donne déjà, à octets et à µs égaux. Elle échouerait donc au critère que le
+§12.3 s'applique à lui-même : « le profil n'est pas de la documentation, c'est la
+table à partir de laquelle le linker **calcule** ». Le commentaire, lui, dit la
+source, le statut et la contradiction quand il y en a une — et `profiles.cpp`
+tient déjà que « les commentaires en font partie ». C'est là que la clause est
+écrite, avec ses trois citations.
+
+### Ce que le triplet coûte à un auteur mono-machine
+
+Une objection d'usage, à porter ici parce qu'elle vise le §12.3 et non
+l'assembleur. Sur CPC, du triplet, **un symbole sur trois porte de
+l'information** :
+
+| symbole | sa valeur, sur cette machine | information |
+|---|---|---|
+| `__port_<axe>_<clé>` | `&7F00` pour les trois axes, `&DF00` pour la seconde écriture — deux nombres, invariants | **zéro** |
+| `__mask_<axe>` | inexistant sur l'axe `ram` — le profil le dit « sans objet » | zéro |
+| `__val_<axe>_<clé>` | `&C4`, et `&C7` si le script déplace la section en `ext3` | **tout le gain** |
+
+Faire retenir `__port_ram_<section>` pour retrouver l'un de deux nombres
+invariants est du coût sans contrepartie, et un auteur mono-machine — le cas
+courant — a raison de le dire. **Le gain n'a jamais été la portabilité** : c'est
+la dépendance au PLACEMENT, et elle est mono-machine. `accept_aliased.sh` la
+vérifie en propre — permuter `gfx0` et `gfx3` dans le script échange leurs
+banques *et* leurs valeurs, sans toucher une adresse logique.
+
+D'où le compromis retenu, et il ne demande rien à l'outil : **le port s'écrit en
+dur** — `ga equ &7F00` — parce que c'est le seul nombre matériel qui ne dépend
+d'aucun placement, donc le seul dont la copie ne peut pas devenir fausse en
+silence ; **la valeur vient du linker**, parce qu'elle bouge. Une macro de source
+compose les deux.
+
+**À revoir quand un second profil arrivera** — CPC+, puis la génération d'un
+`CPR`, le `CRO` plus tard. Deux questions attendent ce moment-là, et rien avant :
+
+- **le nom d'axe dans la clé.** `__val_gfx0` au lieu de `__val_ram_gfx0` : `ram`
+  est du vocabulaire de profil que l'auteur porte pour rien, une section placée ne
+  l'étant que sur un axe. Ça se dérive, et la règle de retrait couvre déjà le cas
+  ambigu. C'est le seul raccourcissement qui porte sur le symbole qui, lui, sert ;
+- **le port des autres machines.** Deux profils diront si `__port_` mérite son
+  rang de symbole ou s'il est, partout, un invariant par cible. Un seul profil ne
+  peut pas trancher ça, et le trancher sur celui-là seul serait décider d'après le
+  cas particulier — que le CPC est ;
+- **enrichir le profil de matériel : des constantes exportées, voire des
+  macros.** À ne pas confondre avec la clause écartée ci-dessus : celle-là ne
+  faisait rien calculer, une constante EXPORTÉE produit un symbole que le source
+  emploie. `GA_PORT` plutôt que `ga equ &7F00` déplace le dernier nombre matériel
+  du source vers le seul porteur audité — celui qui cite ses sources —, et il est
+  plus court à écrire que `__port_<axe>_<clé>`, sans nom d'axe ni de section à
+  retenir. C'est la meilleure réponse connue à l'objection ci-dessus, et elle
+  remplacerait le compromis « port en dur ». Les macros sont un cran au-dessus, et
+  posent la question de savoir jusqu'où le profil va sans devenir du code : elle
+  se tranche à deux profils, pas à un.
 
 ## C1.8 — `__off_`, `__romnum_`, et les deux refus
 
