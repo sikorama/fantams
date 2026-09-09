@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# Le port de commutation devient une constante `CONST` du profil ; l'axe sort de la clé des symboles ; le rang de `__port_` reste ouvert
+# Le port de commutation devient une constante `CONST` du profil ; l'axe sort de la clé de `__val_` (pas de `__mask_`) ; le rang de `__port_` reste ouvert
 
 [[port-et-valeur-a-revoir-au-second-profil]] (mémoire de chantier) et
 `docs/etage-c1.md` §C1.7 posaient trois questions et les réservaient
@@ -50,21 +50,31 @@ mécanisme `__port_` lui-même n'est pas retiré du langage — un profil dont l
 port varierait réellement par axe continuerait à l'émettre, faute de mieux ; ce
 n'est simplement pas le cas du CPC ni du CPC+, sur aucun de leurs axes connus.
 
-## Décision 2 — l'axe sort de la clé de `__val_`/`__mask_`
+## Décision 2 — l'axe sort de la clé de `__val_`, et RESTE dans celle de `__mask_`
 
-`__val_ram_audio` devient `__val_audio`, `__mask_ram` devient `__mask` quand
-l'axe seul est en jeu. Argument structurel, pas empirique : une section est
-placée par **l'état d'un seul axe** — le modèle du profil (`profile.h`,
-`Axis`/`State`/`Slot`) n'offre aucune façon d'attacher une section à deux axes
-à la fois, et `OVER` (une ROM qui recouvre une RAM en lecture) échange des
-*banques* derrière une fenêtre, jamais deux sections sous un même nom. Les noms
-de section sont par ailleurs uniques dans tout le programme lié (C1.0 : la
-fusion par nom est globale, pas par axe). La clé ne peut donc jamais collisionner
-en retirant l'axe, sur aucun profil examiné — les trois axes du CPC 6128 le
-montraient déjà, et l'axe `lrom2` du CPC+ n'est qu'un quatrième exemple de la
-même forme.
+`__val_ram_audio` devient `__val_audio`. Argument structurel, pas empirique :
+une section est placée par **l'état d'un seul axe** — le modèle du profil
+(`profile.h`, `Axis`/`State`/`Slot`) n'offre aucune façon d'attacher une
+section à deux axes à la fois, et `OVER` (une ROM qui recouvre une RAM en
+lecture) échange des *banques* derrière une fenêtre, jamais deux sections sous
+un même nom. Les noms de section sont par ailleurs uniques dans tout le
+programme lié (C1.0 : la fusion par nom est globale, pas par axe). La clé ne
+peut donc jamais collisionner en retirant l'axe, sur aucun profil examiné — les
+trois axes du CPC 6128 le montraient déjà, et l'axe `lrom2` du CPC+ n'est qu'un
+quatrième exemple de la même forme.
 
-Ce n'est donc pas le CPC+ qui a permis de trancher ceci : c'est le fait
+**Amendement, trouvé en préparant E2, avant tout code.** `__mask_<axe>` (et
+`__mask2_<axe>`) n'ont **aucune clé de section** — `link.cpp` les offre par
+`offer("__mask_" + axisName, mask)`, l'axe seul. L'argument ci-dessus repose
+sur l'unicité du **nom de section**, qui n'existe pas ici : le masque
+appartient à l'axe, pas à une section placée. Le retirer collapserait
+`__mask_ram`, `__mask_rom_lower` et `__mask_rom_upper` — trois masques
+distincts, déjà coexistants sur le seul CPC 6128 — vers le même nom nu
+`__mask`, ambigu par construction. `__mask_`/`__mask2_` **gardent donc leur
+axe**, et rejoignent `__port_`/`__port2_`/`__romnum_` dans ce que cet étage ne
+renomme pas.
+
+Ce n'est donc pas le CPC+ qui a permis de trancher `__val_` : c'est le fait
 d'avoir, dans un seul profil, plus d'un axe — vrai depuis `rom_lower` et
 `rom_upper`, et resté non tranché seulement parce que personne n'avait encore
 eu besoin d'écrire un second profil pour s'en assurer.

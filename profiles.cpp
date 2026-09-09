@@ -140,9 +140,118 @@ SELECT rom_upper = OUT 0x7F00, MASK %00001000, CODE << 3
 // une copie de l'etat en RAM doit le connaitre.
 )PROFILE";
 
+// Amstrad CPC 464/6128 Plus — meme RAM que le 6128, plus un axe de ROM
+// nouveau : la redirection de la ROM basse par `RMR2` (etage E, ADR 0032).
+//
+// Toutes les valeurs viennent de `docs/recherche/cpc-gate-array-rmr.md` §D,
+// qui les arbitre sur [GRIM-GA] et [CW-UROM] — la documentation ASIC
+// officielle n'a pas ete lue directement (§0 du meme dossier).
+const char *kCpcPlus = R"PROFILE(// Amstrad CPC 464/6128 Plus
+//
+// Valeurs verifiees dans docs/recherche/cpc-gate-array-rmr.md §D, sur
+// [GRIM-GA] et [CW-UROM]. Statut de chaque valeur : ATTESTE = concordance de
+// sources documentaires ; NON TRANCHE = non tranche dans ce depot ; HORS
+// PERIMETRE = attests mais pas encore ecrit ici, et dit pourquoi.
+
+TARGET cpcplus
+
+// --- La RAM : IDENTIQUE au 6128, copiee et non reinventee -----------------
+// ATTESTE. docs/recherche/cpc-gate-array-rmr.md §D.1 : le PAL de la RAM et
+// sa table de configurations ne changent pas sur Plus — meme decodage,
+// memes huit dispositions. Rien de neuf a ecrire sur cet axe.
+WINDOW w0 [0x0000..0x3FFF]
+WINDOW w1 [0x4000..0x7FFF]
+WINDOW w2 [0x8000..0xBFFF]
+WINDOW w3 [0xC000..0xFFFF]
+
+BANK base0..base3  SIZE 0x4000  rw  VIDEO  STORE 0..3
+BANK ext0..ext3    SIZE 0x4000  rw         STORE 4..7
+BANK rom_lo        SIZE 0x4000  ro         STORE 8
+BANK rom_hi<n>     SIZE 0x4000  ro         STORE 9
+
+CONFIG SET ram {
+    linear    [CODE %000]      { w0 base0  w1 base1   w2 base2  w3 base3 }
+    ext_high  [CODE %001]      { w0 base0  w1 base1   w2 base2  w3 ext3  }
+    all_ext   [CODE %010]      { w0 ext0   w1 ext1    w2 ext2   w3 ext3  }
+    shifted   [CODE %011]      { w0 base0  w1 base3   w2 base2  w3 ext3  }
+    ext_w1<b> [CODE %100 | b]  { w0 base0  w1 ext<b>  w2 base2  w3 base3 }
+}
+
+// Le port du PAL et de `RMR`/`RMR2` est LE MEME sur toute la famille : c'est
+// ce qui rend `GA_PORT` interessant plutot qu'un triplet `__port_` par axe
+// (ADR 0032, decision 1) — ecrire &7F00 quatre fois ici serait la meme
+// information repetee quatre fois.
+CONST GA_PORT = 0x7F00
+
+// Aucun MASK sur cet axe : le registre selectionne par les bits 7-6 = 11
+// n'appartient qu'a lui.
+SELECT ram = OUT GA_PORT, %11000000 | (PAGE << 3) | CODE
+
+// --- Les ROM classiques : les deux axes du 6128, INCHANGES -----------------
+// ATTESTE. §D.1 : `RMR` (bits 7-5 = 100) est le meme registre, avec la meme
+// polarite de bits (0 active, 1 inhibe). Rien de propre au Plus ici.
+CONFIG SET rom_lower OVER ram { off [CODE 1] { }  on [CODE 0] { w0 rom_lo } }
+CONFIG SET rom_upper OVER ram { off [CODE 1] { }  on<n> [CODE 0] { w3 rom_hi<n> } }
+
+SELECT rom_lower = OUT GA_PORT, MASK %00000100, CODE << 2
+SELECT rom_upper = OUT GA_PORT, MASK %00001000, CODE << 3
+                   OUT 0xDF00, MASK %11111111, PAGE
+
+// --- Ce qui est PROPRE au Plus : RMR2 redirige la ROM basse ---------------
+// ATTESTE. §D.1, table de [GRIM-GA] : `RMR2` est selectionne par bits 7-5 =
+// 101 (contre 100 pour RMR), et ses cinq bits restants portent DEUX champs —
+// LRM (bits 4-3, la fenetre) et l'ID de ROM PHYSIQUE de la cartouche (bits
+// 2-0, 0..7 seulement : « you can only map the first 8 physical roms of the
+// cartridge as Lower ROM », [GRIM-GA], confirme par [CW-UROM]). D'ou
+// CODE = (LRM << 3) | n, verifie sur les deux exemples de [GRIM-GA] :
+// `%101 00 000` = &7FA0, `%101 11 000` = &7FB8.
+//
+// Aucun MASK : comme pour l'axe `ram`, les bits 7-5 = 101 n'appartiennent
+// qu'a ce registre — une seule ecriture le regle en entier.
+//
+// STORE 16, comme `rom_hi<n>` : un seul numero pour toute la famille
+// PARAMETRIQUE, deplace hors de 0..9 deja pris par les blocs RAM et les deux
+// ROM classiques — ce n'est PAS l'ID de ROM physique, qui reste PAGE, comme
+// pour `rom_hi<n>` (C1.8). L'ID physique (0..7, ATTESTE) est ce que `--sym`
+// imprime dans sa colonne `page`, pas dans `store`.
+BANK crom<n> SIZE 0x4000 ro STORE 16
+
+CONFIG SET cart_rom OVER ram {
+    w0<n> [CODE %00000 | n] { w0 crom<n> }
+    w1<n> [CODE %01000 | n] { w1 crom<n> }
+    w2<n> [CODE %10000 | n] { w2 crom<n> }
+}
+SELECT cart_rom = OUT GA_PORT, %10100000 | CODE
+
+// HORS PERIMETRE — trois choses attestees par §D, non ecrites ici, et dit
+// pourquoi plutot que subi :
+//
+// 1. La disposition LRM = 11, qui mappe EN PLUS la page E/S de l'ASIC en w1.
+//    Une page d'E/S n'est pas une banque de memoire adressable par une
+//    SECTION : la representer demanderait un mot de vocabulaire de profil
+//    que rien d'autre ne consomme encore (meme raison que les macros de
+//    profil, ADR 0032, "ce que cet ADR ne decide pas").
+// 2. Les ROM physiques 8..31 de la cartouche, adressables SEULEMENT en ROM
+//    haute (meme port &DF00 que `rom_upper`, mais un ID physique et non le
+//    numero logique de `rom_hi<n>`) : un second axe, non ecrit tant qu'un
+//    usage ne le demande pas.
+// 3. Le deverrouillage de l'ASIC, sans lequel RIEN de ce qui precede n'a
+//    d'effet : c'est un etat d'EXECUTION que rien au linkage ne peut
+//    verifier (ADR 0032, docs/recherche/cpc-gate-array-rmr.md §D.2). Un
+//    programme qui n'utilise aucun de ces axes doit garder le bit 5 a 0
+//    dans toutes ses ecritures a GA_PORT, faute de quoi il touchera RMR2 si
+//    l'ASIC se trouve deverrouille par ailleurs.
+//
+// NON TRANCHE, herite du 6128 sans changement — RMR est le meme registre :
+// l'effet du bit 4 (compteur d'interruption) reste contradictoire entre
+// [S968] (efface le seul bit de poids fort) et [GRIM-GA]/[CT-GAINT]/
+// [LOGON35] (remet le compteur entier a zero). Aucun placement n'en depend.
+)PROFILE";
+
 struct Builtin { const char *name; const char *text; };
 const Builtin kBuiltins[] = {
     {"cpc6128", kCpc6128},
+    {"cpcplus", kCpcPlus},
 };
 
 } // namespace

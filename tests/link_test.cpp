@@ -1031,17 +1031,17 @@ int main() {
         if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
         okBytes("et il vaut le port du profil", img.bin, {0x00, 0x7F});
 
-        link::Image v = link::build({asker({"__val_ram_audio"})},
+        link::Image v = link::build({asker({"__val_audio"})},
             scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
                 "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
         okBytes("la valeur se calcule : %11000000 | (0 << 3) | %101 = &C5", v.bin, {0xC5, 0x00});
 
-        link::Image l = link::build({asker({"__val_ram_linear"})},
+        link::Image l = link::build({asker({"__val_linear"})},
             scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
                 "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
         okBytes("et la graphie PAR ETAT vaut &C0", l.bin, {0xC0, 0x00});
 
-        link::Image m = link::build({asker({"__val_ram_main"})},
+        link::Image m = link::build({asker({"__val_main"})},
             scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
                 "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pal());
         okBytes("la graphie PAR SECTION vaut la meme chose", m.bin, {0xC0, 0x00});
@@ -1058,7 +1058,7 @@ int main() {
             "SELECT rom = OUT 0x7F00, MASK %00000100, %11111111\n", "m.prof");
         asmb::Object o = secObj("a.fo", {{"boot", {0, 0}}});
         asmb::Reloc r;
-        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_rom_boot";
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_boot";
         o.relocs.push_back(r);
         link::Image img = link::build({o},
             scr("MEMORY_MAP { CONFIG on { w0 { SECTION boot } } }"), pr);
@@ -1157,7 +1157,7 @@ int main() {
         asmb::Reloc hi;
         hi.frag = 0; hi.offset = 0; hi.kind = asmb::Reloc::High8; hi.symbol = "__port_ram_gfx0";
         asmb::Reloc lo;
-        lo.frag = 0; lo.offset = 1; lo.kind = asmb::Reloc::Low8; lo.symbol = "__val_ram_gfx0";
+        lo.frag = 0; lo.offset = 1; lo.kind = asmb::Reloc::Low8; lo.symbol = "__val_gfx0";
         o.relocs.push_back(hi);
         o.relocs.push_back(lo);
         link::Image img = link::build({o},
@@ -1171,7 +1171,7 @@ int main() {
         // Un etat PARAMETRIQUE nomme deux fois avec deux arguments ne designe pas
         // une seule chose : la graphie par etat n'est alors PAS offerte, et celle
         // par section reste la bonne. C'est exactement le tableau du §12.3, ou
-        // `__val_ram_music_lz` et `__val_ram_audio` coexistent.
+        // `__val_music_lz` et `__val_audio` coexistent.
         profile::Profile pr = profile::parse(
             "WINDOW w1 [0x4000..0x7FFF]\n"
             "BANK ext0..ext3 SIZE 0x4000 rw STORE 4..7\n"
@@ -1179,7 +1179,7 @@ int main() {
             "SELECT ram = OUT 0x7F00, %11000000 | CODE\n", "m.prof");
         asmb::Object o = secObj("a.fo", {{"un", {0, 0}}, {"deux", {0, 0}}});
         asmb::Reloc r;
-        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_ext_w1";
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ext_w1";
         o.relocs.push_back(r);
         link::Image img = link::build({o},
             scr("MEMORY_MAP { CONFIG ext_w1<0> { w1 { SECTION un   } }\n"
@@ -1187,10 +1187,10 @@ int main() {
         ok("une graphie par etat ambigue n'est pas offerte", !img.ok);
         const std::string msg = img.errors.empty() ? std::string() : img.errors[0].message;
         ok("et l'EXTERN non resolu le dit",
-           msg.find("unresolved EXTERN symbol '__val_ram_ext_w1'") != std::string::npos);
+           msg.find("unresolved EXTERN symbol '__val_ext_w1'") != std::string::npos);
         asmb::Object k = secObj("a.fo", {{"un", {0, 0}}, {"deux", {0, 0}}});
         asmb::Reloc r2;
-        r2.frag = 0; r2.offset = 0; r2.kind = asmb::Reloc::Abs16; r2.symbol = "__val_ram_deux";
+        r2.frag = 0; r2.offset = 0; r2.kind = asmb::Reloc::Abs16; r2.symbol = "__val_deux";
         k.relocs.push_back(r2);
         link::Image ok2 = link::build({k},
             scr("MEMORY_MAP { CONFIG ext_w1<0> { w1 { SECTION un   } }\n"
@@ -1262,7 +1262,7 @@ int main() {
             return got;
         };
         okBytes("la premiere ecriture donne le port", ask("__port_rom_menu"), {0x00, 0x7F});
-        okBytes("et la valeur, bornee au bit de l'axe", ask("__val_rom_menu"), {0x00, 0x00});
+        okBytes("et la valeur, bornee au bit de l'axe", ask("__val_menu"), {0x00, 0x00});
         okBytes("la seconde donne son port", ask("__port2_rom_menu"), {0x00, 0xDF});
         okBytes("et le NUMERO, que PAGE vaut ici", ask("__romnum_rom_menu"), {0x0F, 0x00});
     }
@@ -1391,21 +1391,21 @@ int main() {
         };
 
         ok("sans script, un etat SANS parametre garde la graphie d'aujourd'hui",
-           val("__val_ram_linear") == 0xC0);
+           val("__val_linear") == 0xC0);
         ok("et son port sort aussi", val("__port_ram_linear") == 0x7F00);
         ok("un etat PARAMETRIQUE porte son argument dans le nom",
-           val("__val_ram_ext_w1_1") == 0xC5);
+           val("__val_ext_w1_1") == 0xC5);
         ok("les valeurs que les banques DECLAREES bornent sont toutes enumerees",
-           val("__val_ram_ext_w1_0") == 0xC4 && val("__val_ram_ext_w1_2") == 0xC6 &&
-           val("__val_ram_ext_w1_3") == 0xC7);
+           val("__val_ext_w1_0") == 0xC4 && val("__val_ext_w1_2") == 0xC6 &&
+           val("__val_ext_w1_3") == 0xC7);
         ok("une valeur qu'aucune banque declaree ne porte n'est pas offerte",
-           val("__val_ram_ext_w1_4") == -1);
+           val("__val_ext_w1_4") == -1);
         // Le motif meme du chantier : `ext1` est vue en w1 par DEUX cartes, et
         // une cle par banque vaudrait deux choses. Une cle par ETAT en vaut une.
         ok("les deux cartes qui voient ext1 sont DISTINGUEES, pas fusionnees",
-           val("__val_ram_all_ext") == 0xC2 && val("__val_ram_ext_w1_1") == 0xC5);
+           val("__val_all_ext") == 0xC2 && val("__val_ext_w1_1") == 0xC5);
         ok("l'etat parametrique sans son argument n'est pas offert : il ne designe rien",
-           val("__val_ram_ext_w1") == -1);
+           val("__val_ext_w1") == -1);
     }
     {
         // L'invariant de C1.7 ne se perd pas en changeant de source de cles : la
@@ -1421,7 +1421,7 @@ int main() {
             auto it = sy.find(n);
             return it == sy.end() ? -1 : it->second;
         };
-        ok("sans script, la valeur reste bornee aux bits de l'axe", val("__val_rom_on") == 0x04);
+        ok("sans script, la valeur reste bornee aux bits de l'axe", val("__val_on") == 0x04);
         ok("et le masque de l'axe sort", val("__mask_rom") == 0x04);
     }
     {
@@ -1446,11 +1446,11 @@ int main() {
             return it == sy.end() ? -1 : it->second;
         };
         ok("avec un script, la cle PAR SECTION est intacte",
-           val("__val_ram_main") == 0xC0 && val("__val_ram_audio") == 0xC5);
+           val("__val_main") == 0xC0 && val("__val_audio") == 0xC5);
         ok("et la cle PAR ETAT n'est pas effacee par la seconde offre du profil",
-           val("__val_ram_linear") == 0xC0);
+           val("__val_linear") == 0xC0);
         ok("la cle du profil coexiste avec celles du script",
-           val("__val_ram_ext_w1_1") == 0xC5);
+           val("__val_ext_w1_1") == 0xC5);
     }
 
     {
@@ -1477,7 +1477,7 @@ int main() {
         const script::Script none;
         const std::map<std::string, int64_t> alone = link::switchSymbols(none, pr);
         ok("un etat dont deux fenetres donnent deux valeurs n'est pas offert par le profil seul",
-           val(alone, "__val_ram_both") == -1);
+           val(alone, "__val_both") == -1);
         // Le port est le meme par les deux fenetres la ou la valeur differe : la
         // regle de retrait n'effacait que la valeur, et laissait la moitie d'un
         // couple que le §12.3 emploie d'un bloc.
@@ -1486,7 +1486,7 @@ int main() {
         script::Script sc = scr("MEMORY_MAP { CONFIG both { w1 { SECTION s } } }");
         const std::map<std::string, int64_t> sy = link::switchSymbols(sc, pr);
         ok("mais le script, qui sait DE QUELLE FENETRE il parle, l'offre toujours",
-           val(sy, "__val_ram_both") == 0x08 && val(sy, "__val_ram_s") == 0x08);
+           val(sy, "__val_both") == 0x08 && val(sy, "__val_s") == 0x08);
     }
 
     {
@@ -1508,9 +1508,9 @@ int main() {
             return it == sy.end() ? -1 : it->second;
         };
         ok("une valeur que TOUTES les fenetres honorent est offerte",
-           val("__val_x_s_0") == 0 && val("__val_x_s_1") == 1);
+           val("__val_s_0") == 0 && val("__val_s_1") == 1);
         ok("une valeur qu'une seule fenetre honore ne l'est pas",
-           val("__val_x_s_2") == -1 && val("__val_x_s_3") == -1);
+           val("__val_s_2") == -1 && val("__val_s_3") == -1);
         ok("et pas davantage son port : une carte inatteignable n'offre rien",
            val("__port_x_s_2") == -1);
     }
@@ -1534,8 +1534,8 @@ int main() {
             return it == sy.end() ? -1 : it->second;
         };
         ok("l'etat qui REND la RAM est offert, bien qu'il ne place rien",
-           val("__val_rom_off") == 0x04 && val("__port_rom_off") == 0x7F00);
-        ok("celui qui prend la ROM aussi", val("__val_rom_on") == 0x00);
+           val("__val_off") == 0x04 && val("__port_rom_off") == 0x7F00);
+        ok("celui qui prend la ROM aussi", val("__val_on") == 0x00);
         ok("et le masque de l'axe existe, ce qui rend le bit touchable seul",
            val("__mask_rom") == 0x04);
     }
@@ -1731,7 +1731,7 @@ int main() {
         asmb::Object o = secObj("a.fo", {{"gfx1", {1}}});
         place(o, "gfx1", "ext_w1<1>");
         asmb::Reloc r;
-        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_gfx1";
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_gfx1";
         o.relocs.push_back(r);
         link::Image img = link::build({o}, script::Script(), pal3());
         ok("un placement porte par le source n'offre PAS de cle par section", !img.ok);
@@ -1786,22 +1786,89 @@ int main() {
         std::set<std::string> gone;
         const std::map<std::string, int64_t> sy = link::switchSymbols(sc, pr, &gone);
         ok("la valeur ambigue est retiree, par le chemin script aussi",
-           sy.find("__val_ram_both") == sy.end());
+           sy.find("__val_both") == sy.end());
         ok("et son port ne lui survit pas", sy.find("__port_ram_both") == sy.end());
         ok("les deux noms sont rendus comme RETIRES, et non comme inexistants",
-           gone.count("__val_ram_both") && gone.count("__port_ram_both"));
+           gone.count("__val_both") && gone.count("__port_ram_both"));
 
         // Et le diagnostic le dit : un symbole absent parce qu'il vaudrait deux
         // choses ne se distingue pas, pour qui l'emploie, d'un symbole qui n'a
         // jamais existe.
         asmb::Object o = secObj("a.fo", {{"x", {1}}, {"y", {2}}});
         asmb::Reloc r;
-        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_ram_both";
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_both";
         o.relocs.push_back(r);
         link::Image img = link::build({o}, sc, pr);
         const std::string m = img.errors.empty() ? std::string() : img.errors[0].message;
         ok("l'EXTERN non resolu dit POURQUOI le symbole manque",
            !img.ok && m.find("two values depending on the window") != std::string::npos);
+    }
+
+    // --- Le profil LIVRE cpcplus : la RAM du 6128, et l'axe RMR2 en plus ----
+    // Etage E, E3-E5. Critere de fin d'etage (spec-etage-e.md §E4) : la RAM
+    // n'a pas change, et GA_PORT est le meme domicile pour les deux ROM
+    // classiques et pour l'axe neuf.
+    {
+        const profile::Profile pr = profile::parse(profile::builtin("cpcplus"), "cpcplus");
+        ok("le profil livre cpcplus se lit sans une erreur", pr.ok);
+        if (!pr.ok && !pr.errors.empty())
+            printf("    %s\n", pr.errors[0].message.c_str());
+
+        asmb::Object o = secObj("a.fo", {{"boot", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "GA_PORT";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear { w0 { SECTION boot } } }"), pr);
+        ok("GA_PORT est visible sur le profil cpcplus", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        okBytes("GA_PORT vaut 0x7F00, comme sur le 6128", img.bin, {0x00, 0x7F});
+    }
+    {
+        // La RAM n'a pas change : meme fixture, memes octets que sur le 6128
+        // (cf. le tout premier bloc `pal()` de ce fichier), tire du profil
+        // LIVRE cette fois, pas d'un profil de test.
+        const profile::Profile pr = profile::parse(profile::builtin("cpcplus"), "cpcplus");
+        asmb::Object o = secObj("a.fo", {{"main", {0, 0}}, {"audio", {9}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_audio";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG linear    { w1 { SECTION main  } }\n"
+                "             CONFIG ext_w1<1> { w1 { SECTION audio } } }"), pr);
+        ok("la RAM du profil cpcplus se resout comme sur le 6128", img.ok);
+        okBytes("meme valeur qu'avec le profil 6128 : &C5", img.bin, {0xC5, 0x00});
+    }
+    {
+        // L'AXE PROPRE AU PLUS : `cart_rom.w0<3>` doit ecrire %101 00 011 =
+        // &A3 sur GA_PORT — verifie sur les deux exemples de [GRIM-GA] dans
+        // le profil (&7FA0, &7FB8), ici avec n=3 sur la fenetre w0.
+        const profile::Profile pr = profile::parse(profile::builtin("cpcplus"), "cpcplus");
+        asmb::Object o = secObj("a.fo", {{"cart", {0, 0}}});
+        asmb::Reloc r;
+        r.frag = 0; r.offset = 0; r.kind = asmb::Reloc::Abs16; r.symbol = "__val_cart";
+        o.relocs.push_back(r);
+        link::Image img = link::build({o},
+            scr("MEMORY_MAP { CONFIG cart_rom.w0<3> { w0 { SECTION cart } } }"), pr);
+        ok("l'axe cart_rom se resout", img.ok);
+        if (!img.ok && !img.errors.empty()) printf("    %s\n", img.errors[0].message.c_str());
+        // `bin` ne couvre que les 128 K de base ; la cartouche, comme les ROM
+        // classiques, en est HORS — c'est le BLOC qu'on interroge (meme
+        // raison que le test "l'axe masque se resout", plus haut).
+        okBytes("%101 00 011 = &A3",
+                img.blocks.empty() ? std::vector<uint8_t>() : img.blocks[0].bytes, {0xA3, 0x00});
+
+        // Deplacer n=3 vers w1 change la fenetre, PAS l'ID physique de ROM :
+        // %101 01 011 = &AB.
+        asmb::Object o2 = secObj("a.fo", {{"cart", {0, 0}}});
+        asmb::Reloc r2;
+        r2.frag = 0; r2.offset = 0; r2.kind = asmb::Reloc::Abs16; r2.symbol = "__val_cart";
+        o2.relocs.push_back(r2);
+        link::Image img2 = link::build({o2},
+            scr("MEMORY_MAP { CONFIG cart_rom.w1<3> { w1 { SECTION cart } } }"), pr);
+        ok("deplacer la fenetre seule change le CODE, pas le n", img2.ok);
+        okBytes("%101 01 011 = &AB",
+                img2.blocks.empty() ? std::vector<uint8_t>() : img2.blocks[0].bytes, {0xAB, 0x00});
     }
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);

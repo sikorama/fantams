@@ -38,20 +38,20 @@
 ; placement changeait, l'ordre des octets lus changerait — et rien d'autre.
 ;
 ; Les symboles employes ici nomment la CONFIGURATION et non la section :
-; `__val_ram_ext_w1_0` est « la valeur qui amene ext0 en w1 ». Ils se derivent
+; `__val_ext_w1_0` est « la valeur qui amene ext0 en w1 ». Ils se derivent
 ; du profil seul, sans script — c'est ce qui les rend disponibles a une source
 ; qui se place elle-meme.
 start:
         ld     de, 0xC000
-        ld     bc, __port_ram_ext_w1_0 | __val_ram_ext_w1_0
+        ld     bc, __port_ram_ext_w1_0 | __val_ext_w1_0
         call   read_one
-        ld     bc, __port_ram_ext_w1_1 | __val_ram_ext_w1_1
+        ld     bc, __port_ram_ext_w1_1 | __val_ext_w1_1
         call   read_one
-        ld     bc, __port_ram_ext_w1_2 | __val_ram_ext_w1_2
+        ld     bc, __port_ram_ext_w1_2 | __val_ext_w1_2
         call   read_one
-        ld     bc, __port_ram_ext_w1_3 | __val_ram_ext_w1_3
+        ld     bc, __port_ram_ext_w1_3 | __val_ext_w1_3
         call   read_one
-        ld     bc, __port_ram_linear | __val_ram_linear      ; on rend la fenetre
+        ld     bc, __port_ram_linear | __val_linear      ; on rend la fenetre
         out    (c), c
 stop:   jr     stop
 

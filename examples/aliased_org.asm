@@ -17,8 +17,8 @@
 
 ; Les valeurs que le profil cpc6128 calcule : OUT 0x7F00, %11000000 | CODE,
 ; avec CODE = %100 | b pour ext_w1<b>. Ecrites a la main, donc a maintenir.
-c_linear equ 0x7FC0        ; = __port_ram_resident | __val_ram_resident
-c_ext0   equ 0x7FC4        ; = __port_ram_gfx0     | __val_ram_gfx0
+c_linear equ 0x7FC0        ; = __port_ram_resident | __val_resident
+c_ext0   equ 0x7FC4        ; = __port_ram_gfx0     | __val_gfx0
 c_ext1   equ 0x7FC5
 c_ext2   equ 0x7FC6
 c_ext3   equ 0x7FC7

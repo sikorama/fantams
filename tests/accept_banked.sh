@@ -47,8 +47,8 @@ if [ "$(sym start)" != "0x4000" ]; then
 fi
 
 # 3. Les valeurs de commutation du §12.3, dans les octets emis.
-#    `ld bc, __port_ram_audio | __val_ram_audio` -> 01 C5 7F
-#    `ld bc, __port_ram_linear | __val_ram_linear` -> 01 C0 7F
+#    `ld bc, __port_ram_audio | __val_audio` -> 01 C5 7F
+#    `ld bc, __port_ram_linear | __val_linear` -> 01 C0 7F
 #    Les deux sont dans `sysbank`, rangee en banque 2 : offset 256 + 2*0x4000.
 head=$(od -An -tx1 -j $((256 + 2 * 16384)) -N 8 "$TMP/g.sna" | tr -d ' \n')
 case "$head" in

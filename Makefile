@@ -57,8 +57,8 @@ $(T)/opcode_test: opcode.cpp parser.cpp z80.cpp expr.cpp keywords.cpp $(T)/opcod
 # source Z80 qui le provoque, mais deux structures de dix lignes.
 # Le profil et le script y sont ANALYSES depuis du texte, et non fabriques a la
 # main : c'est le chemin reel, et un test qui echoue nomme le bon maillon.
-$(T)/link_test: link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp link.h asm.h script.h profile.h
-	$(TCXX) link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp $(T)/link_test.cpp -o $@
+$(T)/link_test: link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/link_test.cpp link.h asm.h script.h profile.h
+	$(TCXX) link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/link_test.cpp -o $@
 
 # Le fichier objet : l'aller-retour se teste par CHAINES, ce qui est justement
 # la raison de ne pas le faire compact.

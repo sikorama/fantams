@@ -1062,6 +1062,13 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
                                        std::set<std::string> *withdrawn = nullptr) {
     std::map<std::string, int64_t> out, fromProfile;
     std::set<std::string> ambiguous, profileAmbiguous;
+    // Le nom de la CLE `__val_`/`__romnum_` qui va avec chaque `__port_`/
+    // `__port2_` offert : depuis que `__val_` a perdu son axe (ADR 0032, D2),
+    // ce n'est plus une simple decoupe du nom du port — `axisName` peut lui
+    // meme porter un `_` (`rom_lower`) — donc on l'enregistre ICI, ou les
+    // deux moities sont encore connues separement, plutot que de la
+    // reconstituer plus bas par decoupe de chaine.
+    std::map<std::string, std::string> mateOf;
     // Les deux chemins offrent dans DEUX paniers, et le second ne peut pas
     // defaire le premier : voir la fusion, en bas de cette fonction.
     std::map<std::string, int64_t> *dest = &out;
@@ -1148,12 +1155,23 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
                        evalSel(second->mask, bind, mask2, missing);
             if (has2Mask) val2 &= mask2;
         }
+        // `__val_` seul (ADR 0032, decision 2) : une section n'appartient
+        // jamais qu'a un seul axe, et sa cle — nom de section, toujours
+        // unique dans le programme lie (C1.0), ou nom d'etat, deja filtre a
+        // l'unicite avant d'atteindre `keys` (le `named[...] == 1` plus bas)
+        // — ne collisionne donc pas en perdant l'axe. `__port_`/`__port2_`/
+        // `__romnum_` le gardent : rien ne garantit, sur toute cible, qu'ils
+        // ne varient pas par axe (meme decision, rang laisse ouvert).
         for (const std::string &k : keys) {
-            offer("__port_" + axisName + "_" + k, port);
-            offer("__val_" + axisName + "_" + k, val);
+            const std::string portName = "__port_" + axisName + "_" + k;
+            offer(portName, port);
+            offer("__val_" + k, val);
+            mateOf[portName] = "__val_" + k;
             if (has2) {
-                offer("__port2_" + axisName + "_" + k, port2);
+                const std::string port2Name = "__port2_" + axisName + "_" + k;
+                offer(port2Name, port2);
                 offer("__romnum_" + axisName + "_" + k, val2);
+                mateOf[port2Name] = "__romnum_" + axisName + "_" + k;
             }
         }
         if (hasMask) offer("__mask_" + axisName, mask);
@@ -1281,10 +1299,10 @@ std::map<std::string, int64_t> compute(const script::Script &sc,
     // etats qui ne le sont pas.
     for (const char *pair : {"__port_", "__port2_"}) {
         const std::string prefix = pair;
-        const std::string mate = prefix == "__port_" ? "__val_" : "__romnum_";
         for (auto it = out.begin(); it != out.end();) {
             if (it->first.compare(0, prefix.size(), prefix) != 0) { ++it; continue; }
-            if (out.count(mate + it->first.substr(prefix.size()))) { ++it; continue; }
+            const auto mit = mateOf.find(it->first);
+            if (mit != mateOf.end() && out.count(mit->second)) { ++it; continue; }
             if (withdrawn) withdrawn->insert(it->first);
             it = out.erase(it);
         }

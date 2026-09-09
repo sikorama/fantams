@@ -67,7 +67,7 @@ MEMORY_MAP { CONFIG ext_w1<1> { w1 { SECTION gfx1 } } }
 ```
 
 The linker gives `gfx1` its bank, derives its logical address from the window,
-and offers `__port_ram_ext_w1_1` / `__val_ram_ext_w1_1` — the port and the value
+and offers `__port_ram_ext_w1_1` / `__val_ext_w1_1` — the port and the value
 that page that bank in, **computed** from the profile rather than written by hand.
 Overlaps are refused with both section names, and the unused room in each bank is
 printed. `examples/banked.asm` puts five sections in four banks without one `org`,
