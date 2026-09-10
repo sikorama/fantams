@@ -40,8 +40,18 @@
 //          Transformation INDEPENDANTE du beautify, composable avec lui — les deux
 //          ensemble normalisent puis mettent en forme. Incompatible avec -E, qui
 //          canonise deja PUIS deroule : deux sorties differentes.
+//     --cpr-bank <n> : avec « -o x.cpr » SEULEMENT. `n` (0..31) est la banque
+//          PHYSIQUE de cartouche que CE lien-ci vient de produire — le script
+//          -T choisit l'etat (« cart_rom.w0<n> », « cart_rom_hi.on<n> »...),
+//          rien dans l'image ne le redit, donc rien ne peut le redonner ici.
+//          cpr.h l'impose : chaque banque physique se lie SEPAREMENT, une
+//          invocation par banque. Si `x.cpr` existe deja, cette banque y est
+//          AJOUTEE (ou REMPLACEE si `n` y etait deja) ; les autres chunks ne
+//          bougent pas. C'est le meme geste que `-o x.fo` pour la compilation
+//          separee, applique au conteneur plutot qu'a l'objet.
 #include "asm.h"
 #include "beautify.h"
+#include "cpr.h"
 #include "fo.h"
 #include "profile.h"
 #include "script.h"
@@ -52,6 +62,7 @@
 #include "version.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -72,6 +83,11 @@ int main(int argc, char **argv) {
     bool dumpOnly = false;
     bool beautifyOnly = false;
     bool normalizeOnly = false;
+    // La Fermeture (z80live CONTEXT.md, ADR 0002) : le fichier principal, plus
+    // recursivement chaque INCLUDE touche — pp::Result::files(), imprime tel
+    // quel sur la sortie standard, un par ligne. Meme esprit que
+    // --dump-profile : une donnee que le preprocesseur connait deja.
+    bool wantListFiles = false;
     bool wantSym = false;
     std::string symPath;
     bool strict = false;
@@ -85,6 +101,8 @@ int main(int argc, char **argv) {
     // l'honore, et pas avant : un `-T` qui accepterait un script sans l'appliquer
     // laisserait croire un placement qui n'a pas eu lieu.
     std::string scriptPath;
+    bool hasCprBank = false;
+    int cprBank = -1;
     // --version : la seule option qui ne demande aucun fichier. Elle sort avant
     // tout le reste — un artefact qui ne sait plus assembler doit encore savoir
     // dire son age, puisque c'est ce qui distingue « fantams a un bug » de « cet
@@ -116,8 +134,10 @@ int main(int argc, char **argv) {
         else if (a.rfind("--target=", 0) == 0) targetName = a.substr(9);
         else if (a == "-P" && i + 1 < argc) profilePath = argv[++i];
         else if (a == "-T" && i + 1 < argc) scriptPath = argv[++i];
+        else if (a == "--cpr-bank" && i + 1 < argc) { hasCprBank = true; cprBank = atoi(argv[++i]); }
         else if (a == "--dump-profile" && i + 1 < argc) dumpProfile = argv[++i];
         else if (a.rfind("--dump-profile=", 0) == 0) dumpProfile = a.substr(15);
+        else if (a == "--list-files") wantListFiles = true;
         else inputs.push_back(a);
     }
     // --- Le profil de cible ------------------------------------------------
@@ -234,8 +254,35 @@ int main(int argc, char **argv) {
                                      "  --target N : profil de cible livre (au choix : %s)\n"
                                      "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
                                      "  -T f.ld    : le script de linkage — quelle section va ou\n"
-                                     "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n",
+                                     "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n"
+                                     "  -o out.cpr --cpr-bank <n> : ajoute (ou remplace) la banque physique n\n"
+                                     "                              dans le conteneur CPR out.cpr\n"
+                                     "  --list-files : la Fermeture (le principal + chaque INCLUDE touche,\n"
+                                     "                 recursivement), un chemin par ligne sur stdout\n",
                                      namesList().c_str()); return 2; }
+
+    // --list-files : s'arrete a la Fermeture, avant tout le reste (sortie,
+    // profil, script) — aucun n'y participe. Un `.fo` n'a plus l'information
+    // de provenance (deja assemble) : le rendre ici inventerait une Fermeture,
+    // le refuser dit ce qui manque.
+    if (wantListFiles) {
+        if (isFo(path)) {
+            fprintf(stderr, "error: --list-files n'a de sens que sur un source .asm ; "
+                            "%s est deja assemble, sa provenance est perdue\n", path.c_str());
+            return 2;
+        }
+        std::string content;
+        if (!readFile(path, content)) { fprintf(stderr, "error: file not found: %s\n", path.c_str()); return 2; }
+        const pp::Result pre = pp::preprocess(content, path, readFile, strict);
+        for (auto &w : pre.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
+        if (!pre.ok) {
+            for (auto &e : pre.errors) fprintf(stderr, "%s:%d: error (preproc): %s\n", e.file.c_str(), e.line, e.message.c_str());
+            return 1;
+        }
+        for (auto &f : pre.files()) printf("%s\n", f.c_str());
+        return 0;
+    }
+
     // Le mode « la sortie est un source » : l'un ou l'autre des deux drapeaux suffit.
     const bool sourceOut = beautifyOnly || normalizeOnly;
     if (outPath.empty()) {
@@ -277,8 +324,27 @@ int main(int argc, char **argv) {
         return 2;
     }
     bool wantSna = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".sna";
+    bool wantCpr = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".cpr";
     if (!basePath.empty() && (dumpOnly || sourceOut || !wantSna)) {
         fprintf(stderr, "error: --base ne s'applique qu'a une sortie .sna : %s\n", outPath.c_str());
+        return 2;
+    }
+    if (hasCprBank && !wantCpr) {
+        fprintf(stderr, "error: --cpr-bank ne s'applique qu'a une sortie .cpr : %s\n", outPath.c_str());
+        return 2;
+    }
+    if (wantCpr && (dumpOnly || sourceOut || wantFo)) {
+        fprintf(stderr, "error: un .cpr est linke ; %s ne passe pas par le linker\n",
+                dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : (normalizeOnly ? "--normalize" : "-o *.fo")));
+        return 2;
+    }
+    if (wantCpr && !hasCprBank) {
+        fprintf(stderr, "error: -o *.cpr demande --cpr-bank <n> : la banque physique (0..31) que "
+                        "CE lien produit — le script -T choisit l'etat, rien d'autre ne le sait\n");
+        return 2;
+    }
+    if (wantCpr && (cprBank < 0 || cprBank > 31)) {
+        fprintf(stderr, "error: --cpr-bank %d hors de 0..31\n", cprBank);
         return 2;
     }
 
@@ -476,6 +542,45 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: %zu symboles\n", symPath.c_str(), img.symbolTable.size());
     }
     if (dumpOnly) return 0;   // -E --sym : les deux sorties demandees sont ecrites
+
+    // 4bis) .cpr : une banque de cartouche, AJOUTEE (ou remplacee) dans un
+    // conteneur RIFF/AMS! qui peut deja exister sur disque. Ni le dump plat
+    // ni le .sna ne s'appliquent ici — le controle des banques >= 8 qui suit
+    // ne le concerne pas non plus : une banque `crom<n>` (STORE 16) est
+    // justement CE que ce chemin sait porter, la ou le dump plat refuse.
+    if (wantCpr) {
+        std::vector<uint8_t> bankOut;
+        std::string cprErr;
+        if (!cpr::extractOne(img, prof, bankOut, cprErr)) {
+            if (!cprErr.empty()) {
+                fprintf(stderr, "error: %s\n", cprErr.c_str());
+                return 1;
+            }
+            fprintf(stderr, "error: rien n'a ete ecrit sur l'axe cart_rom : le script -T place-t-il "
+                            "bien une section sur cette banque ?\n");
+            return 1;
+        }
+        std::vector<uint8_t> existing;
+        {
+            std::ifstream f(outPath, std::ios::binary);
+            if (f) {
+                std::ostringstream ss; ss << f.rdbuf();
+                const std::string s = ss.str();
+                existing.assign(s.begin(), s.end());
+            }
+        }
+        std::vector<uint8_t> merged = cpr::merge(existing, cprBank, bankOut, prof, cprErr);
+        if (!cprErr.empty()) {
+            fprintf(stderr, "error: %s: %s\n", outPath.c_str(), cprErr.c_str());
+            return 1;
+        }
+        std::ofstream f(outPath, std::ios::binary);
+        if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
+        f.write((const char *)merged.data(), (std::streamsize)merged.size());
+        fprintf(stderr, "%s: banque physique %d (%zu octets), %zu banque(s) au total\n",
+                outPath.c_str(), cprBank, bankOut.size(), (merged.size() - 12) / (8 + 16384));
+        return 0;
+    }
 
     // Le dump est PLAT : 64 Ko s'il ne sort pas des banques 0..3, 128 Ko pour le
     // 6128 complet. Au-dela de la banque 7, aucun dump plat ne peut porter les

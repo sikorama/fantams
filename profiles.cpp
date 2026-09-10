@@ -223,7 +223,34 @@ CONFIG SET cart_rom OVER ram {
 }
 SELECT cart_rom = OUT GA_PORT, %10100000 | CODE
 
-// HORS PERIMETRE — trois choses attestees par §D, non ecrites ici, et dit
+// --- ROM physiques 8..31 : adressables SEULEMENT en ROM haute -------------
+// ATTESTE. docs/recherche/cpc-gate-array-rmr.md §D.1, [GRIM-GA] : « You can
+// only map the first 8 physical ROMs of the cartdridge as Lower ROM. To
+// access physical ROM above 7, you have to use the Upper ROM mapping. »
+// Confirme par [CW-UROM] : « The first 8 physical roms can be accessed as
+// lower roms. And all the 32 physical roms can be accessed as upper roms. »
+//
+// Meme port &DF00 que `rom_upper`, mais UNE SEMANTIQUE DIFFERENTE sur Plus,
+// selon le bit 7 de l'octet ecrit ([GRIM-GA], meme paragraphe ; confirme mot
+// pour mot par [CW-UROM]) :
+//   bit7=0, bits4-0 = L : ID logique 0..127 — c'est ce que `rom_upper` ecrit
+//                          deja pour `rom_hi<n>` (une ROM D'EXTENSION, pas de
+//                          cartouche).
+//   bit7=1, bits4-0 = P : ID PHYSIQUE de cartouche 0..31 — bits6-5 ignores.
+// D'ou `0x80 | PAGE` plutot que `PAGE` seul.
+//
+// `crom<n>`, la MEME banque (STORE 16) que `cart_rom`, et non `rom_hi<n>` :
+// c'est ce qui fait qu'une section placee ici finit dans le meme chunk que
+// `cpr::build` (qui ne lit que STORE 16), quelle que soit la fenetre par
+// laquelle son contenu a ete ecrit — bas via `cart_rom`, haut via cet axe.
+CONFIG SET cart_rom_hi OVER ram {
+    off   [CODE 1]  { }
+    on<n> [CODE 0]  { w3 crom<n> }
+}
+SELECT cart_rom_hi = OUT GA_PORT, MASK %00001000, CODE << 3
+                      OUT 0xDF00, MASK %11111111, 0x80 | PAGE
+
+// HORS PERIMETRE — deux choses attestees par §D, non ecrites ici, et dit
 // pourquoi plutot que subi :
 //
 // 1. La disposition LRM = 11, qui mappe EN PLUS la page E/S de l'ASIC en w1.
@@ -231,11 +258,7 @@ SELECT cart_rom = OUT GA_PORT, %10100000 | CODE
 //    SECTION : la representer demanderait un mot de vocabulaire de profil
 //    que rien d'autre ne consomme encore (meme raison que les macros de
 //    profil, ADR 0032, "ce que cet ADR ne decide pas").
-// 2. Les ROM physiques 8..31 de la cartouche, adressables SEULEMENT en ROM
-//    haute (meme port &DF00 que `rom_upper`, mais un ID physique et non le
-//    numero logique de `rom_hi<n>`) : un second axe, non ecrit tant qu'un
-//    usage ne le demande pas.
-// 3. Le deverrouillage de l'ASIC, sans lequel RIEN de ce qui precede n'a
+// 2. Le deverrouillage de l'ASIC, sans lequel RIEN de ce qui precede n'a
 //    d'effet : c'est un etat d'EXECUTION que rien au linkage ne peut
 //    verifier (ADR 0032, docs/recherche/cpc-gate-array-rmr.md §D.2). Un
 //    programme qui n'utilise aucun de ces axes doit garder le bit 5 a 0

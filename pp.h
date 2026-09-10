@@ -45,6 +45,15 @@ struct Result {
     std::vector<Diagnostic> errors;
     std::vector<Diagnostic> warnings; // bonnes pratiques (non bloquant), ex: "ei:ret" collé
     std::string dump() const;         // texte pour -E (lignes jointes par \n)
+    // La Fermeture (z80live CONTEXT.md, ADR 0002) : le fichier principal, plus
+    // récursivement chaque INCLUDE ouvert avec succès — dans l'ordre
+    // d'ouverture, chacun une seule fois même inclus plusieurs fois. Pas
+    // dérivé de `lines` : un fichier qui ne contient QUE des directives (des
+    // INCLUDE, une déclaration MACRO jamais appelée ici...) n'y laisserait
+    // aucune ligne, alors qu'il a bien été lu et appartient à la Fermeture.
+    // Enregistré au moment de l'ouverture (PP::touchFile), pas recalculé.
+    std::vector<std::string> files() const { return touched; }
+    std::vector<std::string> touched;
     // Les macros collectées, en MAJUSCULES, `include` compris. Exposées pour la
     // mise en forme : c'est la seule source qui voie au-delà du fichier courant,
     // et sans elle le beautify ne peut pas distinguer un appel de macro d'un

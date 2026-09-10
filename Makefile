@@ -103,6 +103,7 @@ test: $(TESTS) fantams
 	@$(T)/accept_banked.sh
 	@$(T)/accept_aliased.sh
 	@$(T)/accept_const.sh
+	@$(T)/accept_list_files.sh
 	@$(T)/no_machine_names.sh
 	@# Le verrou natif == WASM. Il se SAUTE (code 77) quand l'artefact WASM ou
 	@# node manquent : ici comme sous ctest, un saut est bruyant et n'est pas un

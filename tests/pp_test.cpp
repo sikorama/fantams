@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <vector>
 
 static int g_pass = 0, g_fail = 0;
 
@@ -73,6 +74,21 @@ static void chkNormStable(const char *desc, const std::string &src) {
         ++g_fail;
         printf("  \033[31mFAIL\033[0m %s (idempotent=%d meme source deroulee=%d)\n", desc, idem, same);
         if (!same) printf("    avant:\n%s\n    apres:\n%s\n", trimmedLines(a).c_str(), trimmedLines(b).c_str());
+    } else ++g_pass;
+}
+
+// Vérifie que `files()` rend l'ensemble DISTINCT des fichiers touchés par
+// `lines[].file`, dans l'ordre de première apparition — la Fermeture (ADR
+// 0002) : ce que fantams sait déjà en préprocessant, sans nouveau moteur.
+static void chkFiles(const char *desc, const std::string &src,
+                      const std::vector<std::string> &expected) {
+    pp::Result r = pp::preprocess(src, "test.asm", provider);
+    std::vector<std::string> got = r.files();
+    if (!r.ok || got != expected) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %s\n", desc);
+        printf("    attendu:"); for (auto &f : expected) printf(" %s", f.c_str()); printf("\n");
+        printf("    obtenu: "); for (auto &f : got) printf(" %s", f.c_str()); printf("\n");
     } else ++g_pass;
 }
 
@@ -429,6 +445,18 @@ int main() {
     g_files["mac.asm"] = "MACRO ZERO\n  xor a\nENDM\n";
     chk("INCLUDE macro",
         "  INCLUDE \"mac.asm\"\n  ZERO\n", "xor a\n");
+
+    // La Fermeture (ADR 0002) : le fichier principal, plus chaque INCLUDE touché,
+    // RÉCURSIVEMENT (un lib qui en inclut un autre), une SEULE fois chacun même
+    // s'il est inclus deux fois, dans l'ordre de première apparition.
+    g_files["a.asm"] = "  nop\n  INCLUDE \"b.asm\"\n";
+    g_files["b.asm"] = "  inc a\n";
+    chkFiles("files() : include simple",
+        "  ld a,1\n  INCLUDE \"a.asm\"\n", {"test.asm", "a.asm", "b.asm"});
+    chkFiles("files() : meme include deux fois, une seule entree",
+        "  INCLUDE \"b.asm\"\n  INCLUDE \"b.asm\"\n", {"test.asm", "b.asm"});
+    chkFiles("files() : sans aucun include, juste le fichier principal",
+        "  ld a,1\n  ret\n", {"test.asm"});
 
     // label devant une directive de bloc
     chk("label + REPEAT",

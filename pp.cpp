@@ -459,12 +459,19 @@ public:
     Result result;
 
     void runFile(const std::string &content, const std::string &file) {
+        touchFile(file);
         run(splitLines(content, file), Env{}, 0);
     }
 
 private:
     FileProvider files;
     bool strict_ = false;
+    std::set<std::string> touchedSeen;
+    // Un fichier ouvert avec succès rejoint la Fermeture (pp.h) — une seule
+    // fois, dans l'ordre d'ouverture, qu'il laisse une ligne derrière lui ou non.
+    void touchFile(const std::string &file) {
+        if (touchedSeen.insert(file).second) result.touched.push_back(file);
+    }
     // Un refus du mode strict porte sur une LIGNE SOURCE : dans un corps de macro
     // appelé dix fois, la ligne fautive est la même dix fois. Une ligne ne parle
     // qu'une fois, comme pour les avertissements.
@@ -1219,7 +1226,7 @@ private:
                     path = lit.bytes;
                 std::string content;
                 if (!files || !files(path, content)) error(raw, "include not found: '" + path + "'");
-                else run(splitLines(content, path), env, depth + 1);
+                else { touchFile(path); run(splitLines(content, path), env, depth + 1); }
                 ++i; continue;
             }
 
