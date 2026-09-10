@@ -23,7 +23,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FANTAMS_MANIFES
 # bibliotheques : la configuration reussit et l'edition de liens meurt sur
 # symboles indefinis. C'est la faute meme que le manifeste supprime, remontee
 # d'un cran. On la refuse a la configuration, en nommant le coupable.
-set(FANTAMS_KNOWN_GROUPS z80 keywords pp parser beautify sna asmlib)
+set(FANTAMS_KNOWN_GROUPS z80 keywords pp parser beautify sna asmlib cpr)
 
 file(STRINGS ${FANTAMS_MANIFEST} _manifest_lines ENCODING UTF-8)
 foreach(_line IN LISTS _manifest_lines)
@@ -88,6 +88,12 @@ add_library(asmlib STATIC ${FANTAMS_SRC_asmlib})
 target_include_directories(asmlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(asmlib PUBLIC parser z80 pp sna keywords)
 
+# Le conteneur cartouche CPC Plus (.cpr) : agrège plusieurs `link::Image`,
+# une par banque physique de ROM déjà liée séparément.
+add_library(cpr STATIC ${FANTAMS_SRC_cpr})
+target_include_directories(cpr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(cpr PUBLIC asmlib)
+
 # Outil -E : export de la source préprocessée
 add_executable(ppdump pp_main.cpp)
 target_link_libraries(ppdump PRIVATE pp)
@@ -131,6 +137,9 @@ target_link_libraries(beautify_test PRIVATE beautify asmlib)
 
 add_executable(sna_test tests/sna_test.cpp)
 target_link_libraries(sna_test PRIVATE sna)
+
+add_executable(cpr_test tests/cpr_test.cpp)
+target_link_libraries(cpr_test PRIVATE cpr asmlib)
 
 # expr_test manquait ici alors que le Makefile le construit : deux listes de
 # tests, dont une seule complete, est le genre d'ecart qui se paie en CI.
@@ -196,6 +205,7 @@ set_tests_properties(accept_separate PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 add_test(NAME beautify COMMAND beautify_test)
 add_test(NAME sna COMMAND sna_test)
+add_test(NAME cpr COMMAND cpr_test)
 
 # LE VERROU : le meme argv, a travers l'adaptateur natif et a travers
 # l'adaptateur WASM, rend les memes octets. C'est ce qu'un artefact perime

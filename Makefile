@@ -25,7 +25,7 @@ CORE := $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(
 T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
         $(T)/asm_test $(T)/opcode_test $(T)/link_test $(T)/fo_test $(T)/script_test \
-        $(T)/profile_test $(T)/beautify_test $(T)/sna_test
+        $(T)/profile_test $(T)/beautify_test $(T)/sna_test $(T)/cpr_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
 all: $(TESTS) ppdump fantams
@@ -86,6 +86,9 @@ $(T)/beautify_test: beautify.cpp keywords.cpp z80.cpp asm.cpp link.cpp parser.cp
 
 $(T)/sna_test: sna.cpp $(T)/sna_test.cpp sna.h
 	$(TCXX) sna.cpp $(T)/sna_test.cpp -o $@
+
+$(T)/cpr_test: cpr.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cpr_test.cpp cpr.h link.h profile.h
+	$(TCXX) cpr.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cpr_test.cpp -o $@
 
 ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp -o $@

@@ -375,6 +375,62 @@ fantams --version
 
 ---
 
+## Pipeline: source to output formats
+
+```mermaid
+flowchart LR
+  A["Source .asm"] --> PP["Préprocesseur<br/>(pp::preprocess)<br/><i>Temps préprocesseur</i>"]
+  PP --> ASM["Assembleur 2 passes<br/>(asmb::assemble)<br/><i>Temps d'assemblage</i>"]
+  ASM --> OBJ["Objet<br/>sections, fragments,<br/>symboles, relocalisations"]
+
+  OBJ --> LNK["Linker<br/>(link::build)<br/>N Objets → 1 Image"]
+  SCR["Script de linkage"] -.-> LNK
+  PRF["Profil de cible"] -.-> LNK
+  LNK --> IMG["Image<br/>blocks, bin, coverage,<br/>loadAddress, runAddress"]
+
+  IMG --> SNA["Backend sna<br/>(sna::build)"]
+  IMG --> RAW["écriture directe<br/>img.bin"]
+  IMG -.->|"planifié — ADR 0007 / spec-chaine-outils<br/>non implémenté"| DEC["Découpage<br/>un par ORG, un englobant tout,<br/>ou un par banque 16K/64K"]
+
+  DEC -.-> MOR["Morceaux<br/>banque + adresse + point d'entrée"]
+  MOR -.->|"sans Encapsulation"| PKG_RAW["agrégés ou livrés seuls"]
+  MOR -.->|"+ en-tête AMSDOS 128o<br/>(Encapsulation)"| MORENC["Morceaux encapsulés AMSDOS"]
+
+  SNA --> OUT_SNA[(".sna — Base<br/>état machine entier,<br/>PAS un conteneur")]
+  RAW --> OUT_BIN[(".bin / .rom — morceau nu<br/>intervalle contigu,<br/>ni encapsulé ni conteneur")]
+  PKG_RAW -.->|"un fichier par morceau,<br/>pas d'agrégation"| OUT_AMSDOS_ALONE[(".bin AMSDOS seul —<br/>morceau encapsulé,<br/>PAS un conteneur")]
+  PKG_RAW -.->|"agrégés (chunks bruts)"| OUT_CPR[(".cpr — Conteneur<br/>chunks RIFF bruts,<br/>un par banque ROM")]
+  MORENC -.->|"agrégés"| OUT_DSK[(".dsk — Conteneur<br/>fichiers AMSDOS agrégés,<br/>un par morceau/banque")]
+  MOR -.->|"+ métadonnées d'init émulation<br/>(format externe Longshot/Logon)"| OUT_CRO[(".cro — Conteneur<br/>arborescence + chemins,<br/>pas de simples noms")]
+
+  classDef container fill:#cfe8cf,stroke:#2f7a2f;
+  classDef base fill:#f7d9a0,stroke:#a5680a;
+  classDef piece fill:#d9d9d9,stroke:#777;
+
+  class OUT_CPR,OUT_DSK,OUT_CRO container;
+  class OUT_SNA base;
+  class OUT_BIN,OUT_AMSDOS_ALONE piece;
+```
+
+Solid arrows are implemented today; dashed arrows are the target pipeline
+from `docs/spec-chaine-outils.md` and ADR 0007, not yet written. A **format
+de sortie** (output format) is whatever a backend can produce at the end of
+this chain; only some of them are **conteneurs** (formats that aggregate
+several named, encapsulated morceaux — DSK, CPR, CRO). SNA is a format de
+sortie but not a conteneur: it writes onto a whole preexisting machine
+**base** rather than assembling named pieces. Raw binary and a lone
+AMSDOS-prefixed binary are neither: each is a single morceau delivered on
+its own — encapsulated or not, it is never aggregated with siblings. DSK
+aggregates the *same* AMSDOS-encapsulated morceaux instead of delivering
+them loose; CPR aggregates morceaux without encapsulation (raw RIFF
+chunks); CRO adds a directory tree and emulator-initialization metadata on
+top (external format, Longshot/Logon System), so its backend contract needs
+a path per artefact rather than a bare name. Backends also differ in shape:
+`sna`/`cpr` return one `vector<uint8_t>`, while raw/AMSDOS/DSK return a set
+of named artefacts (per ADR 0007).
+
+---
+
 ## WebAssembly build
 
 Goes through the `emscripten/emsdk` image under podman or docker, so no local

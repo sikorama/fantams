@@ -36,7 +36,8 @@ parser     parser.cpp
 # La mise en forme du source (ADR 0013) : texte -> texte, sans adresse ni octet.
 beautify   beautify.cpp
 
-# Le conteneur snapshot.
+# La base snapshot (CONTEXT.md : le SNA n'est pas un conteneur, il prend
+# l'image entière).
 sna        sna.cpp
 
 # asm.cpp rend un OBJET, link.cpp en fait une IMAGE : les deux moitiés de la
@@ -54,3 +55,7 @@ asmlib     script.cpp
 asmlib     profile.cpp
 asmlib     profiles.cpp
 asmlib     sym.cpp
+
+# Le conteneur cartouche CPC Plus (.cpr) : agrège plusieurs Image déjà liées
+# séparément (asmlib), une par banque physique de ROM.
+cpr        cpr.cpp

@@ -311,6 +311,13 @@ image DSK, cartouche CPR, arborescence CRO. Le SNA n'en est pas un — il prend
 l'image entière.
 _Éviter_ : format (trop large), archive
 
+**Format de sortie** :
+Le type de fichier qu'un backend peut produire à l'issue du linkage : un
+Conteneur (CPR, DSK, CRO), une Base (SNA), ou ni l'un ni l'autre (binaire brut,
+simple intervalle contigu). Chapeaute les trois sans les confondre — tous les
+formats de sortie ne sont pas des conteneurs.
+_Éviter_ : container (dans ce sens élargi), format d'export
+
 **Base** :
 L'image mémoire préexistante sur laquelle les octets du source sont écrits, avec
 l'état matériel qui va avec : un snapshot de référence pris après le boot d'une
