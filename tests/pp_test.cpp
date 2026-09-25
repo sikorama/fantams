@@ -458,6 +458,19 @@ int main() {
     chkFiles("files() : sans aucun include, juste le fichier principal",
         "  ld a,1\n  ret\n", {"test.asm"});
 
+    // INCBIN : les octets du fichier deviennent des `db`, 16 par ligne.
+    g_files["data.bin"] = std::string("\x00\x01\xFF\x7F", 4);
+    chk("INCBIN", "  INCBIN \"data.bin\"\n", "db #00,#01,#FF,#7F\n");
+    chk("INCBIN label", "spr: incbin 'data.bin'\n", "spr:\ndb #00,#01,#FF,#7F\n");
+    chk("INCBIN offset", "  incbin \"data.bin\", 2\n", "db #FF,#7F\n");
+    chk("INCBIN offset+longueur", "LET o=1\n  incbin \"data.bin\", o, 2\n", "db #01,#FF\n");
+    chk("INCBIN longueur nulle", "  incbin \"data.bin\", 4, 0\n", "");
+    g_files["big.bin"] = std::string(17, '\x2A');
+    chk("INCBIN 16 octets par ligne", "  incbin \"big.bin\"\n",
+        "db #2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A,#2A\ndb #2A\n");
+    chkFiles("files() : INCBIN fait partie de la Fermeture",
+        "  incbin \"data.bin\"\n", {"test.asm", "data.bin"});
+
     // label devant une directive de bloc
     chk("label + REPEAT",
         "start: REPEAT 2\n nop\nREND\n", "start:\nnop\nnop\n");
@@ -539,6 +552,10 @@ int main() {
     chkErr("REPEAT sans REND", "REPEAT 3\n nop\n");
     chkErr("include manquant", "  INCLUDE \"absent.asm\"\n");
     chkErr("subst inconnue", "  ld a,{inconnu}\n");
+    chkErr("incbin manquant", "  INCBIN \"absent.bin\"\n");
+    chkErr("incbin offset hors fichier", "  incbin \"data.bin\", 5\n");
+    chkErr("incbin longueur hors fichier", "  incbin \"data.bin\", 2, 3\n");
+    chkErr("incbin offset négatif", "  incbin \"data.bin\", -1\n");
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

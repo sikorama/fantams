@@ -1230,6 +1230,48 @@ private:
                 ++i; continue;
             }
 
+            // --- INCBIN "fichier"[, offset[, longueur]] ---
+            // Nom et arguments des assembleurs courants (rasm, sjasmplus, vasm,
+            // pasmo). Les octets deviennent des `db` : la source déroulée reste
+            // plate et réassemblable sans le fichier, comme pour INCLUDE.
+            if (kw == "INCBIN") {
+                if (!label.empty()) emit(label + ":", raw);
+                auto parts = splitTopLevel(restAfterFirst(rest), ',');
+                std::string path = parts.empty() ? "" : trim(parts[0]);
+                const kw::Literal lit = kw::readLiteral(path, 0);
+                if (lit.present && lit.error.empty() && trim(path.substr(lit.end)).empty())
+                    path = lit.bytes;
+                if (parts.size() > 3) { error(raw, "INCBIN: expected 'incbin \"file\"[, offset[, length]]'"); ++i; continue; }
+                std::string content;
+                if (!files || !files(path, content)) { error(raw, "incbin not found: '" + path + "'"); ++i; continue; }
+                touchFile(path);
+                int64_t offset = 0, length = -1;
+                bool bad = false;
+                for (size_t p = 1; p < parts.size() && !bad; ++p) {
+                    auto r = evalPP(parts[p], env);
+                    if (!r.ok) { error(raw, "INCBIN: " + r.error); bad = true; break; }
+                    const int64_t v = (int64_t)r.real;
+                    if (v < 0) { error(raw, std::string("INCBIN: negative ") + (p == 1 ? "offset" : "length")); bad = true; break; }
+                    (p == 1 ? offset : length) = v;
+                }
+                if (bad) { ++i; continue; }
+                const int64_t size = (int64_t)content.size();
+                if (offset > size) { error(raw, "INCBIN: offset " + std::to_string(offset) + " beyond end of '" + path + "' (" + std::to_string(size) + " bytes)"); ++i; continue; }
+                if (length < 0) length = size - offset;
+                if (offset + length > size) { error(raw, "INCBIN: offset+length " + std::to_string(offset + length) + " beyond end of '" + path + "' (" + std::to_string(size) + " bytes)"); ++i; continue; }
+                static const char hex[] = "0123456789ABCDEF";
+                for (int64_t b = 0; b < length; b += 16) {
+                    std::string line = "db ";
+                    for (int64_t k = b; k < length && k < b + 16; ++k) {
+                        const unsigned char c = (unsigned char)content[offset + k];
+                        if (k > b) line += ',';
+                        line += '#'; line += hex[c >> 4]; line += hex[c & 15];
+                    }
+                    emit(line, raw);
+                }
+                ++i; continue;
+            }
+
             // --- LET (variable PP) ---
             if (kw == "LET") {
                 std::string a = restAfterFirst(rest); // "name = expr", "name=expr" ou "name expr"

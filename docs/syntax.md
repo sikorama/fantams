@@ -977,9 +977,23 @@ leaves them, `--strict` takes both.
 
 ## 12. Inclusion
 
-`include "file"` inserts a source. `incbin` and `read` are **reserved but not
-implemented** — using them produces a message about a reserved word, not
-about a lack.
+`include "file"` inserts a source.
+
+`incbin "file"[, offset[, length]]` inserts the bytes of a binary file, as
+rasm, sjasmplus, vasm or pasmo do. `offset` (default 0) skips the start of the
+file, `length` (default: up to the end) limits the count; both are
+preprocessor expressions. Reading past the end of the file is an error. The
+bytes become `db` lines, 16 per line, in the unrolled source (`-E`), which
+therefore reassembles without the file. The file belongs to the closure
+(`--list-files`), like an included source.
+
+```
+sprite: incbin "sprite.bin"          ; the whole file
+        incbin "font.bin", 256, 768  ; 768 bytes starting at offset 256
+```
+
+`read` is **reserved but not implemented** — using it produces a message
+about a reserved word, not about a lack.
 
 ---
 

@@ -143,7 +143,7 @@ shows you the result.
 | Conditionals | `if` / `ifdef` / `ifndef`, `elseif`, `else` |
 | Structures | `struct name` … `end`, instances, `sizeof(name)` |
 | Namespaces | `module gfx` prefixes every label with `gfx.` |
-| Inclusion | `include "file"` |
+| Inclusion | `include "file"` · `incbin "file"[, offset[, length]]` |
 | PP variables | `LET n = 4`, substituted with `{n}`, computed with `{=n*n}` |
 | Scoped labels | `@loop` is renamed once per expansion; `@@export` opts out |
 
