@@ -49,9 +49,19 @@
 //          AJOUTEE (ou REMPLACEE si `n` y etait deja) ; les autres chunks ne
 //          bougent pas. C'est le meme geste que `-o x.fo` pour la compilation
 //          separee, applique au conteneur plutot qu'a l'objet.
+//     --cro-rom <n> : avec « -o x.cro ». Le meme geste que --cpr-bank, pour le
+//          conteneur de ROMs CRO (ADR 0033) : la ROM que CE lien produit est
+//          AJOUTEE au groupe (ou REMPLACEE, a numero physique egal). Son type,
+//          son slot et son numero physique se deduisent de la banque remplie —
+//          `rom_hi<n>`, `crom<n>` — et de `n` ; `rom_lo` n'en prend pas.
+//     --cro-group <g>, --cro-label <texte>, --cro-mask <m> : le groupe de ROMs
+//          (0 par defaut), son libelle (le nom du .cro a la creation) et son
+//          masque d'adresse (aucun par defaut, jamais deduit). Sur un groupe
+//          existant, seul ce qui est passe change.
 #include "asm.h"
 #include "beautify.h"
 #include "cpr.h"
+#include "cro.h"
 #include "fo.h"
 #include "profile.h"
 #include "script.h"
@@ -103,6 +113,18 @@ int main(int argc, char **argv) {
     std::string scriptPath;
     bool hasCprBank = false;
     int cprBank = -1;
+    // Les drapeaux du .cro, tels que tapes : leur validite depend de la sortie,
+    // qu'on ne connait qu'apres la boucle.
+    std::vector<std::string> croFlags;
+    int croRom = -1;
+    cro::GroupOptions croGroup;
+    bool croNumbersOk = true;
+    auto croNumber = [&](const char *text, uint32_t max, uint32_t &out) {
+        char *end = nullptr;
+        const unsigned long long v = strtoull(text, &end, 0);
+        if (!*text || *end || v > max) croNumbersOk = false;
+        else out = (uint32_t)v;
+    };
     // --version : la seule option qui ne demande aucun fichier. Elle sort avant
     // tout le reste — un artefact qui ne sait plus assembler doit encore savoir
     // dire son age, puisque c'est ce qui distingue « fantams a un bug » de « cet
@@ -135,6 +157,15 @@ int main(int argc, char **argv) {
         else if (a == "-P" && i + 1 < argc) profilePath = argv[++i];
         else if (a == "-T" && i + 1 < argc) scriptPath = argv[++i];
         else if (a == "--cpr-bank" && i + 1 < argc) { hasCprBank = true; cprBank = atoi(argv[++i]); }
+        else if (a == "--cro-rom" && i + 1 < argc) {
+            croFlags.push_back(a);
+            uint32_t n = 0;
+            croNumber(argv[++i], 0xFFFF, n);
+            croRom = (int)n;
+        }
+        else if (a == "--cro-group" && i + 1 < argc) { croFlags.push_back(a); croNumber(argv[++i], 0xFFFFFFFF, croGroup.group); }
+        else if (a == "--cro-label" && i + 1 < argc) { croFlags.push_back(a); croGroup.hasLabel = true; croGroup.label = argv[++i]; }
+        else if (a == "--cro-mask" && i + 1 < argc) { croFlags.push_back(a); croGroup.hasMask = true; croNumber(argv[++i], 0xFFFFFFFF, croGroup.mask); }
         else if (a == "--dump-profile" && i + 1 < argc) dumpProfile = argv[++i];
         else if (a.rfind("--dump-profile=", 0) == 0) dumpProfile = a.substr(15);
         else if (a == "--list-files") wantListFiles = true;
@@ -257,6 +288,9 @@ int main(int argc, char **argv) {
                                      "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n"
                                      "  -o out.cpr --cpr-bank <n> : ajoute (ou remplace) la banque physique n\n"
                                      "                              dans le conteneur CPR out.cpr\n"
+                                     "  -o out.cro [--cro-rom <n>] [--cro-group <g>] [--cro-label <texte>]\n"
+                                     "             [--cro-mask <m>] : ajoute (ou remplace) la ROM liee dans\n"
+                                     "                              le groupe g du conteneur de ROMs out.cro\n"
                                      "  --list-files : la Fermeture (le principal + chaque INCLUDE touche,\n"
                                      "                 recursivement), un chemin par ligne sur stdout\n",
                                      namesList().c_str()); return 2; }
@@ -345,6 +379,21 @@ int main(int argc, char **argv) {
     }
     if (wantCpr && (cprBank < 0 || cprBank > 31)) {
         fprintf(stderr, "error: --cpr-bank %d hors de 0..31\n", cprBank);
+        return 2;
+    }
+    const bool wantCro = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".cro";
+    if (!croFlags.empty() && !wantCro) {
+        fprintf(stderr, "error: %s ne s'applique qu'a une sortie .cro : %s\n",
+                croFlags.front().c_str(), outPath.c_str());
+        return 2;
+    }
+    if (wantCro && (dumpOnly || sourceOut || wantFo)) {
+        fprintf(stderr, "error: un .cro est linke ; %s ne passe pas par le linker\n",
+                dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : (normalizeOnly ? "--normalize" : "-o *.fo")));
+        return 2;
+    }
+    if (!croNumbersOk) {
+        fprintf(stderr, "error: --cro-rom, --cro-group ou --cro-mask : nombre illisible ou trop grand\n");
         return 2;
     }
 
@@ -579,6 +628,43 @@ int main(int argc, char **argv) {
         f.write((const char *)merged.data(), (std::streamsize)merged.size());
         fprintf(stderr, "%s: banque physique %d (%zu octets), %zu banque(s) au total\n",
                 outPath.c_str(), cprBank, bankOut.size(), (merged.size() - 12) / (8 + 16384));
+        return 0;
+    }
+
+    // 4ter) .cro : une ROM, AJOUTEE (ou remplacee) dans un groupe de ROMs d'un
+    // conteneur RIFF/CRO qui peut deja exister sur disque (ADR 0033). Meme
+    // geste que le .cpr, et pour la meme raison : `n` n'est pas dans l'image.
+    if (wantCro) {
+        cro::Rom rom;
+        std::string croErr;
+        if (!cro::extractOne(img, prof, croRom, rom, croErr)) {
+            fprintf(stderr, "error: %s\n", croErr.c_str());
+            return 1;
+        }
+        std::vector<uint8_t> existing;
+        {
+            std::ifstream f(outPath, std::ios::binary);
+            if (f) {
+                std::ostringstream ss; ss << f.rdbuf();
+                const std::string s = ss.str();
+                existing.assign(s.begin(), s.end());
+            }
+        }
+        // Le libelle d'un groupe cree : le nom du fichier, sans chemin ni
+        // extension — ce que font les .cro de CROMANAGER.
+        const size_t slash = outPath.find_last_of('/');
+        const std::string base = slash == std::string::npos ? outPath : outPath.substr(slash + 1);
+        const std::string label = base.substr(0, base.size() - 4);
+        std::vector<uint8_t> merged = cro::merge(existing, rom, croGroup, label, croErr);
+        if (merged.empty()) {
+            fprintf(stderr, "error: %s: %s\n", outPath.c_str(), croErr.c_str());
+            return 1;
+        }
+        std::ofstream f(outPath, std::ios::binary);
+        if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
+        f.write((const char *)merged.data(), (std::streamsize)merged.size());
+        fprintf(stderr, "%s: ROM %s (slot %u, physique %u) dans le groupe %u\n", outPath.c_str(),
+                rom.id.c_str(), rom.slot, rom.physical, croGroup.group);
         return 0;
     }
 

@@ -20,6 +20,14 @@
 #   FANTAMS_WASM=…/fantams.mjs     ajoute la colonne WASM
 #   BENCH_RUNS=5                   nombre d'essais (3 par défaut)
 set -e
+# Un FANTAMS_WASM relatif se lit depuis le répertoire de l'APPELANT : le
+# résoudre avant le cd, sans quoi il serait cherché sous la racine de fantams.
+# Sous « make -C fantams bench », l'appelant est la racine : y écrire un chemin
+# absolu, ou relatif à elle.
+case "${FANTAMS_WASM:-}" in
+    ''|/*) ;;
+    *) FANTAMS_WASM=$(pwd)/$FANTAMS_WASM ;;
+esac
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 FANTAMS=${FANTAMS:-./fantams}

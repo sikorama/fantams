@@ -25,7 +25,8 @@ CORE := $(shell awk -v h='$(HASH)' 'NF && substr($$1,1,1) != h { print $$2 }' $(
 T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
         $(T)/asm_test $(T)/opcode_test $(T)/link_test $(T)/fo_test $(T)/script_test \
-        $(T)/profile_test $(T)/beautify_test $(T)/sna_test $(T)/cpr_test
+        $(T)/profile_test $(T)/beautify_test $(T)/sna_test $(T)/cpr_test \
+        $(T)/cro_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
 all: $(TESTS) ppdump fantams
@@ -90,6 +91,9 @@ $(T)/sna_test: sna.cpp $(T)/sna_test.cpp sna.h
 $(T)/cpr_test: cpr.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cpr_test.cpp cpr.h link.h profile.h
 	$(TCXX) cpr.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cpr_test.cpp -o $@
 
+$(T)/cro_test: cro.cpp riff.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cro_test.cpp cro.h riff.h link.h profile.h
+	$(TCXX) cro.cpp riff.cpp link.cpp asm.cpp parser.cpp z80.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cro_test.cpp -o $@
+
 ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp -o $@
 
@@ -104,6 +108,7 @@ test: $(TESTS) fantams
 	@$(T)/accept_aliased.sh
 	@$(T)/accept_const.sh
 	@$(T)/accept_list_files.sh
+	@$(T)/accept_cro.sh
 	@$(T)/no_machine_names.sh
 	@# Le verrou natif == WASM. Il se SAUTE (code 77) quand l'artefact WASM ou
 	@# node manquent : ici comme sous ctest, un saut est bruyant et n'est pas un

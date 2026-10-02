@@ -176,8 +176,17 @@ _Éviter_ : slot (réservé au sens machine), zone, page
 Un objet de la machine, **jamais** une fenêtre : le slot MSX, qui est une unité
 de sélection de stockage, ou le numéro de ROM que le CPC choisit par le port
 `&DF00`. Le mot est celui du constructeur, donc non négociable dans ces deux
-sens, et à ce titre indisponible pour tout autre.
-_Éviter_ : de l'employer pour une fenêtre
+sens, et à ce titre indisponible pour tout autre. Le « numéro logique » d'une
+ROM dans un CRO est ce slot.
+_Éviter_ : de l'employer pour une fenêtre, numéro logique (hors citation du
+format CRO)
+
+**Numéro physique** :
+Le rang d'une ROM dans le support qui la stocke — une cartouche Plus, la RAM
+d'une carte d'émulation de ROMs. Il se distingue du slot : sur Plus, le slot 7
+désigne la ROM physique 3. Sur l'ancienne gamme, où le support n'a pas de rang
+propre, le numéro physique d'une ROM est son slot.
+_Éviter_ : numéro de banque, position, index
 
 **Configuration** :
 Un état de carte atteignable, nommé : pour les fenêtres qu'il concerne, quelle
@@ -316,9 +325,19 @@ _Éviter_ : header, wrapping
 
 **Conteneur** :
 Ce qui rassemble les morceaux encapsulés en livraison : système de fichiers,
-image DSK, cartouche CPR, arborescence CRO. Le SNA n'en est pas un — il prend
+image DSK, cartouche CPR, groupes de ROMs d'un CRO. Le SNA n'en est pas un — il prend
 l'image entière.
 _Éviter_ : format (trop large), archive
+
+**Groupe de ROMs** :
+Un ensemble de ROMs livrées ensemble dans un CRO, sélectionnable d'un seul
+geste par une carte, numéroté et libellé. Dans un groupe, une ROM est désignée
+par son numéro physique, que deux ROMs d'un même groupe ne partagent jamais —
+sauf la ROM basse, qui n'est pas une ROM haute et coexiste avec la ROM haute 0.
+Un groupe masque aussi les adresses qu'on y lit, pour reproduire le repli d'une
+EEPROM plus petite que l'espace adressable.
+_Éviter_ : cartouche (qui est un support), banque, segment, GRRO (hors citation
+du format)
 
 **Format de sortie** :
 Le type de fichier qu'un backend peut produire à l'issue du linkage : un

@@ -347,13 +347,14 @@ fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--beautify] [--normalize]
                  [--strict] [--no-detach-labels] [--no-indent-blocks]
                  [--base base.sna] [--sym[=out.sym]]
                  [--target name | -P file.prof] [-T file.ld]
+                 [--cpr-bank n] [--cro-rom n] [--cro-group g] [--cro-label text] [--cro-mask m]
 fantams --dump-profile name
 fantams --version
 ```
 
 | Option | Effect |
 |---|---|
-| `-o file` | output; `.sna` selects the snapshot backend, anything else a raw binary |
+| `-o file` | output; `.sna` selects the snapshot backend, `.cpr` and `.cro` the ROM containers, anything else a raw binary |
 | `-s` | print the symbol table |
 | `-E` | write the unrolled source instead of assembling |
 | `--beautify` | format only — no preprocessing, no assembling |
@@ -368,6 +369,11 @@ fantams --version
 | `--target name` | a built-in target profile (`cpc6128`, …) |
 | `-P file.prof` | a target profile of your own, read by the same code path |
 | `-T file.ld` | the link script — which section goes where |
+| `-o x.cpr --cpr-bank n` | add (or replace) cartridge bank `n` (0..31) in the CPR `x.cpr`, one invocation per bank |
+| `-o x.cro --cro-rom n` | add (or replace) the linked ROM in the CRO `x.cro`, one invocation per ROM. Type, slot and physical number follow from the bank the ROM fills — `rom_hi<n>`, `crom<n>`; `rom_lo` takes no `n` (ADR 0033) |
+| `--cro-group g` | the ROM group to add to (default 0) |
+| `--cro-label text` | the group's label (default: the `.cro` file name, when the group is created) |
+| `--cro-mask m` | the group's address mask (default `0xFFFFFFFF`, no mask; never inferred) |
 | `--dump-profile name` | print a built-in profile on standard output, as the parser reads it |
 | `--version` | the release date and this artifact's build date, on one line, to be read |
 
@@ -401,7 +407,7 @@ flowchart LR
   PKG_RAW -.->|"un fichier par morceau,<br/>pas d'agrégation"| OUT_AMSDOS_ALONE[(".bin AMSDOS seul —<br/>morceau encapsulé,<br/>PAS un conteneur")]
   PKG_RAW -.->|"agrégés (chunks bruts)"| OUT_CPR[(".cpr — Conteneur<br/>chunks RIFF bruts,<br/>un par banque ROM")]
   MORENC -.->|"agrégés"| OUT_DSK[(".dsk — Conteneur<br/>fichiers AMSDOS agrégés,<br/>un par morceau/banque")]
-  MOR -.->|"+ métadonnées d'init émulation<br/>(format externe Longshot/Logon)"| OUT_CRO[(".cro — Conteneur<br/>arborescence + chemins,<br/>pas de simples noms")]
+  PKG_RAW -.->|"rangés en groupes de ROMs<br/>(format externe Logon System)"| OUT_CRO[(".cro — Conteneur<br/>chunks RIFF : groupes de ROMs,<br/>type, slot, numéro physique")]
 
   classDef container fill:#cfe8cf,stroke:#2f7a2f;
   classDef base fill:#f7d9a0,stroke:#a5680a;
@@ -423,11 +429,12 @@ AMSDOS-prefixed binary are neither: each is a single morceau delivered on
 its own — encapsulated or not, it is never aggregated with siblings. DSK
 aggregates the *same* AMSDOS-encapsulated morceaux instead of delivering
 them loose; CPR aggregates morceaux without encapsulation (raw RIFF
-chunks); CRO adds a directory tree and emulator-initialization metadata on
-top (external format, Longshot/Logon System), so its backend contract needs
-a path per artefact rather than a bare name. Backends also differ in shape:
-`sna`/`cpr` return one `vector<uint8_t>`, while raw/AMSDOS/DSK return a set
-of named artefacts (per ADR 0007).
+chunks); CRO (external format, Logon System) arranges ROMs into **groups of
+ROMs** and gives each a type, a slot and a physical number — all derived from
+the bank the ROM fills, never declared (ADR 0033) — so it carries ROMs of the
+older CPCs as well as Plus cartridge banks. Backends also differ in shape:
+`sna`/`cpr`/`cro` return one `vector<uint8_t>`, while raw/AMSDOS/DSK return a
+set of named artefacts (per ADR 0007).
 
 ---
 

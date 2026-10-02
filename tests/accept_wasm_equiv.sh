@@ -17,6 +17,11 @@
 # comme « Skipped » — au lieu d'echouer. Un saut n'est pas un succes : il est
 # bruyant dans le rapport, et tout le verrou repose sur cette distinction.
 set -e
+# Un FANTAMS_WASM relatif se lit depuis le répertoire de l'appelant (cf. bench.sh).
+case "${FANTAMS_WASM:-}" in
+    ''|/*) ;;
+    *) FANTAMS_WASM=$(pwd)/$FANTAMS_WASM ;;
+esac
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 FANTAMS=${FANTAMS:-./fantams}
