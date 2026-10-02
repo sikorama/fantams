@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdio>
 #include <string>
+#include <unordered_map>
 
 namespace z80 {
 namespace {
@@ -642,9 +643,17 @@ const NameMap kNames[] = {
 };
 } // namespace
 
+// Appelée pour chaque mot de chaque ligne déroulée (isReservedWord, peelLabel) :
+// une recherche linéaire sur la table y coûtait plus que tout le reste de la
+// classification (ADR 0034).
 Mnemo mnemoFromString(const std::string &s) {
-    for (const auto &n : kNames) if (s == n.name) return n.m;
-    return Mnemo::Invalid;
+    static const std::unordered_map<std::string, Mnemo> byName = [] {
+        std::unordered_map<std::string, Mnemo> m;
+        for (const auto &n : kNames) m.emplace(n.name, n.m);
+        return m;
+    }();
+    auto it = byName.find(s);
+    return it == byName.end() ? Mnemo::Invalid : it->second;
 }
 const char *mnemoName(Mnemo m) {
     for (const auto &n : kNames) if (n.m == m) return n.name;

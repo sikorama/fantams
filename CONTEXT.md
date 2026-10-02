@@ -57,6 +57,15 @@ substitution, jamais de sucre. Distincte du **déroulage**, qui multiplie les
 lignes par répétition ou par expansion d'une définition.
 _Éviter_ : abaissement, lowering, désucrage, expansion (qui désigne le déroulage)
 
+**Source déroulée pliée** :
+Une variante de la source déroulée où chaque expression résoluble au temps
+préprocesseur est remplacée par sa valeur, et où des affectations successives
+d'une même variable seule la dernière subsiste, à sa position d'origine. Elle
+s'assemble aux mêmes octets que la source déroulée. Elle ne remplace pas
+celle-ci : la source déroulée montre ce que l'auteur a écrit, la source déroulée
+pliée montre ce qu'il reste à assembler.
+_Éviter_ : source optimisée, source compacte
+
 **Source beautifiée** :
 Le résultat de la passe de beautify. Elle a le même nombre de lignes que son
 entrée, ligne pour ligne, et s'assemble aux mêmes octets.

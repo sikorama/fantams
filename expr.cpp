@@ -54,8 +54,12 @@ struct Parser {
     void skip() { while (i < s.size() && std::isspace((unsigned char)s[i])) ++i; }
     bool eof() { skip(); return i >= s.size(); }
     char peek() { skip(); return i < s.size() ? s[i] : 0; }
+    // Chaque niveau de priorité essaie tous ses opérateurs à chaque position :
+    // le premier caractère écarte presque tous les essais sans rien mesurer
+    // (ADR 0034).
     bool eat(const char *op) {
         skip();
+        if (i >= s.size() || s[i] != op[0]) return false;
         size_t n = 0; while (op[n]) ++n;
         if (i + n <= s.size() && s.compare(i, n, op) == 0) { i += n; return true; }
         return false;
@@ -67,6 +71,7 @@ struct Parser {
     // qu'expr ne voie quoi que ce soit ("ld a, b and 3" livre bien "b and 3").
     bool eatWord(const char *w) {
         skip();
+        if (i >= s.size() || std::tolower((unsigned char)s[i]) != std::tolower((unsigned char)w[0])) return false;
         size_t n = 0; while (w[n]) ++n;
         if (i + n > s.size()) return false;
         for (size_t k = 0; k < n; ++k)

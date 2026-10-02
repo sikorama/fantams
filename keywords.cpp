@@ -7,6 +7,7 @@
 
 #include <cctype>
 #include <set>
+#include <unordered_map>
 
 namespace kw {
 namespace {
@@ -325,18 +326,28 @@ std::string asmBlockOfCloser(const std::string &kw) {
 }
 
 // Le bloc qu'ouvre ce mot-clé, ou "".
+// Interrogées pour chaque ligne qu'on parcourt en cherchant une fermeture, donc
+// à chaque tour d'une boucle qui contient un bloc : en table (ADR 0034).
 std::string blockOfOpener(const std::string &kw) {
-    for (const auto &b : blockKinds())
-        for (const char *o : b.openers) if (kw == o) return b.kind;
-    return "";
+    static const std::unordered_map<std::string, const char *> byOpener = [] {
+        std::unordered_map<std::string, const char *> m;
+        for (const auto &b : blockKinds()) for (const char *o : b.openers) m.emplace(o, b.kind);
+        return m;
+    }();
+    auto it = byOpener.find(kw);
+    return it == byOpener.end() ? "" : it->second;
 }
 
 // Le bloc que ferme ce mot-clé, "*" pour `END` qui ferme n'importe lequel, ou "".
 std::string blockOfCloser(const std::string &kw) {
-    if (kw == "END") return "*";
-    for (const auto &b : blockKinds())
-        for (const char *c : b.closers) if (kw == c) return b.kind;
-    return "";
+    static const std::unordered_map<std::string, const char *> byCloser = [] {
+        std::unordered_map<std::string, const char *> m;
+        for (const auto &b : blockKinds()) for (const char *c : b.closers) m.emplace(c, b.kind);
+        m["END"] = "*";
+        return m;
+    }();
+    auto it = byCloser.find(kw);
+    return it == byCloser.end() ? "" : it->second;
 }
 
 // La fermeture canonique d'un bloc, pour les diagnostics.
@@ -345,13 +356,20 @@ std::string canonicalCloser(const std::string &kind) {
     return "END";
 }
 
+// Interrogée pour le premier mot de chaque ligne déroulée, à chaque passe : les
+// trois ensembles sont fondus en une seule table de hachage qui donne, pour
+// chaque mot, la première phase où il devient réservé (ADR 0034).
 bool isReservedWord(const std::string &upperTok, Phase ph) {
+    static const std::unordered_map<std::string, Phase> firstPhase = [] {
+        std::unordered_map<std::string, Phase> m;
+        for (const auto &w : preprocessWords()) m[w] = Phase::Preprocess;
+        for (const auto &w : assemblyWords()) m[w] = Phase::Assembly;
+        for (const auto &w : instructionWords()) m[w] = Phase::Instruction;
+        return m;
+    }();
     if (z80::mnemoFromString(upperTok) != z80::Mnemo::Invalid) return true;
-    if (instructionWords().count(upperTok)) return true;
-    if (ph == Phase::Instruction) return false;
-    if (assemblyWords().count(upperTok)) return true;
-    if (ph == Phase::Assembly) return false;
-    return preprocessWords().count(upperTok) != 0;
+    auto it = firstPhase.find(upperTok);
+    return it != firstPhase.end() && (int)it->second <= (int)ph;
 }
 
 void peelLabel(const std::string &code, std::string &label, std::string &rest, Phase ph,

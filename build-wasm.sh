@@ -62,9 +62,13 @@ CORE+=(asm_main.cpp)
 # par défaut (64 Ko) sur les grosses sources -> trap "table index out of bounds".
 EMFLAGS=(
   -std=c++17 -O2
-  # expr::eval s'appuie sur try/catch (throw EvalError). Sans -fexceptions,
-  # Emscripten transforme tout throw en abort() -> "Aborted(undefined)".
-  -fexceptions
+  # expr::eval s'appuie sur try/catch (throw EvalError). Sans gestion des
+  # exceptions, Emscripten transforme tout throw en abort() -> "Aborted(undefined)".
+  # Exceptions WASM natives, pas -fexceptions : l'émulation JS fait passer par
+  # une passerelle invoke_* tout appel susceptible de lever depuis une fonction
+  # à destructeurs — presque toutes, à cause des std::string — et coûtait
+  # l'essentiel de l'écart natif/WASM (ADR 0034). Navigateurs actuels, node >= 17.
+  -fwasm-exceptions
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createFantams
   -sEXPORTED_RUNTIME_METHODS=callMain,FS
   -sINVOKE_RUN=0 -sEXIT_RUNTIME=0

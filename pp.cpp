@@ -9,6 +9,7 @@
 #include <cmath>
 #include <functional>
 #include <map>
+#include <unordered_map>
 #include <set>
 #include <string>
 #include <vector>
@@ -378,10 +379,23 @@ std::string canonicalizeSpelling(const std::string &stmt) {
 // Un bloc a un OUVREUR, une fermeture CANONIQUE et d'éventuelles fermetures
 // TOLÉRÉES, héritées et conservées en silence : elles sont omniprésentes
 // et, la correspondance étant désormais vérifiée, elles ne sont plus ambiguës.
+// Les labels auto-locaux d'un corps (MACRO, REPEAT, FOR, WHILE) : ils ne
+// dépendent que du texte du corps et de l'ensemble des noms de macros, pas de
+// l'itération. Les recalculer à chaque tour coûtait l'essentiel du déroulage
+// (ADR 0034). `macroCount` date le calcul : la table des macros ne fait que
+// croître (une redéfinition garde le nom), si bien qu'un même compte garantit
+// un même ensemble de noms, donc un même découpage des labels.
+struct LocalNames {
+    size_t macroCount = (size_t)-1;
+    std::vector<std::string> names;
+    bool hasExport = false;
+};
+
 struct Macro {
     std::string name;
     std::vector<std::string> params;
     std::vector<SrcLine> body;
+    mutable LocalNames locals;
 };
 
 // Un argument de macro, tel que l'ADR 0014 le veut : le TEXTE brut, que `{nom}`
@@ -780,7 +794,20 @@ private:
     }
 
     // Classe une ligne brute selon son mot-clé de bloc.
+    // Mémoïsée : le mot-clé d'une ligne ne dépend que de son texte brut, et un
+    // corps de boucle est reclassé à chaque tour — par `findMatching` et par la
+    // recherche des branches d'un IF (ADR 0034). La table est vidée au-delà d'une
+    // taille raisonnable : les labels renommés `@x__n` rendent chaque tour unique.
+    std::unordered_map<std::string, std::string> classified_;
+
     std::string classify(const std::string &raw) {
+        auto it = classified_.find(raw);
+        if (it != classified_.end()) return it->second;
+        if (classified_.size() > 100000) classified_.clear();
+        return classified_.emplace(raw, classifyText(raw)).first->second;
+    }
+
+    std::string classifyText(const std::string &raw) {
         std::string code = trim(stripComment(raw));
         if (code.empty()) return "";
         std::string label, rest; peelLabel(code, label, rest);
@@ -1005,10 +1032,21 @@ private:
         return out;
     }
     // Renommage auto-local (macros, itérations REPEAT/WHILE) : suffixe __id.
-    std::vector<SrcLine> renameLocals(const std::vector<SrcLine> &body, long id) {
-        auto names = collectLabels(body, false, /*onlyAtPrefixed=*/true);
+    //
+    // `cache` porte les noms d'un appel à l'autre sur un MÊME corps : la boucle
+    // qui itère, ou la macro qu'on réexpanse. Sans label ni @@export, le corps
+    // passe tel quel.
+    std::vector<SrcLine> renameLocals(const std::vector<SrcLine> &body, long id, LocalNames &cache) {
+        if (cache.macroCount != macros.size()) {
+            cache.names = collectLabels(body, false, /*onlyAtPrefixed=*/true);
+            cache.hasExport = false;
+            for (const auto &l : body)
+                if (upper(firstToken(trim(stripComment(l.text)))) == "@@EXPORT") { cache.hasExport = true; break; }
+            cache.macroCount = macros.size();
+        }
+        if (cache.names.empty() && !cache.hasExport) return body;
         std::string suf = "__" + std::to_string(id);
-        return renameScope(body, names, [&](const std::string &n) { return n + suf; });
+        return renameScope(body, cache.names, [&](const std::string &n) { return n + suf; });
     }
 
     // Trouve la ligne de fermeture correspondante (ADR 0016).
@@ -1098,7 +1136,7 @@ private:
                                   r.error.find("has no value") == std::string::npos;
             ne.args[m.params[k]] = a;
         }
-        std::vector<SrcLine> scoped = renameLocals(m.body, ++uid);
+        std::vector<SrcLine> scoped = renameLocals(m.body, ++uid, m.locals);
         run(scoped, ne, depth + 1);
     }
 
@@ -1349,9 +1387,12 @@ private:
                 std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + rend);
                 if (!r.ok) error(raw, "REPEAT: " + (parts.empty() ? "missing counter" : r.error));
                 else if (r.value < 0 || r.value > 1000000) error(raw, "REPEAT: counter out of range");
-                else for (int k = 0; k < r.value; ++k) {
-                    Env ne = env; if (!var.empty()) ne.locals[var] = k;
-                    run(renameLocals(body, ++uid), ne, depth);
+                else {
+                    LocalNames names;
+                    for (int k = 0; k < r.value; ++k) {
+                        Env ne = env; if (!var.empty()) ne.locals[var] = k;
+                        run(renameLocals(body, ++uid, names), ne, depth);
+                    }
                 }
                 i = rend + 1; continue;
             }
@@ -1390,9 +1431,10 @@ private:
                 else if (hi.value - lo.value > 1000000) error(raw, "FOR: range out of range");
                 else {
                     const long last = inclusive ? hi.value : hi.value - 1;
+                    LocalNames names;
                     for (long k = lo.value; k <= last; ++k) {
                         Env ne = env; ne.locals[var] = k;
-                        run(renameLocals(body, ++uid), ne, depth);
+                        run(renameLocals(body, ++uid, names), ne, depth);
                     }
                 }
                 i = endfor + 1; continue;
@@ -1406,12 +1448,13 @@ private:
                 std::string condRaw = restAfterFirst(rest);
                 std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + wend);
                 long guard = 0;
+                LocalNames names;
                 for (;;) {
                     auto r = evalPP(substitute(condRaw, env, raw), env);
                     if (!r.ok) { error(raw, "WHILE: " + r.error); break; }
                     if (r.value == 0) break;
                     if (++guard > 1000000) { error(raw, "WHILE: too many iterations"); break; }
-                    run(renameLocals(body, ++uid), env, depth);
+                    run(renameLocals(body, ++uid, names), env, depth);
                 }
                 i = wend + 1; continue;
             }

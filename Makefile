@@ -2,7 +2,7 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 
-.PHONY: all test clean
+.PHONY: all test bench clean
 
 # Les modules du coeur sont declares une seule fois, dans sources.manifest, que
 # les trois points d'entree de construction LISENT (cf. l'en-tete du manifeste).
@@ -116,6 +116,11 @@ test: $(TESTS) fantams
 	@$(T)/epreuve_snapshot.sh; rc=$$?; \
 	 if [ $$rc = 77 ]; then echo "   (saute — l'artefact n'a PAS ete eprouve sur machine)"; \
 	 elif [ $$rc != 0 ]; then exit $$rc; fi
+
+# Chronomètre les sources déroulées longues et verrouille leurs empreintes
+# (ADR 0034). Hors de « test » : un temps dépend de la machine.
+bench: fantams
+	@$(T)/bench.sh
 
 clean:
 	rm -f $(TESTS) ppdump fantams
