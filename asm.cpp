@@ -1310,7 +1310,12 @@ private:
         // routine nomme une constante, pas une adresse, et les « .x: » qui suivent
         // appartiennent toujours à la routine. Sans ça, ils devenaient « delta.x » et
         // « ld (plot.x+1),a » ne trouvait plus rien.
-        if (!label.empty() && label[0] != '.' && !isDefinition) currentGlobal_ = label;
+        //
+        // Un label `@nom` (renommé « @nom__N » par une expansion de macro, de `repeat`
+        // ou de `while`) ne le change pas non plus : il est interne à l'expansion, et
+        // le laisser propriétaire casserait le « .loop » écrit avant la macro et
+        // référencé après.
+        if (!label.empty() && label[0] != '.' && label[0] != '@' && !isDefinition) currentGlobal_ = label;
 
         // L'assembleur TOLÈRE des orthographes, jamais des structures (ADR 0017) :
         // « ld pc,hl », « jp hl », « ex hl,de » sont acceptées ici au même titre que

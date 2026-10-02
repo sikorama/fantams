@@ -140,6 +140,10 @@ static void chkBank(const char *desc, const std::string &src,
 }
 
 int main() {
+    chkSym("label local : un label @x__N d'expansion ne change pas le proprietaire",
+           " org #300\nstart:\n.loop: nop\n@l__1: djnz @l__1\n jp .loop\n",
+           "start.loop", 0x300);
+
     printf("Tests assembleur 2 passes\n");
 
     // base + ORG

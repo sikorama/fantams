@@ -447,10 +447,9 @@ plot:
 
 A **definition** interleaved (`delta equ 4`) does not change the owner.
 
-A label coming out of a **macro expansion** is a global label like any other, so it
-becomes the owner of the `.locals` that follow it: after `poke(…)` whose body
-defines `@retry`, a `.local` is qualified as `@retry__2.local`. The symbol table
-(`--sym`) is where this becomes visible.
+A `@`-prefixed label (per-expansion label of a macro, `repeat` or `while`) does
+**not** change the owner either: it is internal to the expansion, so a `.loop`
+defined before a macro call is still found by a `jp .loop` written after it.
 
 ### Reserved words
 
