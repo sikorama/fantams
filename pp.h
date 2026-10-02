@@ -86,4 +86,20 @@ Result preprocess(const std::string &mainContent, const std::string &mainFile,
 // Idempotente, et l'assemblage du résultat rend les mêmes octets.
 std::string normalize(const std::string &src);
 
+// La source déroulée pliée (ADR 0034, CONTEXT.md) : ce que l'assembleur reçoit.
+// Chaque opérande de `db`/`dw`, chaque membre droit d'`equ` et d'affectation
+// entièrement résoluble sans adresse est remplacé par sa valeur, écrite pour être
+// relue à l'identique ; des affectations successives d'une variable que plus
+// aucune ligne non pliée ne lit, seule la dernière subsiste. Chaque ligne garde
+// le fichier et la ligne d'origine de celle dont elle vient : diagnostics et
+// provenance ne voient pas la différence.
+//
+// `isGiven` nomme les constantes injectées hors du source (profil, CONST) : on ne
+// plie pas à travers elles, l'assembleur les résout seul.
+//
+// Invariant, vérifié par les tests : `lines` et `fold(lines)` s'assemblent aux
+// mêmes octets.
+std::vector<SrcLine> fold(const std::vector<SrcLine> &lines,
+                          const std::function<bool(const std::string &)> &isGiven = nullptr);
+
 } // namespace pp

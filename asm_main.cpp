@@ -17,6 +17,10 @@
 //          c'est lui qui rend verifiable ce que le preprocesseur a compris.
 //          La sortie est MISE EN FORME : la mise en forme fait partie de la
 //          definition de la source deroulee (ADR 0013).
+//     --fold : avec -E, ecrire la source deroulee PLIEE (ADR 0034) : les
+//          expressions resolubles sans adresse remplacees par leur valeur, les
+//          affectations intermediaires retirees. C'est elle que l'assembleur lit ;
+//          -E seul montre ce que l'auteur a ecrit.
 //     --beautify : mettre en forme le source et l'ecrire dans -o, sans
 //          preprocesseur ni assemblage. C'est ce que le bouton « Mettre en
 //          forme » de l'editeur appelle. Preserve le nombre de lignes (ADR 0013).
@@ -91,6 +95,7 @@ int main(int argc, char **argv) {
     std::vector<std::string> inputs;
     bool showSyms = false;
     bool dumpOnly = false;
+    bool foldDump = false;   // -E --fold
     bool beautifyOnly = false;
     bool normalizeOnly = false;
     // La Fermeture (z80live CONTEXT.md, ADR 0002) : le fichier principal, plus
@@ -142,6 +147,7 @@ int main(int argc, char **argv) {
         else if (a == "--base" && i + 1 < argc) basePath = argv[++i];
         else if (a == "-s") showSyms = true;
         else if (a == "-E") dumpOnly = true;
+        else if (a == "--fold") foldDump = true;
         else if (a == "--beautify") beautifyOnly = true;
         else if (a == "--normalize") normalizeOnly = true;
         // « --sym » ne prend pas d'argument positionnel : « fantams --sym src.asm »
@@ -342,6 +348,10 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    if (foldDump && !dumpOnly) {
+        fprintf(stderr, "error: --fold modifie -E (il choisit la source deroulee pliee) : sans -E, il n'y a rien a plier — l'assembleur lit deja la forme pliee\n");
+        return 2;
+    }
     if (beautifyOnly && dumpOnly) {
         fprintf(stderr, "error: -E et --beautify demandent deux sorties differentes : la source deroulee, ou le source mis en forme\n");
         return 2;
@@ -504,8 +514,17 @@ int main(int argc, char **argv) {
     // l'assembleur va lire, les mots-cles du preprocesseur n'y sont plus. Les
     // traiter comme reserves ferait indenter un label nomme « read » au lieu de
     // lui donner son deux-points.
+    // L'assembleur lit la source deroulee PLIEE (ADR 0034) ; `-E` montre la
+    // fidele, `-E --fold` celle qu'il lit vraiment.
+    const std::vector<pp::SrcLine> folded =
+        pp::fold(pre.lines, [&](const std::string &n) { return given.count(n) != 0; });
     if (dumpOnly) {
-        std::string text = beautify::apply(pre.dump(), kw::Phase::Assembly, detachLabels, indentBlocks);
+        std::string dump;
+        if (foldDump) {
+            pp::Result f; f.lines = folded;
+            dump = f.dump();
+        } else dump = pre.dump();
+        std::string text = beautify::apply(dump, kw::Phase::Assembly, detachLabels, indentBlocks);
         std::ofstream f(outPath, std::ios::binary);
         if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
         f.write(text.data(), (std::streamsize)text.size());
@@ -523,7 +542,7 @@ int main(int argc, char **argv) {
 
     // 2) assembler (2 passes) on the flat text
     std::vector<asmb::SourceLine> lines;
-    for (auto &l : pre.lines) lines.push_back({l.text, l.file, l.line, l.col0});
+    for (auto &l : folded) lines.push_back({l.text, l.file, l.line, l.col0});
     out = asmb::assemble(lines, given);
     out.name = path;
     objects.push_back(out);

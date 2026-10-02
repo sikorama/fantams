@@ -1665,4 +1665,169 @@ Result preprocess(const std::string &mainContent, const std::string &mainFile,
     return pp.result;
 }
 
+// ---------------------------------------------------------------------------
+// Source déroulée pliée (ADR 0034)
+// ---------------------------------------------------------------------------
+namespace {
+
+// Une valeur pliée s'écrit de sorte que l'évaluateur la relise À L'IDENTIQUE :
+// en entier quand elle l'est, sinon à la précision du double. `fmtNum` ne
+// convient pas, `std::to_string` tronquant à six décimales. Une écriture que
+// l'évaluateur ne relirait pas exactement (exposant, qu'il ne lit pas) est
+// refusée : la ligne reste alors telle qu'écrite.
+bool writeFolded(double v, std::string &out) {
+    if (!std::isfinite(v)) return false;
+    if (v == (double)(int64_t)v && std::fabs(v) < 9e15) { out = std::to_string((int64_t)v); return true; }
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%.17g", v);
+    out = buf;
+    const expr::Result back = expr::eval(out, [](const std::string &, expr::Value &) { return false; });
+    return back.ok && back.absolute() && back.real == v;
+}
+
+// Les noms qu'une ligne laissée telle quelle peut lire au temps d'assemblage, en
+// MAJUSCULES : l'assembleur se replie sur la casse, une lecture « W » touche donc
+// la variable « w ». Trop large (un nombre hexadécimal « &FF » y entre) plutôt que
+// trop étroit : un nom de trop ne fait que garder des affectations.
+void collectNames(const std::string &s, std::set<std::string> &into) {
+    size_t i = 0;
+    while (i < s.size()) {
+        if (!kw::isIdentChar(s[i])) { ++i; continue; }
+        size_t j = i; while (j < s.size() && kw::isIdentChar(s[j])) ++j;
+        if (!std::isdigit((unsigned char)s[i])) into.insert(upper(s.substr(i, j - i)));
+        i = j;
+    }
+}
+
+} // namespace
+
+std::vector<SrcLine> fold(const std::vector<SrcLine> &lines,
+                          const std::function<bool(const std::string &)> &isGiven) {
+    // Ce que l'assembleur saura d'un nom au point courant, s'il le sait sans
+    // adresse : une variable déjà affectée, une constante déjà définie, par une
+    // valeur elle-même pliée. Tout le reste — label, `$`, nom inconnu, local
+    // « .x » qualifié par le global courant, constante injectée par le profil —
+    // fait échouer le résolveur, et l'expression reste écrite.
+    std::map<std::string, double> known;
+    std::set<std::string> labels;     // définis comme labels : jamais pliés
+    std::set<std::string> pinned;     // variables dont toutes les affectations restent
+    std::set<std::string> readRaw;    // noms lus par une ligne non pliée (MAJUSCULES)
+    std::vector<std::string> assigns(lines.size());   // variable affectée par la ligne pliée i
+
+    auto foldable = [&](const std::string &n) {
+        return !n.empty() && n.find('.') == std::string::npos && !labels.count(n) &&
+               !(isGiven && isGiven(n));
+    };
+    auto resolver = [&](const std::string &n, expr::Value &o) -> bool {
+        if (!foldable(n)) return false;
+        auto it = known.find(n);
+        if (it == known.end()) return false;
+        o = expr::Value{}; o.real = it->second;
+        return true;
+    };
+    // Plie une expression entière, ou rend false en notant ce qu'elle lit.
+    // `emitted` : la valeur n'est lue que pour être émise (`db`, `dw`), et
+    // l'assembleur n'en garde que l'entier arrondi — c'est donc lui qu'on écrit.
+    // Une définition, relue ailleurs, garde la précision du double.
+    auto foldExpr = [&](const std::string &e, std::string &out, double &v, bool emitted) -> bool {
+        const std::string t = trim(e);
+        if (!t.empty() && t.find('"') == std::string::npos && t.find('\'') == std::string::npos) {
+            const expr::Result r = expr::eval(t, resolver);
+            if (r.ok && r.absolute()) {
+                if (emitted) { out = std::to_string(r.value); v = (double)r.value; return true; }
+                if (writeFolded(r.real, out)) { v = r.real; return true; }
+            }
+        }
+        collectNames(t, readRaw);
+        return false;
+    };
+
+    std::vector<SrcLine> out = lines;
+    int boundary = 0;   // un BOUNDARY est mesuré à blanc d'abord, ses affectations ignorées
+    for (size_t i = 0; i < lines.size(); ++i) {
+        const std::string code = trim(stripComment(lines[i].text));
+        if (code.empty()) continue;
+        std::string label, rest;
+        kw::peelLabel(code, label, rest, kw::Phase::Assembly, nullptr, nullptr);
+        const std::string prefix = code.substr(0, code.size() - rest.size());
+        const std::string w0 = upper(firstToken(rest));
+        const std::string after0 = restAfterFirst(rest);
+
+        if (w0 == "BOUNDARY") ++boundary;
+        else if (w0 == "END_BOUNDARY" && boundary > 0) --boundary;
+
+        // Définitions, dans l'ordre où l'assembleur les reconnaît.
+        std::string name, rhs;
+        bool isEqu = false;
+        if (w0 == "EQU") { name = label; rhs = after0; isEqu = true; }
+        else if (upper(firstToken(after0)) == "EQU" && label.empty()) {
+            name = firstToken(rest); rhs = restAfterFirst(after0); isEqu = true;
+        } else {
+            const size_t eq = kw::findAssign(rest);
+            if (eq != std::string::npos && w0 != "DB" && w0 != "DEFB" && w0 != "DM" && w0 != "DEFM" &&
+                w0 != "DW" && w0 != "DEFW") {
+                const std::string lhs = trim(rest.substr(0, eq));
+                // « l: v = 3 » : l'assembleur y définit v et ignore l. Trop
+                // singulier pour être plié.
+                if (!lhs.empty() && !label.empty()) { collectNames(code, readRaw); pinned.insert(lhs); continue; }
+                name = lhs.empty() ? label : lhs;
+                rhs = rest.substr(eq + 1);
+            }
+        }
+        if (!name.empty()) {
+            std::string folded; double v = 0;
+            const bool ok = boundary == 0 && foldable(name) && foldExpr(rhs, folded, v, false);
+            if (!ok) {
+                if (boundary > 0) collectNames(rhs, readRaw);
+                known.erase(name);
+                if (!isEqu) pinned.insert(name);
+                continue;
+            }
+            known[name] = v;
+            if (isEqu) {
+                const size_t at = code.size() - trim(rhs).size();
+                out[i].text = code.substr(0, at) + folded;
+            } else {
+                out[i].text = name + "=" + folded;
+                assigns[i] = name;
+            }
+            continue;
+        }
+
+        if (!label.empty()) { labels.insert(label); known.erase(label); }
+
+        const bool isData = w0 == "DB" || w0 == "DEFB" || w0 == "DM" || w0 == "DEFM" ||
+                            w0 == "DW" || w0 == "DEFW";
+        if (!isData || boundary > 0) { collectNames(rest, readRaw); continue; }
+        auto parts = splitTopLevel(after0, ',');
+        bool changed = false;
+        for (auto &p : parts) {
+            std::string folded; double v = 0;
+            if (p.empty()) continue;
+            if (foldExpr(p, folded, v, true)) { if (folded != p) { p = folded; changed = true; } }
+        }
+        if (!changed) continue;
+        std::string ops;
+        for (size_t k = 0; k < parts.size(); ++k) { if (k) ops += ','; ops += parts[k]; }
+        out[i].text = prefix + firstToken(rest) + " " + ops;
+    }
+
+    // Des affectations pliées d'une variable que plus rien ne lit telle quelle,
+    // seule la dernière subsiste : c'est la valeur qu'une lecture APRÈS la boucle
+    // verrait. Dès qu'une seule affectation est restée écrite, ou qu'une ligne non
+    // pliée lit le nom, toutes restent (ADR 0034).
+    std::map<std::string, size_t> last;
+    for (size_t i = 0; i < lines.size(); ++i)
+        if (!assigns[i].empty()) last[assigns[i]] = i;
+    std::vector<SrcLine> kept;
+    kept.reserve(out.size());
+    for (size_t i = 0; i < out.size(); ++i) {
+        const std::string &v = assigns[i];
+        const bool droppable = !v.empty() && !pinned.count(v) && !readRaw.count(upper(v)) &&
+                               !labels.count(v) && last[v] != i;
+        if (!droppable) kept.push_back(std::move(out[i]));
+    }
+    return kept;
+}
+
 } // namespace pp

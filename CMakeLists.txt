@@ -126,6 +126,10 @@ target_link_libraries(asm_test PRIVATE asmlib)
 add_executable(opcode_test tests/opcode_test.cpp)
 target_link_libraries(opcode_test PRIVATE asmlib)
 
+# Le pliage (ADR 0034) : les deux formes s'assemblent aux memes octets.
+add_executable(fold_test tests/fold_test.cpp)
+target_link_libraries(fold_test PRIVATE asmlib)
+
 add_executable(link_test tests/link_test.cpp)
 target_link_libraries(link_test PRIVATE asmlib)
 
@@ -163,6 +167,7 @@ add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)
 add_test(NAME opcode_extraction COMMAND opcode_test)
 add_test(NAME linker COMMAND link_test)
+add_test(NAME folding COMMAND fold_test)
 add_test(NAME object_file COMMAND fo_test)
 add_test(NAME link_script COMMAND script_test)
 add_test(NAME target_profile COMMAND profile_test)

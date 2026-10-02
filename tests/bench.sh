@@ -5,9 +5,10 @@
 #
 #   1. CHRONOMÉTRER chaque source de tests/bench/, au meilleur de N essais, par
 #      l'adaptateur natif et, si on le lui donne, par l'adaptateur WASM ;
-#   2. VERROUILLER ce que ces sources produisent : l'empreinte du binaire ET
-#      celle de la source déroulée (-E). Une optimisation qui change un octet de
-#      l'un ou de l'autre est un bug, pas un gain. Les empreintes vivent dans
+#   2. VERROUILLER ce que ces sources produisent : l'empreinte du binaire, celle
+#      de la source déroulée (-E) et celle de sa forme pliée (-E --fold). Une
+#      optimisation qui change un octet de l'un d'eux est un bug, pas un gain.
+#      Les empreintes vivent dans
 #      tests/bench/expected.sha256.
 #
 # Le chronométrage n'est PAS dans « make test » : un temps dépend de la machine,
@@ -81,7 +82,9 @@ for src in "$DIR"/*.asm; do
         { echo "ECHEC : $src ne s'assemble pas"; "$FANTAMS" "$src" -o "$TMP/$name.bin"; exit 1; }
     "$FANTAMS" -E "$src" -o "$TMP/$name.E.asm" >/dev/null 2>&1 ||
         { echo "ECHEC : -E refuse $src"; exit 1; }
-    (cd "$TMP" && sha256sum "$name.bin" "$name.E.asm") >> "$TMP/sums"
+    "$FANTAMS" -E --fold "$src" -o "$TMP/$name.fold.asm" >/dev/null 2>&1 ||
+        { echo "ECHEC : -E --fold refuse $src"; exit 1; }
+    (cd "$TMP" && sha256sum "$name.bin" "$name.E.asm" "$name.fold.asm") >> "$TMP/sums"
 
     nat=$(best "$FANTAMS" "$src" -o "$TMP/t.bin")
     if [ -n "$WASM_MJS" ]; then

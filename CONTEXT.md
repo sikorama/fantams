@@ -58,9 +58,10 @@ lignes par répétition ou par expansion d'une définition.
 _Éviter_ : abaissement, lowering, désucrage, expansion (qui désigne le déroulage)
 
 **Source déroulée pliée** :
-Une variante de la source déroulée où chaque expression résoluble au temps
-préprocesseur est remplacée par sa valeur, et où des affectations successives
-d'une même variable seule la dernière subsiste, à sa position d'origine. Elle
+Une variante de la source déroulée où les données et les définitions résolubles
+au temps préprocesseur sont remplacées par leur valeur, et où des affectations
+successives d'une même variable seule la dernière subsiste, à sa position
+d'origine — sauf si une ligne restée écrite lit cette variable. Elle
 s'assemble aux mêmes octets que la source déroulée. Elle ne remplace pas
 celle-ci : la source déroulée montre ce que l'auteur a écrit, la source déroulée
 pliée montre ce qu'il reste à assembler.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # L'assembleur consomme la source déroulée pliée, `-E` montre la source fidèle
@@ -39,11 +39,17 @@ le vérifie en assemblant les deux formes. Une différence est un bug du pliage,
 
 ## Règles du pliage
 
-- **Précision** : une valeur entière s'écrit en entier. Une valeur non entière
-  s'écrit avec la précision maximale du `double` (`%.17g`), jamais à travers
-  `std::to_string`, qui tronque à six décimales : l'ADR 0008 garantit le calcul en
-  `double` jusqu'à l'émission, et une variable pliée puis relue ne doit pas
-  changer d'octet.
+- **Précision** : une **définition** (`equ`, affectation) pliée s'écrit en
+  entier quand sa valeur l'est, sinon avec la précision maximale du `double`
+  (`%.17g`), jamais à travers `std::to_string`, qui tronque à six décimales :
+  l'ADR 0008 garantit le calcul en `double` jusqu'à l'émission, et une variable
+  pliée puis relue ne doit pas changer d'octet. Une écriture que l'évaluateur ne
+  relirait pas à l'identique (il ne lit pas d'exposant) n'est pas pliée.
+  Un opérande de **donnée** (`db`, `dw`) n'est relu par personne : l'assembleur
+  n'en garde que l'entier arrondi, et c'est aussi sur lui que porte le contrôle
+  de l'octet. Il s'écrit donc directement en entier — `db 24` et non
+  `db 23.999999999999996`. C'est exact, et c'est ce qui rend la forme pliée
+  lisible comme une table.
 - **Granularité** : on ne plie qu'un opérande **entièrement** résoluble au temps
   préprocesseur. `ld hl, table + 2*ii` reste tel quel. Plier la sous-expression
   obligerait à régénérer un texte d'expression depuis l'arbre, et un écart de
@@ -62,6 +68,30 @@ le vérifie en assemblant les deux formes. Une différence est un bug du pliage,
   L'avertissement de l'ADR 0008 sur l'opérande non entier n'est pas encore
   implémenté. Il suivra cette règle quand il le sera.
 
+- **Périmètre** : seuls les opérandes de `db`/`dw` et les membres droits
+  d'`equ` et d'affectation sont pliés. Un opérande d'instruction reste écrit :
+  `ld a,(2*k)` plié en `ld a,(6)` garde son sens, mais le parenthésage y décide de
+  l'adressage, et le gain mesuré ne vient pas de là. Une variable lue par une
+  instruction garde donc toutes ses affectations.
+- **BOUNDARY** : l'assembleur mesure le bloc à blanc avant de le traiter, sans
+  y affecter de variable. On n'y plie rien et ses variables gardent toutes leurs
+  affectations.
+
+## Ce que le pliage a rapporté
+
+Mesuré le 2026-10-02, après les corrections locales, par étage (ms) :
+
+| Source | fold | assembleur, fidèle | assembleur, pliée | lignes |
+|---|---|---|---|---|
+| `nested_if` | 34 | 121 | 26 | 24 577 → 8 195 |
+| `sintab` | 132 | 377 | 181 | 65 538 |
+| `nop` | 24 | 100 | 99 | 65 537 |
+
+Le gain porte sur l'assembleur, et il est d'autant plus grand que les
+affectations intermédiaires sont nombreuses. Sur une source sans rien à plier,
+le pliage coûte un passage sur les lignes, environ 0,4 µs par ligne. Le
+préprocesseur reste ensuite l'étage dominant.
+
 ## Options écartées
 
 - **Plier pour l'affichage seulement** : sans effet sur le temps, puisque
@@ -70,9 +100,9 @@ le vérifie en assemblant les deux formes. Une différence est un bug du pliage,
   perd la formule. Le lecteur ne verrait plus d'où vient `db 24`, alors que la
   source déroulée est un livrable lisible de premier plan.
 
-## Ordre de livraison
+## Ordre de livraison (tenu)
 
 Ce pliage vient **après** les corrections locales du préprocesseur (recherche
 des mnémoniques en table, `collectLabels` sorti des boucles, corps de boucle
 classé une fois) et le passage du build WASM à `-fwasm-exceptions`. On remesure
-entre chaque étape. Le statut passe à `accepted` quand le pliage est livré.
+entre chaque étape.
