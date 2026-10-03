@@ -402,6 +402,15 @@ int main() {
            p.consts[0].value == 0x7F00);
     }
 
+    // Chaque profil CPC livre dit combien de T-states dure un NOP (ADR 0035) :
+    // `nops_between()` en depend, et l'assembleur n'en connait aucune valeur.
+    for (const char *name : {"cpc6128", "cpcplus"}) {
+        profile::Profile p = parse(profile::builtin(name));
+        int64_t nop = 0;
+        for (const profile::Const &c : p.consts) if (c.name == "NOP_TSTATES") nop = c.value;
+        ok((std::string("le profil ") + name + " porte NOP_TSTATES = 4").c_str(), p.ok && nop == 4);
+    }
+
     {
         profile::Profile p = parse(with("CONST __port_ram_audio = 1\n"));
         ok("un CONST prefixe __ est refuse", !p.ok);

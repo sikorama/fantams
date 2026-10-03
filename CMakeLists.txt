@@ -126,6 +126,11 @@ target_link_libraries(asm_test PRIVATE asmlib)
 add_executable(opcode_test tests/opcode_test.cpp)
 target_link_libraries(opcode_test PRIVATE asmlib)
 
+# La table des durees (ADR 0035) : timing.cpp vit dans la bibliotheque z80, et
+# son test lit ses cas par le parseur.
+add_executable(timing_test tests/timing_test.cpp)
+target_link_libraries(timing_test PRIVATE parser)
+
 # Le pliage (ADR 0034) : les deux formes s'assemblent aux memes octets.
 add_executable(fold_test tests/fold_test.cpp)
 target_link_libraries(fold_test PRIVATE asmlib)
@@ -166,6 +171,7 @@ add_test(NAME preprocessor COMMAND pp_test)
 add_test(NAME parser COMMAND parser_test)
 add_test(NAME assembler COMMAND asm_test)
 add_test(NAME opcode_extraction COMMAND opcode_test)
+add_test(NAME instruction_timing COMMAND timing_test)
 add_test(NAME linker COMMAND link_test)
 add_test(NAME folding COMMAND fold_test)
 add_test(NAME object_file COMMAND fo_test)

@@ -1191,6 +1191,94 @@ int main() {
         okc("la section n'est pas placee pour autant", s && s->place.empty());
     }
 
+    // --- La duree entre deux labels (ADR 0035) --------------------------------
+    {
+        // Le NOP est une grandeur du PROFIL : l'assembleur recoit NOP_TSTATES
+        // comme il recoit GA_PORT, et ne connait aucune machine.
+        const asmb::Constants cpc = {{"NOP_TSTATES", 4}};
+        auto measure = [&](const char *src, const asmb::Constants &given, int64_t &v) {
+            asmb::Object o = asmb::assembleText(src, "t.asm", given);
+            if (o.ok) { auto it = o.symbols.find("DUREE"); v = it == o.symbols.end() ? -1 : it->second; }
+            return o;
+        };
+        auto errorSays = [](const asmb::Object &o, const char *needle) {
+            for (const auto &e : o.errors) if (e.message.find(needle) != std::string::npos) return true;
+            return false;
+        };
+        int64_t v = 0;
+
+        // 7 + 13 + 16 + 11 = 47 T-states ; 2 + 4 + 4 + 3 = 13 NOPs. L'arrondi
+        // se fait instruction par instruction : ceil(47/4) serait 12.
+        const char *body = "  org 0x8000\ndeb: ld a,5\n ld (0x4000),a\n ld hl,(0x4000)\n inc (hl)\nfin: nop\n";
+        measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), cpc, v);
+        okc("tstates_between additionne les T-states", v == 47);
+        measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), cpc, v);
+        okc("nops_between arrondit instruction par instruction", v == 13);
+        measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), asmb::Constants(), v);
+        okc("tstates_between marche sans profil", v == 47);
+
+        // Les bornes sont [a, b[ : la mesure est additive.
+        measure("  org 0x8000\nxa: nop\nxb: ld a,1\nxc: nop\n"
+                "DUREE equ nops_between(xa,xb) + nops_between(xb,xc) - nops_between(xa,xc)\n", cpc, v);
+        okc("nops_between(a,b) + nops_between(b,c) == nops_between(a,c)", v == 0);
+        measure("  org 0x8000\nxa: nop\nxb: nop\nDUREE equ nops_between(xa,xa)\n", cpc, v);
+        okc("un intervalle vide dure zero", v == 0);
+
+        // Un label defini PLUS BAS, dans un EQU, un `assert` et une variable.
+        measure("  org 0x8000\nxa: nop\n nop\nDUREE equ nops_between(xa,xb)\n"
+                " assert nops_between(xa,xb)==2\n assert tstates_between(xa,xb)==8\nxb: nop\n", cpc, v);
+        okc("un label defini plus bas se mesure (equ et assert)", v == 2);
+        measure("  org 0x8000\nxa: nop\nxb: nop\nvar = nops_between(xa,xb)\nDUREE equ var\n", cpc, v);
+        okc("une variable '=' recoit la mesure", v == 1);
+
+        // Les labels locaux et ceux d'une expansion de macro.
+        measure("  org 0x8000\nfoo:\n.a: ld a,1\n.b: inc a\n.c: nop\n"
+                "DUREE equ nops_between(.a,.c)\n", cpc, v);
+        okc("un label local .nom se mesure", v == 3);
+
+        // La mesure est EXACTE ou REFUSEE : chaque refus nomme sa raison.
+        asmb::Object o = measure("  org 0x8000\nxa: nop\n jr nz,xa\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un saut dans l'intervalle est refuse", !o.ok && errorSays(o, "has no fixed duration"));
+        okc("et le refus cite la ligne fautive", errorSays(o, "t.asm:3"));
+        o = measure("  org 0x8000\nxa: nop\n djnz xa\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("djnz est refuse", !o.ok);
+        o = measure("  org 0x8000\nxa: ldir\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("ldir est refuse (sa duree depend d'un compteur)", !o.ok && errorSays(o, "counter"));
+        o = measure("  org 0x8000\nxa: nop\n halt\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("halt est refuse", !o.ok && errorSays(o, "interrupt"));
+        o = measure("  org 0x8000\nxa: nop\n ret\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("ret est refuse", !o.ok);
+        o = measure("  org 0x8000\nxa: nop\n db 1,2\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un db dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
+        o = measure("  org 0x8000\nxa: nop\n ds 3\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un ds dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
+        o = measure("  org 0x8000\nxa: nop\n align 16\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un align dans l'intervalle est refuse", !o.ok && errorSays(o, "padding"));
+        o = measure("  org 0x8000\nxa: nop\n org 0x9000\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un org entre les deux labels est refuse", !o.ok && errorSays(o, "contiguous"));
+        o = measure("  org 0x8000\nxa: nop\nxb: nop\nDUREE equ nops_between(xb,xa)\n", cpc, v);
+        okc("b avant a est refuse", !o.ok && errorSays(o, "comes before"));
+        o = measure("  org 0x8000\nxa: nop\nDUREE equ nops_between(xa,zzz)\n", cpc, v);
+        okc("un label inconnu est refuse", !o.ok && errorSays(o, "not defined"));
+        o = measure("  org 0x8000\nK equ 5\nxa: nop\nDUREE equ nops_between(xa,K)\n", cpc, v);
+        okc("une constante n'est pas un label", !o.ok && errorSays(o, "not a label"));
+
+        // Le NOP vient du profil : sans lui, `nops_between` refuse en le disant.
+        o = measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), asmb::Constants(), v);
+        okc("nops_between sans profil est refuse", !o.ok && errorSays(o, "NOP_TSTATES"));
+        okc("et le refus renvoie vers tstates_between", errorSays(o, "tstates_between"));
+
+        // Un mot reserve : un label nomme `nops_between` rendrait la fonction illisible.
+        o = measure("  org 0x8000\nnops_between: nop\n", cpc, v);
+        okc("nops_between est un mot reserve", !o.ok);
+
+        // Un bloc BOUNDARY est lu deux fois (mesure, puis assemblage) : ses
+        // instructions ne se comptent qu'une.
+        measure("  org 0x8000\nxa: nop\n boundary 16\n nop\n nop\n end_boundary\nxb: nop\n"
+                "DUREE equ nops_between(xa,xb)\n", cpc, v);
+        okc("un bloc BOUNDARY n'est compte qu'une fois", v == 3);
+    }
+
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

@@ -33,7 +33,7 @@ et c'est ce que doit écrire l'ADR de **A5**.
 | A3 | `ASSERT_SIZE max` — une sous-zone dans une section | **fait** |
 | A4 | `beautify` connaît les nouveaux mots-clés | **fait** |
 | A5 | ADR : une section déclarative, et pourquoi la migration attend B | **fait** — [ADR 0026](adr/0026-une-section-nomme-et-classe.md) |
-| A6 | `CYCLES_BETWEEN(l1, l2)` (§4.3) — autonome, hors du chemin critique | optionnel |
+| A6 | `TSTATES_BETWEEN` / `NOPS_BETWEEN` (§4.3, ADR 0035) — autonome, hors du chemin critique | optionnel |
 
 Fin de l'étage A : A1 à A5 faites, les sept suites vertes, `docs/syntax.md` à
 jour, et un `--sym` dont un consommateur peut lire la section. **Atteinte** — sept
@@ -218,7 +218,7 @@ déclaration, et `"uninit"` qui n'émet pas.
 Il ferme l'étage : sans lui, la prochaine personne à ouvrir `asm.cpp` lirait des
 sections qui ne relogent pas et croirait à un travail à moitié fait.
 
-## A6 — `CYCLES_BETWEEN` (optionnel)
+## A6 — `TSTATES_BETWEEN` / `NOPS_BETWEEN` (optionnel)
 
 §4.3 : l'assembleur connaît le coût en cycles de chaque instruction, c'est donc
 le seul endroit où la mesure soit exacte, et son absence est une lacune. Vraiment

@@ -8,6 +8,7 @@
 #include "keywords.h"
 #include "opcode.h"
 #include "parser.h"
+#include "timing.h"
 #include "z80.h"
 
 #include <cctype>
@@ -94,6 +95,13 @@ public:
         // exportable : elles n'habitent nulle part, et un desassembleur n'en
         // ferait rien.
         for (const auto &kv : given_) setSymbol(kv.first, (double)kv.second);
+
+        // La duree du NOP, que le PROFIL porte (ADR 0035) : l'assembleur ne
+        // connait aucune machine, il recoit un nombre. Absent, `nops_between`
+        // refuse en le disant.
+        tl_ = Timeline(); tlAt_.clear(); tlBad_.clear(); tstatesPerNop_ = 0;
+        const auto nopT = given_.find("NOP_TSTATES");
+        if (nopT != given_.end() && nopT->second > 0) tstatesPerNop_ = (int)nopT->second;
 
         pass_ = 1; pc_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
@@ -418,12 +426,14 @@ public:
     // recopie que ce qui est couvert.
     void reserve(int64_t n) {
         if (n <= 0) return;
+        noteData();
         countSectionBytes(n);
         pc_ = (int)(pc_ + n);
     }
 
     // --- IAsmContext ---
     void emit(uint8_t b) override {
+        if (!inInstruction_) noteData();
         // Une section "uninit" est un emplacement RESERVE : le §4.1 dit qu'elle
         // n'emet pas d'octets, et le linker n'aurait nulle part ou mettre ceux
         // qu'on y ecrirait. Le refus est ici parce qu'`emit()` est le seul point
@@ -665,7 +675,7 @@ private:
     // Un `org` ou un `section` FERME le fragment courant ; le suivant s'ouvrira
     // a la premiere ecriture, et pas avant — c'est ce qui evite de payer un
     // fragment vide pour une section qui n'emet rien.
-    void closeFragment() { curFrag_ = -1; }
+    void closeFragment() { curFrag_ = -1; if (tlTracking()) ++tl_.seg; }
 
     // Le fragment qui porte l'adresse de rangement courante, et l'offset qu'on y
     // occupe. UN seul endroit decide de ce couple : les octets comme les labels
@@ -748,6 +758,109 @@ private:
     std::vector<Diagnostic> errors_;
     std::vector<Diagnostic> warnings_;
     int pass_ = 1, pc_ = 0;
+
+    // --- La duree entre deux labels (ADR 0035) -------------------------------
+    //
+    // Une TIMELINE : le cumul, en ordre de lecture, de ce que le code emis a
+    // coute jusqu'ici. Chaque label en garde un instantane a sa definition, et
+    // `nops_between(a, b)` est la difference de deux instantanes — en temps
+    // constant, et sans rien relire.
+    //
+    // Passe 1 seulement : les adresses ne dependent pas des valeurs, donc la
+    // timeline de la passe 1 est celle de la passe 2, et la passe 2 la LIT. Un
+    // label defini plus bas n'a pas d'instantane en passe 1 — la valeur est alors
+    // inconnue, comme celle de tout symbole pas encore defini.
+    struct Timeline {
+        int64_t ts = 0;      // T-states cumules
+        int64_t nops = 0;    // NOPs cumules, arrondis instruction par instruction
+        int64_t bytes = 0;   // octets d'INSTRUCTION cumules
+        int bad = 0;         // ce qui n'a pas de duree fixe, cumule
+        int seg = 0;         // le bloc contigu : un `org` ou une section en ouvre un autre
+        int pc = 0;          // l'adresse (ou l'offset dans la section) a ce point
+    };
+    // Ce qui n'a pas de duree fixe, dans l'ordre : c'est le premier de
+    // l'intervalle que le diagnostic nomme.
+    struct TimelineBad { std::string why, text, file; int line = 0; };
+    Timeline tl_;
+    std::map<std::string, Timeline> tlAt_;       // label qualifie -> instantane
+    std::vector<TimelineBad> tlBad_;
+    int tstatesPerNop_ = 0;                      // 0 : le profil n'en declare pas
+
+    bool tlTracking() const { return pass_ == 1 && !measuring_; }
+
+    void noteBad(const char *why) {
+        if (!tlTracking()) return;
+        // Une ligne de donnees emet plusieurs octets : une seule entree.
+        if (!tlBad_.empty() && tlBad_.back().file == cur_.file && tlBad_.back().line == cur_.line &&
+            tlBad_.back().why == why) return;
+        // Le texte cite est celui de l'instruction, sans son label.
+        std::string label, rest;
+        kw::peelLabel(trim(stripComment(cur_.text)), label, rest, kw::Phase::Assembly, nullptr);
+        tlBad_.push_back({why, trim(rest), cur_.file, cur_.line});
+        tl_.bad = (int)tlBad_.size();
+    }
+    // Un octet qui n'est pas celui d'une instruction : une donnee, un `ds`.
+    void noteData() { noteBad("it is data, not code"); }
+    void noteInstruction(const z80::Instruction &in, int nbytes) {
+        if (!tlTracking()) return;
+        const timing::Cost c = timing::cost(in);
+        if (!c.ok()) { noteBad(c.refusal); return; }
+        tl_.ts += c.tstates;
+        if (tstatesPerNop_) tl_.nops += timing::nops(c.tstates, tstatesPerNop_);
+        tl_.bytes += nbytes;
+    }
+    const Timeline *tlFind(const std::string &name) const {
+        const std::string qn = qualify(name);
+        auto it = tlAt_.find(qn);
+        if (it != tlAt_.end()) return &it->second;
+        auto cit = ciIndex_.find(upper(qn));
+        if (cit != ciIndex_.end()) {
+            auto jt = tlAt_.find(cit->second);
+            if (jt != tlAt_.end()) return &jt->second;
+        }
+        return nullptr;
+    }
+    // La mesure : exacte, ou refusee en disant pourquoi (ADR 0035).
+    bool timeBetween(bool nops, const std::string &from, const std::string &to,
+                     int64_t &value, std::string &error) {
+        const std::string fn = nops ? "nops_between" : "tstates_between";
+        if (nops && tstatesPerNop_ == 0) {
+            error = "nops_between(): this target does not say how long a NOP lasts "
+                    "(pass --target, or a profile that declares NOP_TSTATES); "
+                    "tstates_between() works everywhere";
+            return false;
+        }
+        const Timeline *a = tlFind(from), *b = tlFind(to);
+        if (!a || !b) {
+            const std::string &miss = !a ? from : to;
+            const bool isSym = symbols_.count(qualify(miss)) != 0;
+            error = fn + "(): '" + miss + (isSym ? "' is not a label" : "' is not defined");
+            return false;
+        }
+        const std::string pair = "'" + from + "'..'" + to + "'";
+        if (a->seg != b->seg) {
+            error = fn + "(" + from + ", " + to + "): " + pair + " are not in one contiguous "
+                    "block: an org or a section lies between them";
+            return false;
+        }
+        if (b->pc < a->pc) {
+            error = fn + "(" + from + ", " + to + "): '" + to + "' comes before '" + from + "'";
+            return false;
+        }
+        if (b->bad > a->bad) {
+            const TimelineBad &w = tlBad_[a->bad];
+            error = fn + "(" + from + ", " + to + "): " + w.file + ":" + std::to_string(w.line) +
+                    " '" + w.text + "' has no fixed duration: " + w.why;
+            return false;
+        }
+        if (b->pc - a->pc != b->bytes - a->bytes) {
+            error = fn + "(" + from + ", " + to + "): padding (align, boundary) lies between "
+                    "the two labels, and it has no duration";
+            return false;
+        }
+        value = nops ? b->nops - a->nops : b->ts - a->ts;
+        return true;
+    }
     // Frontiere demandee par un BOUNDARY que `runPass` n'a pas encore traite, et
     // profondeur de mesure (0 = parcours reel).
     int64_t pendingBoundary_ = 0;
@@ -986,6 +1099,9 @@ private:
             if (!r.ok) { error = r.error; return false; }
             value = r.value;
             return true;
+        }, [&](bool nops, const std::string &from, const std::string &to,
+               int64_t &value, std::string &error) -> bool {
+            return timeBetween(nops, from, to, value, error);
         });
         if (!r.ok) { evalOk_ = false; if (pass_ == 2) push(r.error); return 0; }
         lastValue_ = r;
@@ -1020,6 +1136,7 @@ private:
         if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
         setSymbol(qn, here(pc_));
         noteSymbol(qn, /*isConst=*/false);
+        if (pass_ == 1) { Timeline t = tl_; t.pc = pc_; tlAt_[qn] = t; }
     }
     // `reassignable` : une VARIABLE ('=') peut être redéfinie, une CONSTANTE
     // ('EQU') non. Cf. ADR 0003 — "angle = i - 1" dans un "repeat 256,i" est
@@ -1333,8 +1450,10 @@ private:
             checkReadOnlyWrite(pr.instr);
             instrStart_ = pc_;
             inInstruction_ = true;
+            const int pcBefore = pc_;
             z80::encode(*this, pr.instr);
             inInstruction_ = false;
+            noteInstruction(pr.instr, pc_ - pcBefore);
             return;
         }
         if (rest.empty()) { if (!label.empty()) defineLabel(label); return; }

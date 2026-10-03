@@ -168,6 +168,21 @@ int main() {
     chk("le même appel, résolu au temps d'assemblage, fonctionne",
         "db opcode(\"ld a,n\",0)\n", "db opcode(\"ld a,n\",0)\n");
 
+    // nops_between() et tstates_between() (ADR 0035) : une durée n'existe qu'une
+    // fois le code assemblé. Au temps préprocesseur — un LET, un compte de
+    // répétition — le refus le dit. Résolue plus tard, la ligne passe telle quelle.
+    chkErr("nops_between() est indisponible au temps préprocesseur (LET)",
+           "LET x=nops_between(deb,fin)\n db x\n");
+    chkErr("tstates_between() l'est aussi",
+           "LET x=tstates_between(deb,fin)\n db x\n");
+    chkErr("comme compte de repeat",
+           "deb: nop\nfin: nop\n repeat nops_between(deb,fin),k\n nop\n endrepeat\n");
+    chkErr("comme compteur de `nop n`",
+           "deb: nop\nfin: nop\n nop nops_between(deb,fin)\n");
+    chk("le même appel, résolu au temps d'assemblage, passe tel quel",
+        "deb: nop\nfin: nop\n db nops_between(deb,fin)\n",
+        "deb: nop\nfin: nop\ndb nops_between(deb,fin)\n");
+
     // IF / ELSE / ELSEIF (PP-strict)
     chk("IF vrai", "LET FLAG=1\nIF FLAG\n  ld a,1\nELSE\n  ld a,2\nENDIF\n", "ld a,1\n");
     chk("IF faux", "LET FLAG=0\nIF FLAG\n  ld a,1\nELSE\n  ld a,2\nENDIF\n", "ld a,2\n");

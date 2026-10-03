@@ -21,6 +21,10 @@
 # Le jeu d'instructions : encodage seul, sans adresse ni symbole.
 z80        z80.cpp
 
+# La durée de ces instructions, en T-states (ADR 0035) : même niveau que
+# l'encodage, dont elle ne dépend que par z80.h.
+z80        timing.cpp
+
 # Le vocabulaire réservé partagé (ADR 0013, ADR 0015) : « ce mot est-il un
 # label ? », une seule fois, avec la phase pour paramètre.
 keywords   keywords.cpp

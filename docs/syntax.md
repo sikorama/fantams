@@ -181,6 +181,49 @@ Z80 ambiguity (`ld a,(nn)` vs `ld a,n`), not something specific to `opcode()`
 — but `opcode()` expressions make it easy to write by reflex when only
 grouping was intended. Drop the parentheses to get the immediate.
 
+### `nops_between()` and `tstates_between()`
+
+`nops_between(from, to)` and `tstates_between(from, to)` give the **duration of
+the code between two labels**: the instructions from `from` up to, but not
+including, `to` (ADR 0035). The unit is the **T-state** (a Z80 clock tick) or the
+**NOP** (the CPC's microsecond: 4 T-states, each instruction rounded up to a
+multiple of 4). A frame is 19968 NOPs.
+
+        start:  ld   a, 5          ; 7 T-states  -> 2 NOPs
+                ld   (&4000), a    ; 13          -> 4
+                ld   hl, (&4000)   ; 16          -> 4
+                inc  (hl)          ; 11          -> 3
+        end:    nop
+                assert nops_between(start, end) == 13
+                assert tstates_between(start, end) == 47
+
+The rounding is **per instruction**, never on the total: 47 T-states is 13 NOPs
+here, not `ceil(47 / 4) = 12`.
+
+The value is known at **assembly time**, like a label. It works in an operand, an
+`equ`, a `=` variable and an `assert`, and `to` may be defined below. It does not
+exist at preprocessor time: `let`, a `repeat` count and `nop n` refuse it. To
+reserve space measured on labels above, use `ds`.
+
+A measure is **exact or refused**, never approximate. The interval may not hold:
+
+| What | Why |
+|---|---|
+| `jp` `jr` `djnz` `call` `ret` `reti` `retn` `rst` | the duration depends on the path taken |
+| `ldir` `lddr` `cpir` `cpdr` `inir` `indr` `otir` `otdr` | it depends on a counter |
+| `halt` | it waits for an interrupt |
+| `db` `dw` `ds` | data is not executed |
+| `align` `boundary` padding | it has no duration |
+
+`org` or a section change between the two labels is refused too, as is `to`
+before `from`. The refusal names the first offending line. A loop with a counter
+has no static measure: time it on an emulator.
+
+`tstates_between()` works everywhere. `nops_between()` needs a target that
+declares how long a NOP lasts (`NOP_TSTATES`, a `CONST` of the profile, 4 on the
+CPC family); without one it says so and points to `tstates_between()`. RAM
+contention is not modelled.
+
 ### Relocatable values
 
 A section that carries **no `org` of its own** is placed by the linker. Its
@@ -1006,7 +1049,7 @@ fail by naming the replacement:
 | `BANK` | write `org b<n>:<address>` — bank and address go on the same line |
 | `SNASET` `SETCPC` | describes the OUTPUT format, not the program: pass it to invocation |
 | `CHARSET` | a character set permutation is an asset encoding: generate the `db` with a script |
-| `TICKER` | counting cycles is a control flow analysis, not a directive |
+| `TICKER` | counting cycles is a control flow analysis, not a directive: use `nops_between(a, b)` on two labels, which refuses what it cannot count exactly |
 | `STR` | not yet implemented: use `db` (`STR` sets bit 7 of the last character) |
 
 `BUILDSNA`, `BANKSET`, `NOLIST`, and `LIST` are **accepted and ignored**: they

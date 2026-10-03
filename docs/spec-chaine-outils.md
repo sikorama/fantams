@@ -217,16 +217,24 @@ C'est une vérification statique, adossée au type de section associé au symbol
 
 ### 4.3 Mesure du temps d'exécution
 
-L'assembleur connaît le coût en cycles de chaque instruction ; c'est donc le seul
-endroit où la mesure soit exacte, et son absence est une lacune.
+L'assembleur connaît le coût en T-states de chaque instruction ; c'est donc le
+seul endroit où la mesure statique soit exacte (ADR 0035).
 
 ```
-CYCLES_BETWEEN(label1, label2)
+TSTATES_BETWEEN(label1, label2)
+NOPS_BETWEEN(label1, label2)
 ```
 
-La valeur rendue est utilisable dans une expression, donc paramétrable : une
-macro peut générer un délai à partir d'une durée mesurée, comme `ALIGN` génère un
-remplissage jusqu'à une frontière.
+Le coût des instructions de `label1` inclus à `label2` exclu. La valeur est de
+temps d'assemblage : utilisable dans une expression, un `ASSERT`, une constante
+— pas dans un `LET`, un `repeat` ou un `nop n`. La mesure est exacte ou refusée :
+un flot de contrôle, une donnée, ou deux labels non contigus dans l'intervalle
+sont des erreurs. `NOPS_BETWEEN` exige un profil qui déclare sa règle d'arrondi.
+
+`ASSERT NOPS_BETWEEN(debut, fin) == 19968` est la forme du contrat de durée.
+
+Pour ce qu'une mesure statique ne couvre pas (boucles à compteur, interruptions),
+la mesure dynamique est un outil externe (ADR 0036).
 
 ### 4.4 Portée des symboles
 

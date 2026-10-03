@@ -67,6 +67,15 @@ using Resolver = std::function<bool(const std::string &name, Value &out)>;
 using OpcodeHook = std::function<bool(const std::string &instrText, int index, int len,
                                        int64_t &value, std::string &error)>;
 
+// `tstates_between(a, b)` et `nops_between(a, b)` (ADR 0035) : la durée du code
+// compris entre deux labels. Comme `opcode()`, `expr` n'en connaît pas le calcul
+// — il vit chez l'assembleur, seul à savoir ce que contient l'intervalle — et ne
+// transmet que les DEUX NOMS, pas leurs valeurs : une adresse ne dit rien de ce
+// qu'il y a entre elles. `nops` choisit l'unité. Rend false et remplit `error`
+// quand l'intervalle n'a pas de durée exacte.
+using TimingHook = std::function<bool(bool nops, const std::string &from, const std::string &to,
+                                      int64_t &value, std::string &error)>;
+
 // Le résultat : une valeur, plus l'issue de son calcul. `value` est la partie
 // CONNUE arrondie — la valeur entière tout court quand elle est absolue, et
 // l'addend de la relocalisation quand elle ne l'est pas.
@@ -93,5 +102,11 @@ Result eval(const std::string &text, const Resolver &resolver);
 // auquel cas `opcode(...)` échoue en le disant plutôt que de se comporter
 // différemment de contexte en contexte.
 Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook);
+
+// Surcharge portant AUSSI le hook de la mesure de durée. Même règle : absent,
+// `nops_between()` échoue en disant pourquoi — au temps préprocesseur aucun
+// opcode n'existe encore, donc aucune durée.
+Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook,
+            const TimingHook &timingHook);
 
 } // namespace expr

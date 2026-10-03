@@ -48,6 +48,7 @@ struct Parser {
     size_t i = 0;
     const Resolver &resolver;
     const OpcodeHook *opcodeHook = nullptr;
+    const TimingHook *timingHook = nullptr;
 
     Parser(const std::string &str, const Resolver &r) : s(str), resolver(r) {}
 
@@ -348,8 +349,39 @@ struct Parser {
         out = num((double)value);
         return true;
     }
+    // `tstates_between(a, b)` / `nops_between(a, b)` (ADR 0035). Les deux
+    // arguments sont des NOMS de label, lus tels quels et non évalués : leur
+    // valeur est une adresse, et ce qui compte est ce qui les sépare.
+    std::string timingLabel(const std::string &fn) {
+        skip();
+        const size_t start = i;
+        while (i < s.size() && (std::isalnum((unsigned char)s[i]) || s[i] == '_' ||
+                                s[i] == '.' || s[i] == '@')) ++i;
+        if (i == start) fail(fn + "(): expected a label name");
+        return s.substr(start, i - start);
+    }
+    bool callTiming(bool nops, Value &out) {
+        const std::string fn = nops ? "nops_between" : "tstates_between";
+        if (!eat("(")) fail("expected '(' after " + fn);
+        const std::string from = timingLabel(fn);
+        if (!eat(",")) fail(fn + "(): expected ',' (2 label names)");
+        const std::string to = timingLabel(fn);
+        if (!eat(")")) fail("expected ')'");
+        if (!timingHook || !*timingHook)
+            fail(fn + "() is not available in this context: it measures assembled code, "
+                 "which does not exist yet at preprocessor time (use it in an expression "
+                 "the assembler evaluates: an equ, an assert, an operand)");
+        int64_t value = 0;
+        std::string err;
+        if (!(*timingHook)(nops, from, to, value, err))
+            fail(err.empty() ? fn + "() failed" : err);
+        out = num((double)value);
+        return true;
+    }
     bool callBuiltin(const std::string &upperName, Value &out) {
         if (upperName == "OPCODE") return callOpcode(out);
+        if (upperName == "NOPS_BETWEEN") return callTiming(true, out);
+        if (upperName == "TSTATES_BETWEEN") return callTiming(false, out);
         static const std::set<std::string> unary1 = {
             "SIN", "COS", "ABS", "HI", "LO", "HIGH", "LOW",
             // `bankof(x)` : dans quelle banque le linker a-t-il rangé x ? Une
@@ -440,10 +472,16 @@ Result eval(const std::string &text, const Resolver &resolver) {
 }
 
 Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook) {
+    return eval(text, resolver, opcodeHook, nullptr);
+}
+
+Result eval(const std::string &text, const Resolver &resolver, const OpcodeHook &opcodeHook,
+            const TimingHook &timingHook) {
     Result r;
     try {
         Parser p(text, resolver);
         p.opcodeHook = &opcodeHook;
+        p.timingHook = &timingHook;
         Value v = p.logOr();
         p.skip();
         if (p.i < text.size()) { r.ok = false; r.error = "unexpected character: '" + std::string(1, text[p.i]) + "'"; return r; }

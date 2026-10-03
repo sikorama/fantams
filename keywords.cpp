@@ -58,6 +58,9 @@ const std::set<std::string> &instructionWords() {
         // instruction passee en chaine. Meme raison que HIGH/LOW/BANKOF — un
         // label nomme « opcode » rendrait `opcode(x)` indechiffrable.
         "OPCODE",
+        // `tstates_between(a, b)` et `nops_between(a, b)` (ADR 0035) : la durée du
+        // code entre deux labels. Meme raison que OPCODE.
+        "TSTATES_BETWEEN", "NOPS_BETWEEN",
         // directives hors périmètre, reconnues mais non implémentées (hors périmètre) :
         // gardées réservées pour échouer proprement plutôt que d'être lues
         // comme un label.

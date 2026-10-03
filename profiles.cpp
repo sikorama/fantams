@@ -31,6 +31,13 @@ const char *kCpc6128 = R"PROFILE(// Amstrad CPC 6128
 
 TARGET cpc6128
 
+// Combien de T-states dure un NOP (ADR 0035). Le Gate Array arrondit la duree
+// de CHAQUE instruction au multiple de 4 T-states superieur : un NOP vaut une
+// microseconde, et `nops_between()` compte dans cette unite. L'assembleur ne
+// connait aucune machine ; il recoit ce nombre comme il recoit `GA_PORT`.
+// ATTESTE. Une trame fait 19968 NOPs (312 lignes de 64).
+CONST NOP_TSTATES = 4
+
 // --- Les fenetres : une grille de quatre, de 16 K -------------------------
 // ATTESTE. [S968] §2.5 : les quatre plages #0000, #4000, #8000, #C000.
 WINDOW w0 [0x0000..0x3FFF]
@@ -154,6 +161,13 @@ const char *kCpcPlus = R"PROFILE(// Amstrad CPC 464/6128 Plus
 // PERIMETRE = attests mais pas encore ecrit ici, et dit pourquoi.
 
 TARGET cpcplus
+
+// Combien de T-states dure un NOP (ADR 0035). Le Gate Array arrondit la duree
+// de CHAQUE instruction au multiple de 4 T-states superieur : un NOP vaut une
+// microseconde, et `nops_between()` compte dans cette unite. L'assembleur ne
+// connait aucune machine ; il recoit ce nombre comme il recoit `GA_PORT`.
+// ATTESTE. Une trame fait 19968 NOPs (312 lignes de 64).
+CONST NOP_TSTATES = 4
 
 // --- La RAM : IDENTIQUE au 6128, copiee et non reinventee -----------------
 // ATTESTE. docs/recherche/cpc-gate-array-rmr.md §D.1 : le PAL de la RAM et
