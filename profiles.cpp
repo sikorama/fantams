@@ -31,12 +31,15 @@ const char *kCpc6128 = R"PROFILE(// Amstrad CPC 6128
 
 TARGET cpc6128
 
-// Combien de T-states dure un NOP (ADR 0035). Le Gate Array arrondit la duree
-// de CHAQUE instruction au multiple de 4 T-states superieur : un NOP vaut une
-// microseconde, et `nops_between()` compte dans cette unite. L'assembleur ne
-// connait aucune machine ; il recoit ce nombre comme il recoit `GA_PORT`.
-// ATTESTE. Une trame fait 19968 NOPs (312 lignes de 64).
-CONST NOP_TSTATES = 4
+// Quelle table de NOPs s'applique (ADR 0035). 1 est celle du Gate Array du CPC :
+// il etire chaque phase d'une instruction au multiple de 4 T-states superieur,
+// si bien qu'une instruction dure la SOMME de ses phases arrondies — `push`, 11
+// T-states, dure 4 NOPs — et `out (c),r` fait exception. Ce n'est pas une
+// fonction des T-states : c'est une table, mesuree sur machine (Madram, 64NOPS).
+// L'assembleur ne connait aucune machine ; il recoit ce numero comme il recoit
+// `GA_PORT`, et `nops_between()` en depend. ATTESTE. Une trame fait 19968 NOPs
+// (312 lignes de 64).
+CONST NOP_TABLE = 1
 
 // --- Les fenetres : une grille de quatre, de 16 K -------------------------
 // ATTESTE. [S968] §2.5 : les quatre plages #0000, #4000, #8000, #C000.
@@ -162,12 +165,15 @@ const char *kCpcPlus = R"PROFILE(// Amstrad CPC 464/6128 Plus
 
 TARGET cpcplus
 
-// Combien de T-states dure un NOP (ADR 0035). Le Gate Array arrondit la duree
-// de CHAQUE instruction au multiple de 4 T-states superieur : un NOP vaut une
-// microseconde, et `nops_between()` compte dans cette unite. L'assembleur ne
-// connait aucune machine ; il recoit ce nombre comme il recoit `GA_PORT`.
-// ATTESTE. Une trame fait 19968 NOPs (312 lignes de 64).
-CONST NOP_TSTATES = 4
+// Quelle table de NOPs s'applique (ADR 0035). 1 est celle du Gate Array du CPC :
+// il etire chaque phase d'une instruction au multiple de 4 T-states superieur,
+// si bien qu'une instruction dure la SOMME de ses phases arrondies — `push`, 11
+// T-states, dure 4 NOPs — et `out (c),r` fait exception. Ce n'est pas une
+// fonction des T-states : c'est une table, mesuree sur machine (Madram, 64NOPS).
+// L'assembleur ne connait aucune machine ; il recoit ce numero comme il recoit
+// `GA_PORT`, et `nops_between()` en depend. ATTESTE. Une trame fait 19968 NOPs
+// (312 lignes de 64).
+CONST NOP_TABLE = 1
 
 // --- La RAM : IDENTIQUE au 6128, copiee et non reinventee -----------------
 // ATTESTE. docs/recherche/cpc-gate-array-rmr.md §D.1 : le PAL de la RAM et

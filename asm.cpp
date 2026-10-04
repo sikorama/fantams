@@ -96,12 +96,13 @@ public:
         // ferait rien.
         for (const auto &kv : given_) setSymbol(kv.first, (double)kv.second);
 
-        // La duree du NOP, que le PROFIL porte (ADR 0035) : l'assembleur ne
-        // connait aucune machine, il recoit un nombre. Absent, `nops_between`
-        // refuse en le disant.
-        tl_ = Timeline(); tlAt_.clear(); tlBad_.clear(); tstatesPerNop_ = 0;
-        const auto nopT = given_.find("NOP_TSTATES");
-        if (nopT != given_.end() && nopT->second > 0) tstatesPerNop_ = (int)nopT->second;
+        // La table des NOPs, que le PROFIL declare (ADR 0035) : l'assembleur ne
+        // connait aucune machine, il recoit un numero de table — 1 est celle du
+        // Gate Array du CPC. Absent, `nops_between` refuse en le disant.
+        tl_ = Timeline(); tlAt_.clear(); tlBad_.clear(); tlOrder_.clear(); timingRows_.clear();
+        hasNopTable_ = false;
+        const auto nopT = given_.find("NOP_TABLE");
+        if (nopT != given_.end() && nopT->second == 1) hasNopTable_ = true;
 
         pass_ = 1; pc_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
@@ -144,7 +145,9 @@ public:
         checkSectionSizes();
         checkScopes();
 
+        buildTimingRows();
         Object o;
+        o.timing = timingRows_;
         // Output.symbols reste entier : c'est une table d'ADRESSES destinee aux
         // outils et aux humains. La precision reelle n'a d'interet qu'a
         // l'interieur du calcul d'expressions.
@@ -772,7 +775,7 @@ private:
     // inconnue, comme celle de tout symbole pas encore defini.
     struct Timeline {
         int64_t ts = 0;      // T-states cumules
-        int64_t nops = 0;    // NOPs cumules, arrondis instruction par instruction
+        int64_t nops = 0;    // NOPs cumules, ceux de la table de la machine
         int64_t bytes = 0;   // octets d'INSTRUCTION cumules
         int bad = 0;         // ce qui n'a pas de duree fixe, cumule
         int seg = 0;         // le bloc contigu : un `org` ou une section en ouvre un autre
@@ -784,7 +787,13 @@ private:
     Timeline tl_;
     std::map<std::string, Timeline> tlAt_;       // label qualifie -> instantane
     std::vector<TimelineBad> tlBad_;
-    int tstatesPerNop_ = 0;                      // 0 : le profil n'en declare pas
+    std::vector<std::string> tlOrder_;           // les labels, dans l'ordre de definition
+    std::vector<TimingRow> timingRows_;          // ce que `--timing` ecrira
+    // Les mesures evaluees par l'`assert` en cours, pour la table des durees.
+    bool collecting_ = false;
+    struct Measured { std::string from, to; int64_t ts = 0, nops = -1; };
+    std::vector<Measured> measured_;
+    bool hasNopTable_ = false;                   // le profil declare une table de NOPs
 
     bool tlTracking() const { return pass_ == 1 && !measuring_; }
 
@@ -806,7 +815,7 @@ private:
         const timing::Cost c = timing::cost(in);
         if (!c.ok()) { noteBad(c.refusal); return; }
         tl_.ts += c.tstates;
-        if (tstatesPerNop_) tl_.nops += timing::nops(c.tstates, tstatesPerNop_);
+        tl_.nops += c.nops;
         tl_.bytes += nbytes;
     }
     const Timeline *tlFind(const std::string &name) const {
@@ -820,13 +829,31 @@ private:
         }
         return nullptr;
     }
+    // Pourquoi l'intervalle [a, b[ n'a pas de duree exacte, ou vide s'il en a une.
+    // Un seul porteur pour le diagnostic d'une mesure et pour la note de la table.
+    std::string intervalFault(const Timeline &a, const Timeline &b,
+                              const std::string &from, const std::string &to) const {
+        if (a.seg != b.seg)
+            return "'" + from + "' and '" + to + "' are not in one contiguous block: "
+                   "an org or a section lies between them";
+        if (b.pc < a.pc) return "'" + to + "' comes before '" + from + "'";
+        if (b.bad > a.bad) {
+            const TimelineBad &w = tlBad_[a.bad];
+            return w.file + ":" + std::to_string(w.line) + " '" + w.text +
+                   "' has no fixed duration: " + w.why;
+        }
+        if (b.pc - a.pc != b.bytes - a.bytes)
+            return "padding (align, boundary) lies between '" + from + "' and '" + to +
+                   "', and it has no duration";
+        return std::string();
+    }
     // La mesure : exacte, ou refusee en disant pourquoi (ADR 0035).
     bool timeBetween(bool nops, const std::string &from, const std::string &to,
                      int64_t &value, std::string &error) {
         const std::string fn = nops ? "nops_between" : "tstates_between";
-        if (nops && tstatesPerNop_ == 0) {
+        if (nops && !hasNopTable_) {
             error = "nops_between(): this target does not say how long a NOP lasts "
-                    "(pass --target, or a profile that declares NOP_TSTATES); "
+                    "(pass --target, or a profile that declares NOP_TABLE); "
                     "tstates_between() works everywhere";
             return false;
         }
@@ -837,29 +864,39 @@ private:
             error = fn + "(): '" + miss + (isSym ? "' is not a label" : "' is not defined");
             return false;
         }
-        const std::string pair = "'" + from + "'..'" + to + "'";
-        if (a->seg != b->seg) {
-            error = fn + "(" + from + ", " + to + "): " + pair + " are not in one contiguous "
-                    "block: an org or a section lies between them";
-            return false;
-        }
-        if (b->pc < a->pc) {
-            error = fn + "(" + from + ", " + to + "): '" + to + "' comes before '" + from + "'";
-            return false;
-        }
-        if (b->bad > a->bad) {
-            const TimelineBad &w = tlBad_[a->bad];
-            error = fn + "(" + from + ", " + to + "): " + w.file + ":" + std::to_string(w.line) +
-                    " '" + w.text + "' has no fixed duration: " + w.why;
-            return false;
-        }
-        if (b->pc - a->pc != b->bytes - a->bytes) {
-            error = fn + "(" + from + ", " + to + "): padding (align, boundary) lies between "
-                    "the two labels, and it has no duration";
-            return false;
-        }
+        const std::string fault = intervalFault(*a, *b, from, to);
+        if (!fault.empty()) { error = fn + "(" + from + ", " + to + "): " + fault; return false; }
         value = nops ? b->nops - a->nops : b->ts - a->ts;
+        if (collecting_ && pass_ == 2)
+            measured_.push_back({from, to, b->ts - a->ts, hasNopTable_ ? b->nops - a->nops : -1});
         return true;
+    }
+    // La table des durees : une ligne par label, la duree jusqu'au SUIVANT. Le
+    // dernier label d'un bloc n'a pas de suivant, et la ligne reste muette plutot
+    // que d'inventer une borne.
+    void buildTimingRows() {
+        std::vector<TimingRow> labels;
+        for (size_t i = 0; i < tlOrder_.size(); ++i) {
+            const std::string &qn = tlOrder_[i];
+            TimingRow r;
+            r.kind = "label"; r.name = qn;
+            const auto si = symInfo_.find(qn);
+            if (si != symInfo_.end()) { r.file = si->second.file; r.line = si->second.line; }
+            const Timeline &a = tlAt_[qn];
+            if (i + 1 < tlOrder_.size()) {
+                const Timeline &b = tlAt_[tlOrder_[i + 1]];
+                if (a.seg == b.seg) {
+                    r.note = intervalFault(a, b, qn, tlOrder_[i + 1]);
+                    if (r.note.empty()) {
+                        r.tstates = b.ts - a.ts;
+                        if (hasNopTable_) r.nops = b.nops - a.nops;
+                    }
+                }
+            }
+            labels.push_back(r);
+        }
+        // Les labels d'abord, puis les assert deja collectes en passe 2.
+        timingRows_.insert(timingRows_.begin(), labels.begin(), labels.end());
     }
     // Frontiere demandee par un BOUNDARY que `runPass` n'a pas encore traite, et
     // profondeur de mesure (0 = parcours reel).
@@ -1136,7 +1173,7 @@ private:
         if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
         setSymbol(qn, here(pc_));
         noteSymbol(qn, /*isConst=*/false);
-        if (pass_ == 1) { Timeline t = tl_; t.pc = pc_; tlAt_[qn] = t; }
+        if (pass_ == 1) { Timeline t = tl_; t.pc = pc_; if (tlAt_.emplace(qn, t).second) tlOrder_.push_back(qn); }
     }
     // `reassignable` : une VARIABLE ('=') peut être redéfinie, une CONSTANTE
     // ('EQU') non. Cf. ADR 0003 — "angle = i - 1" dans un "repeat 256,i" est
@@ -1681,7 +1718,20 @@ private:
             if (pass_ != 2) return;
             auto parts = splitTopLevel(after0, ',');
             if (parts.empty()) { structErr("ASSERT: missing condition"); return; }
-            if (evalExpr(parts[0]) == 0) {
+            collecting_ = true; measured_.clear();
+            const int64_t verdict = evalExpr(parts[0]);
+            collecting_ = false;
+            // Un assert de DUREE figure dans la table, qu'il passe ou non : c'est
+            // le contrat, et un agent veut le lire a cote de la mesure.
+            for (const Measured &m : measured_) {
+                TimingRow r;
+                r.kind = "assert"; r.name = m.from + ".." + m.to;
+                r.file = cur_.file; r.line = cur_.line;
+                r.tstates = m.ts; r.nops = m.nops;
+                r.note = trim(parts[0]) + (verdict == 0 ? " FAILED" : " ok");
+                timingRows_.push_back(r);
+            }
+            if (verdict == 0) {
                 std::string msg = "assertion failed: " + trim(parts[0]);
                 if (parts.size() > 1) msg += " — " + literalText(trim(parts[1]));
                 // push() et non structErr() : ce dernier ne rapporte qu'en passe 1
@@ -1740,7 +1790,7 @@ private:
         // toutes les lignes suivantes sans que la source déroulée le montre —
         // or elle est un livrable, réassemblable et lisible (ADR 0010).
         if (W0 == "CHARSET") { structErr("CHARSET is not supported: a character-set permutation is an asset encoding — generate the 'db' with a script (fantams macros cannot manipulate strings)"); return; }
-        if (W0 == "TICKER") { structErr("TICKER is not supported: cycle counting is a control-flow analysis, not a directive (it cannot account for conditional jumps)"); return; }
+        if (W0 == "TICKER") { structErr("TICKER is not supported: cycle counting is a control-flow analysis, not a directive (it cannot account for conditional jumps); write nops_between(a, b) on two labels instead, which refuses what it cannot count exactly"); return; }
         if (W0 == "STR") { structErr("STR is not implemented yet: use 'db' (STR emits the string with bit 7 set on the last character)"); return; }
 
         // définition de symbole : "name: EQU v" / "name EQU v" / "name = v"

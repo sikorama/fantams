@@ -485,14 +485,17 @@ _Éviter_ : oracle, banc, test d'intégration
 **T-state** :
 L'unité de durée du Z80 : un tic d'horloge. Le coût d'une instruction s'exprime
 en T-states indépendamment de toute machine, ce qui en fait la seule grandeur
-que le cœur de l'assembleur peut porter (ADR 0024).
+que le cœur de l'assembleur peut dériver des opcodes (ADR 0024).
 _Éviter_ : cycle (ambigu : cycle machine de 3 à 6 T-states, ou cycle d'horloge),
 tick
 
 **NOP** :
-L'unité de durée du CPC : une microseconde, soit 4 T-states. Le Gate Array
-arrondit la durée de chaque instruction au multiple de 4 supérieur ; compter en
-NOPs, c'est donc appliquer cet arrondi instruction par instruction, jamais au
-total. Une trame fait 19968 NOPs (312 lignes de 64). Le mot désigne l'unité,
+L'unité de durée du CPC : une microseconde. Le Gate Array étire chaque phase
+d'une instruction (chaque cycle machine) au multiple de 4 T-states supérieur, si
+bien que la durée d'une instruction en NOPs est la **somme de ses phases
+arrondies** — pas l'arrondi de son total en T-states : `push` dure 11 T-states et
+4 NOPs. Aucune fonction des T-states ne la rend, et `out (c),r` fait exception :
+c'est une **table**, mesurée sur machine, que le profil déclare applicable
+(ADR 0035). Une trame fait 19968 NOPs (312 lignes de 64). Le mot désigne l'unité,
 l'instruction `nop` s'écrit en minuscules.
 _Éviter_ : cycle, µs, tick (nom du compteur d'AMSpiriT, qui compte des NOPs)

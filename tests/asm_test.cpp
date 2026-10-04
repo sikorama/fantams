@@ -1193,9 +1193,9 @@ int main() {
 
     // --- La duree entre deux labels (ADR 0035) --------------------------------
     {
-        // Le NOP est une grandeur du PROFIL : l'assembleur recoit NOP_TSTATES
+        // La table des NOPs est celle du PROFIL : l'assembleur recoit NOP_TABLE
         // comme il recoit GA_PORT, et ne connait aucune machine.
-        const asmb::Constants cpc = {{"NOP_TSTATES", 4}};
+        const asmb::Constants cpc = {{"NOP_TABLE", 1}};
         auto measure = [&](const char *src, const asmb::Constants &given, int64_t &v) {
             asmb::Object o = asmb::assembleText(src, "t.asm", given);
             if (o.ok) { auto it = o.symbols.find("DUREE"); v = it == o.symbols.end() ? -1 : it->second; }
@@ -1207,13 +1207,14 @@ int main() {
         };
         int64_t v = 0;
 
-        // 7 + 13 + 16 + 11 = 47 T-states ; 2 + 4 + 4 + 3 = 13 NOPs. L'arrondi
-        // se fait instruction par instruction : ceil(47/4) serait 12.
+        // 7 + 13 + 16 + 11 = 47 T-states ; 2 + 4 + 5 + 3 = 14 NOPs. Les NOPs sont
+        // ceux de la table de la machine, pas l'arrondi du total : ceil(47/4) serait
+        // 12, et `ld hl,(nn)` dure 5 NOPs bien que 16 T-states en fassent 4.
         const char *body = "  org 0x8000\ndeb: ld a,5\n ld (0x4000),a\n ld hl,(0x4000)\n inc (hl)\nfin: nop\n";
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), cpc, v);
         okc("tstates_between additionne les T-states", v == 47);
         measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), cpc, v);
-        okc("nops_between arrondit instruction par instruction", v == 13);
+        okc("nops_between lit la table des NOPs, instruction par instruction", v == 14);
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), asmb::Constants(), v);
         okc("tstates_between marche sans profil", v == 47);
 
@@ -1265,7 +1266,7 @@ int main() {
 
         // Le NOP vient du profil : sans lui, `nops_between` refuse en le disant.
         o = measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), asmb::Constants(), v);
-        okc("nops_between sans profil est refuse", !o.ok && errorSays(o, "NOP_TSTATES"));
+        okc("nops_between sans profil est refuse", !o.ok && errorSays(o, "NOP_TABLE"));
         okc("et le refus renvoie vers tstates_between", errorSays(o, "tstates_between"));
 
         // Un mot reserve : un label nomme `nops_between` rendrait la fonction illisible.
@@ -1277,6 +1278,64 @@ int main() {
         measure("  org 0x8000\nxa: nop\n boundary 16\n nop\n nop\n end_boundary\nxb: nop\n"
                 "DUREE equ nops_between(xa,xb)\n", cpc, v);
         okc("un bloc BOUNDARY n'est compte qu'une fois", v == 3);
+    }
+
+    // --- La table des durees (--timing, ADR 0035) -------------------------------
+    {
+        const asmb::Constants cpc = {{"NOP_TABLE", 1}};
+        asmb::Object o = asmb::assembleText(
+            "  org 0x8000\n"
+            "deb: ld a,5\n"            // 7  -> 2
+            " inc (hl)\n"              // 11 -> 3
+            "mid: nop\n"
+            " jr nz,deb\n"
+            "tail: nop\n"
+            " db 1\n"
+            "fin: nop\n"
+            " assert nops_between(deb,mid)==5\n"
+            " assert tstates_between(mid,mid)==1\n", "t.asm", cpc);
+        auto row = [&](const char *kind, const char *name) -> const asmb::TimingRow * {
+            for (const auto &r : o.timing) if (r.kind == kind && r.name == name) return &r;
+            return nullptr;
+        };
+        const asmb::TimingRow *d = row("label", "deb");
+        okc("un label porte la duree jusqu'au suivant", d && d->tstates == 18 && d->nops == 5);
+        const asmb::TimingRow *m = row("label", "mid");
+        okc("un intervalle refuse n'a pas de duree", m && m->tstates < 0 && m->nops < 0);
+        okc("et sa note dit pourquoi, ligne comprise",
+            m && m->note.find("t.asm:5") != std::string::npos &&
+            m->note.find("jr nz,deb") != std::string::npos);
+        const asmb::TimingRow *t = row("label", "tail");
+        okc("un `db` dans l'intervalle le refuse", t && t->tstates < 0 && t->note.find("data") != std::string::npos);
+        const asmb::TimingRow *e = row("label", "fin");
+        okc("le dernier label n'a pas de suivant : muet, sans note", e && e->tstates < 0 && e->note.empty());
+        okc("les labels precedent les assert",
+            !o.timing.empty() && o.timing.front().kind == "label" && o.timing.back().kind == "assert");
+        const asmb::TimingRow *a1 = row("assert", "deb..mid");
+        okc("un assert de duree figure, avec ses deux unites",
+            a1 && a1->tstates == 18 && a1->nops == 5 && a1->note.find("ok") != std::string::npos);
+        const asmb::TimingRow *a2 = row("assert", "mid..mid");
+        okc("un assert rate y figure aussi, marque FAILED", a2 && a2->note.find("FAILED") != std::string::npos);
+        okc("et l'assemblage, lui, echoue", !o.ok);
+
+        // Le CSV : une vraie ligne d'en-tete, des champs vides, les virgules guillemetees.
+        const std::string csv = sym::formatTiming(o.timing);
+        okc("le CSV a son en-tete", csv.rfind("kind,name,file,line,tstates,nops,note\n", 0) == 0);
+        okc("une duree absente est un champ VIDE, pas un zero",
+            csv.find("label,mid,t.asm,4,,,") != std::string::npos);
+        okc("une note qui porte une virgule est guillemetee",
+            csv.find("\"t.asm:5 'jr nz,deb'") != std::string::npos);
+
+        // Sans NOP declare : les T-states restent, les NOPs deviennent vides.
+        asmb::Object p = asmb::assembleText("  org 0x8000\nxa: nop\nxb: nop\n", "t.asm");
+        okc("sans profil, les T-states sont rendus et les NOPs vides",
+            p.timing.size() == 2 && p.timing[0].tstates == 4 && p.timing[0].nops < 0);
+
+        // TICKER reste refuse, et nomme son remplacant.
+        asmb::Object k = asmb::assembleText("  org 0x8000\n ticker\n", "t.asm");
+        bool names = false;
+        for (const auto &er : k.errors) if (er.message.find("nops_between") != std::string::npos) names = true;
+        okc("TICKER est refuse et nomme nops_between", !k.ok && names);
     }
 
     printf("\n%d réussis, %d échoués\n", g_pass, g_fail);

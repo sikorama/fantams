@@ -39,6 +39,12 @@
 //          Destinee a un desassembleur ou un emulateur, pas a un humain — pour
 //          l'humain, c'est « -s ». Sans « = », le chemin est derive de -o : le
 //          fichier voyage a cote du binaire qu'il decrit.
+//     --timing[=fichier] : ecrire la TABLE DES DUREES (ADR 0035) : un CSV d'une
+//          ligne par label — la duree du code jusqu'au label SUIVANT, en T-states
+//          et en NOPs, ou la raison pour laquelle il n'en a pas — puis une ligne
+//          par `assert` de duree. Destinee a un humain ou a un agent qui cherche
+//          ou passe le temps. Sans « = », le chemin est derive de -o
+//          (`prog.timing.csv`). Exige d'assembler un source, et sort MEME si l'assemblage echoue : un assert de duree rate est le cas ou on veut la table.
 //     --normalize : canoniser le source SANS le derouler (ADR 0017) : orthographes
 //          obsoletes et opcodes composes. Change deliberement le nombre de lignes.
 //          Transformation INDEPENDANTE du beautify, composable avec lui — les deux
@@ -105,6 +111,9 @@ int main(int argc, char **argv) {
     bool wantListFiles = false;
     bool wantSym = false;
     std::string symPath;
+    bool wantTiming = false;
+    bool assembledHere = false;   // un source a ete assemble ici (et non relu d'un .fo)
+    std::string timingPath;
     bool strict = false;
     bool detachLabels = true;
     bool indentBlocks = true;
@@ -155,6 +164,9 @@ int main(int argc, char **argv) {
         // par « --sym=... », le defaut se derive de -o.
         else if (a == "--sym") wantSym = true;
         else if (a.rfind("--sym=", 0) == 0) { wantSym = true; symPath = a.substr(6); }
+        // Meme regle que --sym : pas d'argument positionnel.
+        else if (a == "--timing") wantTiming = true;
+        else if (a.rfind("--timing=", 0) == 0) { wantTiming = true; timingPath = a.substr(9); }
         else if (a == "--strict") strict = true;
         else if (a == "--no-detach-labels") detachLabels = false;
         else if (a == "--no-indent-blocks") indentBlocks = false;
@@ -284,7 +296,7 @@ int main(int argc, char **argv) {
     auto isFo = [](const std::string &p) {
         return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
     };
-    if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]]\n"
+    if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]]\n"
                                      "  --version  : la date de version et la date de compilation, a lire\n"
                                      "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
                                      "  file.fo... : des objets deja assembles, a linker\n"
@@ -340,10 +352,17 @@ int main(int argc, char **argv) {
                                ? outPath : outPath.substr(0, dot);
         symPath = stem + ".sym";
     }
+    if (wantTiming && timingPath.empty()) {
+        size_t dot = outPath.find_last_of('.');
+        size_t slash = outPath.find_last_of('/');
+        std::string stem = (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+                               ? outPath : outPath.substr(0, dot);
+        timingPath = stem + ".timing.csv";
+    }
     // Ni --beautify ni --normalize ne passent par l'assembleur : il n'y a pas de
     // table de symboles sans assemblage. -E, lui, assemble — il est autorise.
-    if (wantSym && sourceOut) {
-        fprintf(stderr, "error: --sym demande un assemblage ; %s ne passe pas par l'assembleur (il transforme du texte en texte)\n",
+    if ((wantSym || wantTiming) && sourceOut) {
+        fprintf(stderr, "error: --sym et --timing demandent un assemblage ; %s ne passe pas par l'assembleur (il transforme du texte en texte)\n",
                 beautifyOnly ? "--beautify" : "--normalize");
         return 2;
     }
@@ -537,13 +556,14 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: unrolled source (%zu lines)\n", outPath.c_str(), written);
         // --sym exige d'assembler, on continue donc. Aucun binaire ne sera ecrit :
         // -E a pris `-o`, et l'ecraser detruirait la sortie demandee.
-        if (!wantSym) return 0;
+        if (!wantSym && !wantTiming) return 0;
     }
 
     // 2) assembler (2 passes) on the flat text
     std::vector<asmb::SourceLine> lines;
     for (auto &l : folded) lines.push_back({l.text, l.file, l.line, l.col0});
     out = asmb::assemble(lines, given);
+    assembledHere = true;
     out.name = path;
     objects.push_back(out);
     // PRINT n'est ni une erreur ni un avertissement : c'est ce que la source a
@@ -552,6 +572,24 @@ int main(int argc, char **argv) {
     for (auto &p : out.prints) fprintf(stderr, "%s:%d: %s\n", p.file.c_str(), p.line, p.message.c_str());
 
     }   // fin du chemin « il y a un source »
+
+    // La table des durees sort ICI, AVANT le refus sur erreur — a l'inverse du
+    // .sym. Un `assert` de duree rate est justement le cas ou on veut la table :
+    // elle dit de combien, et sur quel intervalle. Un .sym partiel trompe un
+    // debogueur ; une table des durees porte ses propres refus et son « FAILED ».
+    if (wantTiming) {
+        // Un `.fo` relu ne porte pas de durees : elles se calculent a
+        // l'assemblage, et un objet ne les garde pas.
+        if (!assembledHere) {
+            fprintf(stderr, "error: --timing demande d'assembler un source ; un .fo n'en porte pas les durees\n");
+            return 2;
+        }
+        const std::string table = sym::formatTiming(out.timing);
+        std::ofstream f(timingPath, std::ios::binary);
+        if (!f) { fprintf(stderr, "error: cannot write: %s\n", timingPath.c_str()); return 2; }
+        f.write(table.data(), (std::streamsize)table.size());
+        fprintf(stderr, "%s: %zu lignes\n", timingPath.c_str(), out.timing.size());
+    }
 
     // `-o quelque-chose.fo` : ECRIRE UN OBJET, et ne rien linker. C'est ce que la
     // compilation separee demande — et c'est aussi ce qui rend l'aller-retour

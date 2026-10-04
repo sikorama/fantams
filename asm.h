@@ -191,6 +191,24 @@ struct Entry {
     int line = 0;
 };
 
+// Une ligne de la table des durees (`--timing`, ADR 0035).
+//
+//   kind     « label » : la duree du code entre ce label et le suivant, dans le
+//            meme bloc contigu. « assert » : une mesure evaluee dans un `assert`.
+//   name     le label (qualifie, comme dans `--sym`), ou « from..to » pour un
+//            assert.
+//   tstates  la duree en T-states ; -1 quand il n'y en a pas — le dernier label
+//            d'un bloc n'a pas de « suivant », et un intervalle refuse n'en a pas.
+//   nops     la duree en NOPs ; -1 de meme, et quand le profil n'en declare pas.
+//   note     un label : pourquoi son intervalle n'a pas de duree, sinon vide. Un
+//            assert : la condition, et « ok » ou « FAILED ».
+struct TimingRow {
+    std::string kind, name, file;
+    int line = 0;
+    int64_t tstates = -1, nops = -1;
+    std::string note;
+};
+
 // L'OBJET rendu par l'assembleur : ce qu'une unité de compilation contient, et
 // rien de ce qu'il faudrait décider pour la ranger. Aucune image, aucune
 // coverage parallèle, aucune banque écrite, aucun binaire, aucune adresse de
@@ -216,6 +234,7 @@ struct Object {
     std::vector<Symbol> symbolTable;
     std::vector<Diagnostic> errors;
     std::vector<Diagnostic> warnings;          // bonnes pratiques (non bloquant) : label sans ':', instruction en colonne 1...
+    std::vector<TimingRow> timing;             // la table des durees (ADR 0035), pour `--timing`
     std::vector<Diagnostic> prints;            // sorties de PRINT (diagnostic de build, ni erreur ni avertissement)
 };
 

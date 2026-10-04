@@ -229,7 +229,7 @@ Le coût des instructions de `label1` inclus à `label2` exclu. La valeur est de
 temps d'assemblage : utilisable dans une expression, un `ASSERT`, une constante
 — pas dans un `LET`, un `repeat` ou un `nop n`. La mesure est exacte ou refusée :
 un flot de contrôle, une donnée, ou deux labels non contigus dans l'intervalle
-sont des erreurs. `NOPS_BETWEEN` exige un profil qui déclare sa règle d'arrondi.
+sont des erreurs. `NOPS_BETWEEN` exige un profil qui déclare la table de NOPs qui s'applique (`NOP_TABLE`).
 
 `ASSERT NOPS_BETWEEN(debut, fin) == 19968` est la forme du contrat de durée.
 

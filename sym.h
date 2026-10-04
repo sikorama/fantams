@@ -48,4 +48,23 @@ namespace sym {
 // `csv.reader` n'a pas de preambule a sauter.
 std::string format(const link::Image &img);
 
+// La table des durees (`--timing`, ADR 0035), en CSV avec une vraie ligne
+// d'en-tete, comme la table des symboles : les noms de colonnes SONT le numero
+// de version. Les labels d'abord, dans l'ordre du source, puis les `assert` de
+// duree.
+//
+// Colonnes : kind,name,file,line,tstates,nops,note
+//
+//   kind     « label » ou « assert »
+//   name     le label, ou « from..to » pour un assert
+//   tstates  la duree jusqu'au label SUIVANT du meme bloc ; vide s'il n'y en a pas
+//            (dernier label d'un bloc) ou si l'intervalle n'a pas de duree exacte
+//   nops     idem en NOPs ; vide aussi quand le profil n'en declare pas
+//   note     un label : la raison du refus, sinon vide. Un assert : sa condition,
+//            suivie de « ok » ou « FAILED »
+//
+// Un champ vide n'est PAS un zero : un intervalle vide dure 0, et la colonne le
+// dit.
+std::string formatTiming(const std::vector<asmb::TimingRow> &rows);
+
 } // namespace sym

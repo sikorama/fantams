@@ -23,7 +23,8 @@ std::string hex(int64_t v) {
 // une ligne a huit champs au milieu d'un fichier a sept — le seul mode d'echec
 // silencieux que ce format puisse avoir.
 std::string csv(const std::string &s) {
-    if (s.find(',') == std::string::npos && s.find('"') == std::string::npos) return s;
+    if (s.find(',') == std::string::npos && s.find('"') == std::string::npos &&
+        s.find('\n') == std::string::npos) return s;
     std::string out = "\"";
     for (char c : s) {
         if (c == '"') out += "\"\"";
@@ -70,6 +71,23 @@ std::string format(const link::Image &img) {
         out += csv(s.file);
         out += ',';
         out += std::to_string(s.line);
+        out += '\n';
+    }
+    return out;
+}
+
+std::string formatTiming(const std::vector<asmb::TimingRow> &rows) {
+    std::string out = "kind,name,file,line,tstates,nops,note\n";
+    for (const auto &r : rows) {
+        out += r.kind; out += ',';
+        out += csv(r.name); out += ',';
+        out += csv(r.file); out += ',';
+        out += std::to_string(r.line); out += ',';
+        if (r.tstates >= 0) out += std::to_string(r.tstates);
+        out += ',';
+        if (r.nops >= 0) out += std::to_string(r.nops);
+        out += ',';
+        out += csv(r.note);
         out += '\n';
     }
     return out;

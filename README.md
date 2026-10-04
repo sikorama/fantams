@@ -345,7 +345,7 @@ The exported `.sna` carries 64 KB if the source stays within banks 0–3, and
 ```
 fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--beautify] [--normalize]
                  [--strict] [--no-detach-labels] [--no-indent-blocks]
-                 [--base base.sna] [--sym[=out.sym]]
+                 [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]]
                  [--target name | -P file.prof] [-T file.ld]
                  [--cpr-bank n] [--cro-rom n] [--cro-group g] [--cro-label text] [--cro-mask m]
 fantams --dump-profile name
@@ -364,6 +364,7 @@ fantams --version
 | `--no-indent-blocks` | do not indent block bodies |
 | `--base f.sna` | lay the assembled bytes onto a captured machine state (`.sna` output only) |
 | `--sym[=file]` | write the symbol table as CSV; the default path derives from `-o` |
+| `--timing[=file]` | write the duration table as CSV (T-states and NOPs up to the next label); written even if assembly fails |
 | `-o out.fo` | assemble **only**, and write the object — no linking |
 | `file.fo...` | link objects already assembled |
 | `--target name` | a built-in target profile (`cpc6128`, …) |

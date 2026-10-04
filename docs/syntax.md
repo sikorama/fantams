@@ -186,19 +186,21 @@ grouping was intended. Drop the parentheses to get the immediate.
 `nops_between(from, to)` and `tstates_between(from, to)` give the **duration of
 the code between two labels**: the instructions from `from` up to, but not
 including, `to` (ADR 0035). The unit is the **T-state** (a Z80 clock tick) or the
-**NOP** (the CPC's microsecond: 4 T-states, each instruction rounded up to a
-multiple of 4). A frame is 19968 NOPs.
+**NOP** (the CPC's microsecond). A frame is 19968 NOPs. The NOP count is **not**
+the T-states divided by 4: the Gate Array stretches each phase of an instruction
+to a multiple of 4 T-states, so `push` is 11 T-states and 4 NOPs, and `out (c),r`
+is 4 NOPs although 12 T-states would say 3. It comes from a measured table.
 
         start:  ld   a, 5          ; 7 T-states  -> 2 NOPs
                 ld   (&4000), a    ; 13          -> 4
-                ld   hl, (&4000)   ; 16          -> 4
+                ld   hl, (&4000)   ; 16          -> 5
                 inc  (hl)          ; 11          -> 3
         end:    nop
-                assert nops_between(start, end) == 13
+                assert nops_between(start, end) == 14
                 assert tstates_between(start, end) == 47
 
-The rounding is **per instruction**, never on the total: 47 T-states is 13 NOPs
-here, not `ceil(47 / 4) = 12`.
+The NOPs are summed **per instruction** from that table: 47 T-states is 14 NOPs
+here (`ld hl,(nn)` is 5, not 4), not `ceil(47 / 4) = 12`.
 
 The value is known at **assembly time**, like a label. It works in an operand, an
 `equ`, a `=` variable and an `assert`, and `to` may be defined below. It does not
@@ -220,8 +222,8 @@ before `from`. The refusal names the first offending line. A loop with a counter
 has no static measure: time it on an emulator.
 
 `tstates_between()` works everywhere. `nops_between()` needs a target that
-declares how long a NOP lasts (`NOP_TSTATES`, a `CONST` of the profile, 4 on the
-CPC family); without one it says so and points to `tstates_between()`. RAM
+declares which NOP table applies (`NOP_TABLE`, a `CONST` of the profile, 1 on the
+CPC family: the Gate Array's); without one it says so and points to `tstates_between()`. RAM
 contention is not modelled.
 
 ### Relocatable values
@@ -1085,6 +1087,7 @@ get wrong. None of them is negotiable, and each is argued in an ADR.
 | `--no-detach-labels` | keeps `label: instruction` on one line |
 | `--no-indent-blocks` | does not indent block bodies |
 | `--sym[=file]` | writes the **symbol table** (CSV) for a disassembler or emulator |
+| `--timing[=file]` | writes the **duration table** (CSV): where the time goes, label by label |
 
 `--sym` writes one line per **label and constant** — name, type, owning section,
 logical value, storage bank and address, origin file and line. Not a listing: one line
@@ -1092,3 +1095,13 @@ per *name*, and no bytes. Variables (`=`) are left out. The default path derives
 from `-o`, so the file travels next to the binary it describes. It refuses to
 combine with `--beautify` and `--normalize`, which never reach the assembler, and
 cohabits with `-E`. For a human reading a terminal, `-s` prints the table instead.
+
+`--timing` writes `kind,name,file,line,tstates,nops,note` (default path
+`prog.timing.csv`, next to `-o`). One `label` line per label gives the duration
+**up to the next label** of the same block, in T-states and in NOPs; when that
+stretch has no exact duration the fields stay **empty** (an empty stretch lasts
+`0`, not nothing) and `note` names the first offending line. The last label of a
+block has no next label and stays empty. One `assert` line per `assert` that
+measures a duration follows, with its condition and `ok` or `FAILED`. Unlike
+`--sym`, the table is written **even when assembly fails**: a failed duration
+assert is exactly when you want it.
