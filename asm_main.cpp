@@ -347,14 +347,14 @@ int main(int argc, char **argv) {
     // a cote de lui, la ou un emulateur ira le chercher.
     if (wantSym && symPath.empty()) {
         size_t dot = outPath.find_last_of('.');
-        size_t slash = outPath.find_last_of('/');
+        size_t slash = outPath.find_last_of("/\\");
         std::string stem = (dot == std::string::npos || (slash != std::string::npos && dot < slash))
                                ? outPath : outPath.substr(0, dot);
         symPath = stem + ".sym";
     }
     if (wantTiming && timingPath.empty()) {
         size_t dot = outPath.find_last_of('.');
-        size_t slash = outPath.find_last_of('/');
+        size_t slash = outPath.find_last_of("/\\");
         std::string stem = (dot == std::string::npos || (slash != std::string::npos && dot < slash))
                                ? outPath : outPath.substr(0, dot);
         timingPath = stem + ".timing.csv";
@@ -709,7 +709,7 @@ int main(int argc, char **argv) {
         }
         // Le libelle d'un groupe cree : le nom du fichier, sans chemin ni
         // extension — ce que font les .cro de CROMANAGER.
-        const size_t slash = outPath.find_last_of('/');
+        const size_t slash = outPath.find_last_of("/\\");
         const std::string base = slash == std::string::npos ? outPath : outPath.substr(slash + 1);
         const std::string label = base.substr(0, base.size() - 4);
         std::vector<uint8_t> merged = cro::merge(existing, rom, croGroup, label, croErr);

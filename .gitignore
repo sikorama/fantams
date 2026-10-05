@@ -5,6 +5,7 @@ fantams
 
 # Build CMake
 build/
+build-win/
 
 # Sorties générées par les exemples
 examples/*.bin
