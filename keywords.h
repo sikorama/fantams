@@ -69,6 +69,11 @@ const std::vector<BlockKind> &blockKinds();
 std::string blockOfOpener(const std::string &kw);
 // Le bloc que ferme ce mot-clé, "*" pour `END` qui ferme n'importe lequel, ou "".
 std::string blockOfCloser(const std::string &kw);
+// `STRUCT nom` (un seul argument) déclare une structure et ouvre un corps de champs ;
+// `STRUCT type instance …` en instancie une, sans corps. `stmt` commence par le mot-clé.
+bool isStructDecl(const std::string &stmt);
+// Ce mot-clé (MAJUSCULES) ferme un corps de STRUCT : ENDSTRUCT, ENDS, ou END.
+bool closesStruct(const std::string &kw);
 // La fermeture canonique d'un bloc, pour les diagnostics.
 std::string canonicalCloser(const std::string &kind);
 

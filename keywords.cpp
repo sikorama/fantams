@@ -341,6 +341,25 @@ std::string blockOfOpener(const std::string &kw) {
     return it == byOpener.end() ? "" : it->second;
 }
 
+bool isStructDecl(const std::string &stmt) {
+    size_t i = 0, n = 0;
+    std::string first;
+    while (i < stmt.size()) {
+        while (i < stmt.size() && std::isspace((unsigned char)stmt[i])) ++i;
+        if (i >= stmt.size()) break;
+        const size_t b = i;
+        while (i < stmt.size() && !std::isspace((unsigned char)stmt[i])) ++i;
+        if (n++ == 0) first = stmt.substr(b, i - b);
+    }
+    for (char &c : first) c = (char)std::toupper((unsigned char)c);
+    return n == 2 && first == "STRUCT";
+}
+
+bool closesStruct(const std::string &kw) {
+    const std::string b = blockOfCloser(kw);
+    return b == "STRUCT" || b == "*";
+}
+
 // Le bloc que ferme ce mot-clé, "*" pour `END` qui ferme n'importe lequel, ou "".
 std::string blockOfCloser(const std::string &kw) {
     static const std::unordered_map<std::string, const char *> byCloser = [] {

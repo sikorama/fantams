@@ -213,6 +213,7 @@ int main() {
     chkStrict("strict laisse passer macros et boucles",
               "macro m\n nop\nendmacro\n repeat 2\n m\n endrepeat\n", true);
     chkStrict("strict refuse DEFB dans un champ de structure", "STRUCT S\nx defb 0\nENDSTRUCT\n", false);
+    chkStrict("strict refuse DEFB dans un champ écrit avec ':'", "STRUCT S\nx: defb 0\nENDSTRUCT\n", false);
     chkStrict("strict accepte DB dans un champ de structure", "STRUCT S\nx db 0\nENDSTRUCT\n", true);
     chkStrict("strict refuse ':' après une constante", "INIT_MSG: EQU 0\n", false);
     chkStrict("strict accepte une constante sans ':'", "INIT_MSG EQU 0\n", true);
@@ -571,6 +572,15 @@ int main() {
         "m.S.x EQU 0\nm.S EQU 1\nq:\nq.x EQU q+0\nDB 0\nSIZE EQU 1\n");
     chkErr("MODULE + STRUCT : le nom nu hors du module est inconnu",
         "MODULE m\nSTRUCT S\nx db 0\nENDSTRUCT\nENDMODULE\nSTRUCT S q\n");
+
+    // Une instance `@x` est un label auto-local : unique à chaque tour de boucle.
+    chk("STRUCT instance @x dans un REPEAT : un label par itération",
+        "STRUCT T\nx db 0\nENDSTRUCT\nrepeat 2\nSTRUCT T @s\nendrepeat\n",
+        "T.x EQU 0\nT EQU 1\n@s__1:\n@s__1.x EQU @s__1+0\nDB 0\n"
+        "@s__2:\n@s__2.x EQU @s__2+0\nDB 0\n");
+    chk("STRUCT instance sans @ dans un REPEAT : collision voulue, comme un label",
+        "STRUCT T\nx db 0\nENDSTRUCT\nrepeat 2\nSTRUCT T s\nendrepeat\n",
+        "T.x EQU 0\nT EQU 1\ns:\ns.x EQU s+0\nDB 0\ns:\ns.x EQU s+0\nDB 0\n");
 
     // séparateur d'instructions ':' -> retour à la ligne (+ tabulation)
     chk("colon sep", "  ld a,1 : ld b,2 : ret\n", "ld a,1\n    ld b,2\n    ret\n");

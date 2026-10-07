@@ -262,6 +262,9 @@ int main() {
         "STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\nENDSTRUCT\nnop\n",
         "    STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\n    ENDSTRUCT\n    nop\n",
         kw::Phase::Preprocess);
+    chk("`end` ferme un corps de STRUCT comme ENDSTRUCT",
+        "STRUCT S\nx   DEFB 1\nend\nnop\n", "    STRUCT S\nx   DEFB 1\n    end\n    nop\n",
+        kw::Phase::Preprocess);
     chk("STRUCT type instance n'ouvre pas de corps",
         "STRUCT S c\nnop\n", "    STRUCT S c\n    nop\n", kw::Phase::Preprocess);
     chk("une constante `X: EQU v` n'est pas détachée : EQU a besoin de son nom",

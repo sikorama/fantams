@@ -453,18 +453,6 @@ int stringByteLen(const std::string &p) {
     }
     return n;
 }
-// Nombre de tokens séparés par des espaces.
-int countTokens(const std::string &s) {
-    int n = 0; size_t i = 0;
-    while (i < s.size()) {
-        while (i < s.size() && std::isspace((unsigned char)s[i])) ++i;
-        if (i >= s.size()) break;
-        while (i < s.size() && !std::isspace((unsigned char)s[i])) ++i;
-        ++n;
-    }
-    return n;
-}
-
 // Mot-clé de bloc pour l'analyse d'imbrication (ou "" / mnémonique).
 // ---------------------------------------------------------------------------
 class PP {
@@ -817,7 +805,7 @@ private:
         std::string k = upper(firstToken(rest));
         // STRUCT : bloc seulement en DÉCLARATION (1 seul argument) ;
         // "STRUCT type instance" (2+ args) est une instanciation, pas un bloc.
-        if (k == "STRUCT" && countTokens(restAfterFirst(rest)) != 1) return "STRUCTINS";
+        if (k == "STRUCT" && !kw::isStructDecl(rest)) return "STRUCTINS";
         return k;
     }
 
@@ -1016,7 +1004,7 @@ private:
             // est un symbole du scope — et seulement pour un scope de module : une
             // macro ou une boucle ne renomme que ses labels `@`.
             if (inStruct) {
-                if (kw == "ENDSTRUCT" || kw == "ENDS" || kw == "END") inStruct = false;
+                if (kw::closesStruct(kw)) inStruct = false;
                 continue;
             }
             if (kw == "STRUCT") {
@@ -1028,11 +1016,12 @@ private:
                     locals.push_back(sname);
                 continue;
             }
-            if (kw == "STRUCTINS" && !onlyAtPrefixed) {
-                // « STRUCT type instance » : l'instance est un label du scope.
-                std::string l0, r0; peelLabel(code, l0, r0);
-                std::string inst = firstToken(restAfterFirst(restAfterFirst(r0)));
-                if (!inst.empty() && !exported.count(inst) &&
+            if (kw == "STRUCTINS") {
+                // « STRUCT type instance » : l'instance est un label du scope — pour une
+                // macro ou une boucle, seulement si elle est préfixée `@`, comme tout label.
+                std::string lbl, afterLabel; peelLabel(code, lbl, afterLabel);
+                std::string inst = firstToken(restAfterFirst(restAfterFirst(afterLabel)));
+                if (!inst.empty() && (!onlyAtPrefixed || inst[0] == '@') && !exported.count(inst) &&
                     std::find(locals.begin(), locals.end(), inst) == locals.end())
                     locals.push_back(inst);
                 continue;
@@ -1059,7 +1048,7 @@ private:
             size_t keep = 0;
             const std::string kw = classify(l.text);
             if (inStruct) {
-                if (kw == "ENDSTRUCT" || kw == "ENDS" || kw == "END") inStruct = false;
+                if (kw::closesStruct(kw)) inStruct = false;
                 else {
                     size_t p = t.find_first_not_of(" \t");
                     size_t q = p == std::string::npos ? p : t.find_first_of(" \t:;", p);
@@ -1583,7 +1572,7 @@ private:
 
             // --- STRUCT : déclaration (1 arg) ou instanciation (2+ args) ---
             if (kw == "STRUCT") {
-                if (countTokens(restAfterFirst(rest)) == 1) {
+                if (kw::isStructDecl(rest)) {
                     int ends = findMatching(lines, i, "STRUCT");
                     if (ends < 0) { if (ends == -1) error(raw, "STRUCT without ENDSTRUCT or end"); return; }
                     std::string sname = firstToken(restAfterFirst(rest));

@@ -125,14 +125,6 @@ std::string rstrip(const std::string &ln) {
 // fichier.
 struct Delta { int opens = 0, closes = 0; bool firstIsCloser = false; };
 
-// « STRUCT nom » : une déclaration, dont le corps est une liste de champs. Avec un
-// second argument, c'est une instanciation et il n'y a pas de corps.
-bool isStructDecl(const std::string &stmt) {
-    if (upper(firstToken(stmt)) != "STRUCT") return false;
-    const std::string arg = trim(stmt.substr(firstToken(stmt).size()));
-    return !arg.empty() && arg.find_first_of(" \t") == std::string::npos;
-}
-
 Delta blockDelta(const std::string &body, kw::Phase ph) {
     Delta d;
     std::string label, rest;
@@ -161,7 +153,7 @@ Delta blockDelta(const std::string &body, kw::Phase ph) {
         // mesure rien — elle indente un corps de bloc, et un corps de bloc l'est
         // quel que soit l'étage qui le mesure.
         // `STRUCT type instance` instancie : seule la déclaration (un argument) ouvre.
-        if (w == "STRUCT" && !isStructDecl(stmts[k])) continue;
+        if (w == "STRUCT" && !kw::isStructDecl(stmts[k])) continue;
         if (!kw::blockOfOpener(w).empty() || !kw::asmBlockOfOpener(w).empty()) ++d.opens;
         else if (!kw::blockOfCloser(w).empty() || !kw::asmBlockOfCloser(w).empty()) {
             if (k == 0) d.firstIsCloser = true;
@@ -310,16 +302,15 @@ std::string apply(const std::string &src, kw::Phase ph, bool detachLabels, bool 
         const std::string raw = src.substr(i, end - i);
 
         int lineDepth = depth;
-        const size_t cp0 = kw::commentPos(raw);
-        const std::string body0 = trim(cp0 == std::string::npos ? raw : raw.substr(0, cp0));
+        const size_t cp = kw::commentPos(raw);
+        const std::string body = trim(cp == std::string::npos ? raw : raw.substr(0, cp));
         // Dans un corps de STRUCT, une ligne est un champ (`nom directive ops`), pas un
         // label sans ':' : le préprocesseur la lit telle quelle, et la détacher en
         // `nom:` + `directive` ferait deux champs. Seuls les espaces de fin partent.
+        std::string label, afterLabel;
+        kw::peelLabel(body, label, afterLabel, ph);
         if (inStruct) {
-            std::string l0, r0;
-            kw::peelLabel(body0, l0, r0, ph);
-            const std::string k0 = upper(firstToken(r0.empty() ? body0 : r0));
-            if (k0 != "ENDSTRUCT" && k0 != "ENDS" && k0 != "END") {
+            if (!kw::closesStruct(upper(firstToken(afterLabel.empty() ? body : afterLabel)))) {
                 out += rstrip(raw);
                 if (nl == std::string::npos) break;
                 out += '\n';
@@ -327,13 +318,10 @@ std::string apply(const std::string &src, kw::Phase ph, bool detachLabels, bool 
                 continue;
             }
             inStruct = false;
-        } else {
-            std::string l0, r0;
-            kw::peelLabel(body0, l0, r0, ph);
-            if (isStructDecl(r0)) inStruct = true;
+        } else if (kw::isStructDecl(afterLabel)) {
+            inStruct = true;
         }
         if (indentBlocks) {
-            const std::string &body = body0;
             const Delta d = blockDelta(body, ph);
             // Une ligne qui COMMENCE par une fermeture se rend au cran de son
             // ouvreur, pas à celui du corps : `rend` s'aligne sur son `repeat`.
