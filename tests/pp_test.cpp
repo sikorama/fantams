@@ -99,6 +99,19 @@ static void chkErr(const char *desc, const std::string &src) {
     else ++g_pass;
 }
 
+// Vérifie qu'un source est refusé avec un message qui contient `needle` (et pas `absent`).
+static void chkErrMsg(const char *desc, const std::string &src, const std::string &needle,
+                      const std::string &absent, bool strict = false) {
+    pp::Result r = pp::preprocess(src, "test.asm", provider, strict);
+    bool ok = !r.ok && !r.errors.empty();
+    std::string msg = ok ? r.errors[0].message : "";
+    if (ok && (msg.find(needle) == std::string::npos || msg.find(absent) != std::string::npos)) ok = false;
+    if (!ok) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %s\n    message: %s\n", desc, msg.c_str());
+    } else ++g_pass;
+}
+
 // Vérifie le résultat ET la présence (ou non) d'un avertissement.
 static void chkWarn(const char *desc, const std::string &src, const std::string &expected, bool expectWarning) {
     pp::Result r = pp::preprocess(src, "test.asm", provider);
@@ -594,6 +607,16 @@ int main() {
     chk("label devant une instance de STRUCT sous MODULE : préfixé",
         "STRUCT T\nx db 0\nENDSTRUCT\nMODULE m\nlbl: STRUCT T j\nENDMODULE\n",
         "T.x EQU 0\nT EQU 1\nm.lbl:\nm.j:\nm.j.x EQU m.j+0\nDB 0\n");
+
+    // Un diagnostic cite le nom écrit dans la source, pas le nom renommé par le module.
+    chkErrMsg("strict sous MODULE : le message cite X, pas m.X",
+        "MODULE m\nX: EQU 1\nENDMODULE\n", "'X' is a constant", "m.X", /*strict=*/true);
+    chkErrMsg("sizeof inconnu sous MODULE : le message cite S, pas m.S",
+        "MODULE m\nN EQU sizeof(S)\nSTRUCT S\nx db 0\nENDSTRUCT\nENDMODULE\n", "unknown struct 'S'", "m.S");
+    chkErrMsg("sizeof qualifié hors module : le message garde m.S",
+        "N EQU sizeof(m.S)\n", "unknown struct 'm.S'", "zzz");
+    chkErrMsg("nom de STRUCT invalide sous MODULE : le message cite S:, pas m.S:",
+        "MODULE m\nSTRUCT S:\nx db 0\nENDSTRUCT\nENDMODULE\n", "invalid name 'S:'", "m.S");
 
     // séparateur d'instructions ':' -> retour à la ligne (+ tabulation)
     chk("colon sep", "  ld a,1 : ld b,2 : ret\n", "ld a,1\n    ld b,2\n    ret\n");

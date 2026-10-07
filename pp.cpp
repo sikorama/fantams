@@ -492,6 +492,13 @@ private:
     std::set<std::string> seenLabels;           // labels deja rencontres (pour IFDEF)
     std::map<std::string, Macro> macros;         // clé = nom majuscule
     std::map<std::string, StructDef> structs_;    // clé = nom majuscule
+    // Préfixe du module dont on déroule le corps ("" hors module) : sert aux seuls
+    // diagnostics, qui citent le nom écrit dans la source et non le nom renommé.
+    std::string modulePrefix_;
+    std::string shown(const std::string &name) const {
+        return !modulePrefix_.empty() && name.compare(0, modulePrefix_.size(), modulePrefix_) == 0
+                   ? name.substr(modulePrefix_.size()) : name;
+    }
     long uid = 0;
 
     void error(const SrcLine &sl, const std::string &msg) {
@@ -828,7 +835,7 @@ private:
                         std::string arg = trim(code.substr(j + 1, k - j - 1));
                         auto it = structs_.find(upper(arg));
                         if (it == structs_.end())
-                            error(src, "sizeof: unknown struct '" + arg + "'");
+                            error(src, "sizeof: unknown struct '" + shown(arg) + "'");
                         else {
                             out += std::to_string(it->second.size);
                             i = k + 1;
@@ -1569,7 +1576,10 @@ private:
                 names.erase(std::remove_if(names.begin(), names.end(),
                             [](const std::string &n) { return !n.empty() && n[0] == '.'; }), names.end());
                 auto scoped = renameScope(body, names, [&](const std::string &n) { return prefix + n; });
+                const std::string outerPrefix = modulePrefix_;
+                modulePrefix_ = prefix;
                 run(scoped, env, depth);
+                modulePrefix_ = outerPrefix;
                 i = endIdx; continue; // ne consomme pas la ligne de fin : rejouée (OFF/ENDMODULE ou MODULE suivant)
             }
 
@@ -1580,7 +1590,7 @@ private:
                     if (ends < 0) { if (ends == -1) error(raw, "STRUCT without ENDSTRUCT or end"); return; }
                     std::string sname = firstToken(restAfterFirst(rest));
                     std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + ends);
-                    if (!kw::isIdentifier(sname)) error(raw, "struct: invalid name '" + sname + "'");
+                    if (!kw::isIdentifier(sname)) error(raw, "struct: invalid name '" + shown(sname) + "'");
                     else defineStruct(sname, body, env, raw);
                     i = ends + 1; continue;
                 }
@@ -1630,8 +1640,8 @@ private:
                 if (kw == "EQU") {
                     // `:` marque un label ; une constante n'en est pas un.
                     if (strict_ && code.size() > label.size() && code[label.size()] == ':')
-                        strictErr(raw, "strict: '" + label + "' is a constant, not a label — write '" +
-                                       label + " EQU …' without the ':'");
+                        strictErr(raw, "strict: '" + shown(label) + "' is a constant, not a label — write '" +
+                                       shown(label) + " EQU …' without the ':'");
                     noteAsmDefinition(label, restAfterFirst(rest), env, raw, /*isConst=*/true);
                 }
                 else {

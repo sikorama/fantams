@@ -274,6 +274,31 @@ retombe sur le balayage textuel, qui est sûr.
 **Ce qu'il ne fait pas** : inventer des parenthèses sur un nom qu'il ne connaît
 pas. `sprite 4,12` reste intact tant qu'aucune définition ne l'explique.
 
+## Amendement — le corps d'un `struct` et la constante `X: EQU v`
+
+Deux lignes que le beautify prenait pour des labels sans `:` n'en sont pas, et le
+texte le dit.
+
+**Le corps d'un `struct` déclaré est laissé intact.** `HUD  DEFB 1` y est un
+champ (`nom directive opérandes`), pas un label : le préprocesseur le lit tel
+quel. Le beautify, en le détachant en `HUD:` puis `DEFB 1`, produisait deux
+champs au lieu d'un, et la structure n'avait plus ni ses noms ni ses
+décalages. Ce n'est pas une devinette : savoir qu'on est dans un corps de
+`struct` se lit dans le texte, comme un nom de macro. Aucun avertissement
+n'existe sur ces lignes (le préprocesseur les consomme), donc, selon le critère de
+cet ADR, il n'y a rien à éteindre. Seuls les espaces de fin partent.
+
+Le beautify ne prend plus non plus `struct type instance` pour un ouvreur de
+bloc : seule la **déclaration** (un seul argument) a un corps. Sans cela, tout le
+code qui suivait une instance était indenté d'un cran de trop.
+
+**`X: EQU v` n'est pas détachée.** C'est la forme à deux-points de la ligne
+`nom EQU v`, déjà intacte dans le tableau ci-dessus. Détachée en `X:` puis
+`EQU v`, elle ne s'assemblait plus (« EQU without a name »). Le beautify n'ôte pas
+le deux-points : `--strict` refuse cette graphie (un deux-points marque un label,
+et `X` est une constante), mais c'est un refus de canon, pas un avertissement que la
+mise en forme sait éteindre sans changer le sens.
+
 ## Note — `--normalize` n'est pas de la mise en forme
 
 Le reste de cet ADR vaut pour le **beautify**.
