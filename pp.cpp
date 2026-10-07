@@ -1021,6 +1021,9 @@ private:
                 // macro ou une boucle, seulement si elle est préfixée `@`, comme tout label.
                 std::string lbl, afterLabel; peelLabel(code, lbl, afterLabel);
                 std::string inst = firstToken(restAfterFirst(restAfterFirst(afterLabel)));
+                if (!lbl.empty() && !exported.count(lbl) && (!onlyAtPrefixed || lbl[0] == '@') &&
+                    std::find(locals.begin(), locals.end(), lbl) == locals.end())
+                    locals.push_back(lbl);
                 if (!inst.empty() && (!onlyAtPrefixed || inst[0] == '@') && !exported.count(inst) &&
                     std::find(locals.begin(), locals.end(), inst) == locals.end())
                     locals.push_back(inst);
@@ -1577,9 +1580,12 @@ private:
                     if (ends < 0) { if (ends == -1) error(raw, "STRUCT without ENDSTRUCT or end"); return; }
                     std::string sname = firstToken(restAfterFirst(rest));
                     std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + ends);
-                    defineStruct(sname, body, env, raw);
+                    if (!kw::isIdentifier(sname)) error(raw, "struct: invalid name '" + sname + "'");
+                    else defineStruct(sname, body, env, raw);
                     i = ends + 1; continue;
                 }
+                // Un label devant « STRUCT type instance » reste un label, juste avant l'instance.
+                if (!label.empty()) emit(label + ":", raw);
                 instantiateStruct(rest, raw);
                 ++i; continue;
             }

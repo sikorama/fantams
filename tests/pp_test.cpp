@@ -582,6 +582,19 @@ int main() {
         "STRUCT T\nx db 0\nENDSTRUCT\nrepeat 2\nSTRUCT T s\nendrepeat\n",
         "T.x EQU 0\nT EQU 1\ns:\ns.x EQU s+0\nDB 0\ns:\ns.x EQU s+0\nDB 0\n");
 
+    // Un nom de structure est un identifiant : `S:` est une faute, pas un nom.
+    chkErr("STRUCT : un nom suivi de ':' est refusé",
+        "STRUCT S:\nx db 0\nENDSTRUCT\n");
+    chkErr("STRUCT sous MODULE : un nom suivi de ':' est refusé",
+        "MODULE m\nSTRUCT S:\nx db 0\nENDSTRUCT\nENDMODULE\n");
+    // Un label devant « STRUCT type instance » reste un label.
+    chk("label devant une instance de STRUCT : conservé",
+        "STRUCT T\nx db 0\nENDSTRUCT\nlbl: STRUCT T j\n",
+        "T.x EQU 0\nT EQU 1\nlbl:\nj:\nj.x EQU j+0\nDB 0\n");
+    chk("label devant une instance de STRUCT sous MODULE : préfixé",
+        "STRUCT T\nx db 0\nENDSTRUCT\nMODULE m\nlbl: STRUCT T j\nENDMODULE\n",
+        "T.x EQU 0\nT EQU 1\nm.lbl:\nm.j:\nm.j.x EQU m.j+0\nDB 0\n");
+
     // séparateur d'instructions ':' -> retour à la ligne (+ tabulation)
     chk("colon sep", "  ld a,1 : ld b,2 : ret\n", "ld a,1\n    ld b,2\n    ret\n");
     chk("colon garde label collé", "start: di : ret\n", "start: di\n    ret\n");
