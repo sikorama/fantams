@@ -36,7 +36,8 @@ deux-points d'un label écrit sans lui, et l'indentation d'une instruction
 laissée en colonne 1 — soit exactement les deux écarts que l'assembleur sait
 déjà signaler. Beautifier, c'est éteindre ces avertissements, pas imposer un
 goût : casse des mnémoniques, colonne de commentaires et espacement des
-opérandes n'en relèvent pas.
+opérandes n'en relèvent pas. Il laisse intact le corps d'un `STRUCT` (ses champs
+ne sont pas des labels) et ne détache pas une constante `X: EQU v`.
 _Éviter_ : pretty print, formatage (qui désigne le rendu d'une valeur pour
 `PRINT`), mise en forme de sortie (qui évoque le format d'export), embellir
 
@@ -136,9 +137,12 @@ seul nom — il ne concerne donc que les labels préfixés.
 _Éviter_ : scope local, renommage
 
 **Module** :
-Espace de noms de labels : un module actif préfixe les labels qui y sont définis
-(`gfx.plot`). Il se **commute**, il ne s'imbrique pas — `MODULE nom` remplace le
-module actif, `MODULE OFF` et `ENDMODULE` le désactivent.
+Espace de noms des symboles : un module actif préfixe les labels, les constantes,
+les structures et les instances de structure qui y sont définis (`gfx.plot`,
+`gfx.S_COLORS`). Les champs d'une structure ne sont jamais préfixés par le module :
+ils sont qualifiés par leur structure (`gfx.S_COLORS.HUD`). Hors du module, un nom
+s'écrit qualifié, sans recherche de repli. Il se **commute**, il ne s'imbrique pas —
+`MODULE nom` remplace le module actif, `MODULE OFF` et `ENDMODULE` le désactivent.
 _Éviter_ : namespace, portée (qui désigne le scope auto-local)
 
 ### Mémoire

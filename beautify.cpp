@@ -125,6 +125,14 @@ std::string rstrip(const std::string &ln) {
 // fichier.
 struct Delta { int opens = 0, closes = 0; bool firstIsCloser = false; };
 
+// « STRUCT nom » : une déclaration, dont le corps est une liste de champs. Avec un
+// second argument, c'est une instanciation et il n'y a pas de corps.
+bool isStructDecl(const std::string &stmt) {
+    if (upper(firstToken(stmt)) != "STRUCT") return false;
+    const std::string arg = trim(stmt.substr(firstToken(stmt).size()));
+    return !arg.empty() && arg.find_first_of(" \t") == std::string::npos;
+}
+
 Delta blockDelta(const std::string &body, kw::Phase ph) {
     Delta d;
     std::string label, rest;
@@ -152,6 +160,8 @@ Delta blockDelta(const std::string &body, kw::Phase ph) {
         // celle de l'assemblage (`boundary`, `assert_size`). La mise en forme ne
         // mesure rien — elle indente un corps de bloc, et un corps de bloc l'est
         // quel que soit l'étage qui le mesure.
+        // `STRUCT type instance` instancie : seule la déclaration (un argument) ouvre.
+        if (w == "STRUCT" && !isStructDecl(stmts[k])) continue;
         if (!kw::blockOfOpener(w).empty() || !kw::asmBlockOfOpener(w).empty()) ++d.opens;
         else if (!kw::blockOfCloser(w).empty() || !kw::asmBlockOfCloser(w).empty()) {
             if (k == 0) d.firstIsCloser = true;
@@ -241,7 +251,8 @@ std::string line(const std::string &ln, kw::Phase ph, bool detachLabels,
         const size_t cp2 = kw::commentPos(ln);
         const std::string tail = (cp2 == std::string::npos) ? std::string() : trim(ln.substr(cp2));
         if (!rest.empty()) {
-            if (detachLabels)
+            // `X: EQU v` définit une constante : détachée, `EQU v` perdrait son nom.
+            if (detachLabels && upper(firstToken(rest)) != "EQU")
                 // Le commentaire suit le CODE, pas le label : c'est lui qu'il commente.
                 return head + "\n" + rstrip(indent + rest + (tail.empty() ? "" : " " + tail));
             return rstrip(head + " " + rest + (tail.empty() ? "" : " " + tail));
@@ -292,15 +303,37 @@ std::string apply(const std::string &src, kw::Phase ph, bool detachLabels, bool 
     out.reserve(src.size() + src.size() / 16);
     size_t i = 0;
     int depth = 0;
+    bool inStruct = false;
     for (;;) {
         const size_t nl = src.find('\n', i);
         const size_t end = (nl == std::string::npos) ? src.size() : nl;
         const std::string raw = src.substr(i, end - i);
 
         int lineDepth = depth;
+        const size_t cp0 = kw::commentPos(raw);
+        const std::string body0 = trim(cp0 == std::string::npos ? raw : raw.substr(0, cp0));
+        // Dans un corps de STRUCT, une ligne est un champ (`nom directive ops`), pas un
+        // label sans ':' : le préprocesseur la lit telle quelle, et la détacher en
+        // `nom:` + `directive` ferait deux champs. Seuls les espaces de fin partent.
+        if (inStruct) {
+            std::string l0, r0;
+            kw::peelLabel(body0, l0, r0, ph);
+            const std::string k0 = upper(firstToken(r0.empty() ? body0 : r0));
+            if (k0 != "ENDSTRUCT" && k0 != "ENDS" && k0 != "END") {
+                out += rstrip(raw);
+                if (nl == std::string::npos) break;
+                out += '\n';
+                i = nl + 1;
+                continue;
+            }
+            inStruct = false;
+        } else {
+            std::string l0, r0;
+            kw::peelLabel(body0, l0, r0, ph);
+            if (isStructDecl(r0)) inStruct = true;
+        }
         if (indentBlocks) {
-            const size_t cp = kw::commentPos(raw);
-            const std::string body = trim(cp == std::string::npos ? raw : raw.substr(0, cp));
+            const std::string &body = body0;
             const Delta d = blockDelta(body, ph);
             // Une ligne qui COMMENCE par une fermeture se rend au cran de son
             // ouvreur, pas à celui du corps : `rend` s'aligne sur son `repeat`.

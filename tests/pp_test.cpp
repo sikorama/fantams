@@ -212,6 +212,11 @@ int main() {
     chkStrict("strict accepte le canonique", " push hl\n push de\n db 1\n", true);
     chkStrict("strict laisse passer macros et boucles",
               "macro m\n nop\nendmacro\n repeat 2\n m\n endrepeat\n", true);
+    chkStrict("strict refuse DEFB dans un champ de structure", "STRUCT S\nx defb 0\nENDSTRUCT\n", false);
+    chkStrict("strict accepte DB dans un champ de structure", "STRUCT S\nx db 0\nENDSTRUCT\n", true);
+    chkStrict("strict refuse ':' après une constante", "INIT_MSG: EQU 0\n", false);
+    chkStrict("strict accepte une constante sans ':'", "INIT_MSG EQU 0\n", true);
+    chk("sans strict, ':' après une constante reste licite", "INIT_MSG: EQU 0\n", "INIT_MSG: EQU 0\n");
     // Le sucre normalisé passe le mode strict : c'est la promesse de --normalize.
     chkStrict("normalize rend une source strict-propre",
               pp::normalize(" push hl,de\n ld a,1: inc a\n defb 1\n"), true);
@@ -541,6 +546,31 @@ int main() {
         "Point.x EQU 0\nPoint.y EQU 1\nPoint EQU 2\n"
         "Line.a EQU 0\nLine.a.x EQU 0\nLine.a.y EQU 1\n"
         "Line.b EQU 2\nLine.b.x EQU 2\nLine.b.y EQU 3\nLine EQU 4\n");
+
+    // STRUCT sous MODULE : le nom de la structure appartient au module, ses champs
+    // sont qualifiés par la structure et jamais par le module.
+    chk("MODULE + STRUCT : le nom est préfixé, pas les champs",
+        "MODULE m\nSTRUCT S\nx db 0\ny dw 0\nENDSTRUCT\nENDMODULE\n",
+        "m.S.x EQU 0\nm.S.y EQU 1\nm.S EQU 3\n");
+
+    chk("MODULE + STRUCT : type de champ et opérandes qualifiés",
+        "MODULE m\nSIZE EQU 4\nSTRUCT A\nx db 0\nENDSTRUCT\n"
+        "STRUCT B\nbuf ds SIZE\ninner A\nENDSTRUCT\nENDMODULE\n",
+        "m.SIZE EQU 4\nm.A.x EQU 0\nm.A EQU 1\n"
+        "m.B.buf EQU 0\nm.B.inner EQU 4\nm.B.inner.x EQU 4\nm.B EQU 5\n");
+    chk("MODULE + STRUCT : un champ homonyme d'un label garde son nom nu",
+        "MODULE m\nbuf: nop\nSTRUCT S\nbuf db 0\nENDSTRUCT\n  jp buf\nENDMODULE\n",
+        "m.buf: nop\nm.S.buf EQU 0\nm.S EQU 1\njp m.buf\n");
+
+    chk("MODULE + STRUCT : l'instance est un label du module",
+        "MODULE m\nSTRUCT S\nx db 0\nENDSTRUCT\nSTRUCT S c\nENDMODULE\n",
+        "m.S.x EQU 0\nm.S EQU 1\nm.c:\nm.c.x EQU m.c+0\nDB 0\n");
+    chk("MODULE + STRUCT : référence qualifiée depuis l'extérieur",
+        "MODULE m\nSTRUCT S\nx db 0\nENDSTRUCT\nENDMODULE\n"
+        "STRUCT m.S q\nSIZE EQU sizeof(m.S)\n",
+        "m.S.x EQU 0\nm.S EQU 1\nq:\nq.x EQU q+0\nDB 0\nSIZE EQU 1\n");
+    chkErr("MODULE + STRUCT : le nom nu hors du module est inconnu",
+        "MODULE m\nSTRUCT S\nx db 0\nENDSTRUCT\nENDMODULE\nSTRUCT S q\n");
 
     // séparateur d'instructions ':' -> retour à la ligne (+ tabulation)
     chk("colon sep", "  ld a,1 : ld b,2 : ret\n", "ld a,1\n    ld b,2\n    ret\n");

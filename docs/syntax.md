@@ -934,8 +934,16 @@ A block can open and close on one line: `repeat 3 : dw a,b : rend`.
 ### Modules
 
 `MODULE name` **switches** the active module — it does not nest. `MODULE`,
-`MODULE OFF`, and `ENDMODULE` disable it. Labels in it are prefixed:
-`gfx.plot`.
+`MODULE OFF`, and `ENDMODULE` disable it. Labels, constants, structs and struct
+instances defined in it are prefixed: `gfx.plot`, `gfx.S_COLORS`.
+
+The **fields** of a struct are never prefixed by the module — they are qualified by
+their struct (`gfx.S_COLORS.HUD`). Inside the module a name is written bare; outside
+it is written qualified (`STRUCT gfx.S_COLORS inst`, `sizeof(gfx.S_COLORS)`), with no
+fallback search across modules.
+
+`--strict` refuses `DEFB`/`DEFW`… as a struct field's directive, as it does in code,
+and a `:` after a constant (`INIT_MSG: EQU 0`): a colon marks a label.
 
 ---
 

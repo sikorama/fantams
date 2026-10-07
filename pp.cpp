@@ -1002,6 +1002,7 @@ private:
                     if (!n.empty()) exported[n] = true;
         }
         int moduleDepth = 0;
+        bool inStruct = false;
         for (const auto &l : body) {
             std::string kw = classify(l.text);
             if (skipNestedModule) {
@@ -1010,6 +1011,32 @@ private:
                 if (moduleDepth > 0) continue;
             }
             std::string code = trim(stripComment(l.text));
+            // Le corps d'un STRUCT ne définit aucun label : ses mots en colonne 1 sont
+            // des champs, qualifiés par leur structure. Seul le NOM de la structure
+            // est un symbole du scope — et seulement pour un scope de module : une
+            // macro ou une boucle ne renomme que ses labels `@`.
+            if (inStruct) {
+                if (kw == "ENDSTRUCT" || kw == "ENDS" || kw == "END") inStruct = false;
+                continue;
+            }
+            if (kw == "STRUCT") {
+                inStruct = true;
+                std::string l0, r0; peelLabel(code, l0, r0);
+                std::string sname = firstToken(restAfterFirst(r0));
+                if (!onlyAtPrefixed && !sname.empty() &&
+                    std::find(locals.begin(), locals.end(), sname) == locals.end())
+                    locals.push_back(sname);
+                continue;
+            }
+            if (kw == "STRUCTINS" && !onlyAtPrefixed) {
+                // « STRUCT type instance » : l'instance est un label du scope.
+                std::string l0, r0; peelLabel(code, l0, r0);
+                std::string inst = firstToken(restAfterFirst(restAfterFirst(r0)));
+                if (!inst.empty() && !exported.count(inst) &&
+                    std::find(locals.begin(), locals.end(), inst) == locals.end())
+                    locals.push_back(inst);
+                continue;
+            }
             std::string label, rest; peelLabel(code, label, rest, [&](const std::string &n) { return macros.count(n) != 0; });
             if (!label.empty() && !exported.count(label) && (!onlyAtPrefixed || label[0] == '@')) {
                 bool seen = false; for (auto &x : locals) if (x == label) seen = true;
@@ -1023,10 +1050,26 @@ private:
                                      const std::vector<std::string> &names,
                                      const std::function<std::string(const std::string &)> &mangle) {
         std::vector<SrcLine> out;
+        bool inStruct = false;
         for (const auto &l : body) {
             if (upper(firstToken(trim(stripComment(l.text)))) == "@@EXPORT") continue;
             std::string t = l.text;
+            // Dans un corps de STRUCT, le nom du champ échappe au renommage (il est
+            // qualifié par sa structure) ; son type et ses opérandes le subissent.
+            size_t keep = 0;
+            const std::string kw = classify(l.text);
+            if (inStruct) {
+                if (kw == "ENDSTRUCT" || kw == "ENDS" || kw == "END") inStruct = false;
+                else {
+                    size_t p = t.find_first_not_of(" \t");
+                    size_t q = p == std::string::npos ? p : t.find_first_of(" \t:;", p);
+                    if (q != std::string::npos && !isDataDir(upper(t.substr(p, q - p)))) keep = q;
+                }
+            } else if (kw == "STRUCT") inStruct = true;
+            std::string head = t.substr(0, keep);
+            t = t.substr(keep);
             for (const auto &name : names) t = replaceWord(t, name, mangle(name));
+            t = head + t;
             out.push_back({t, l.file, l.line, l.col0});
         }
         return out;
@@ -1166,6 +1209,14 @@ private:
             std::string code = trim(substitute(stripComment(l.text), env, l));
             if (code.empty()) continue;
             StructField f = parseField(code);
+            if (strict_) {
+                // Un champ est une directive de donnée : même canon que dans le code.
+                const std::string stmt = f.directive + (f.operands.empty() ? "" : " " + f.operands);
+                const std::string canon = canonicalizeSpelling(stmt);
+                if (canon != stmt)
+                    strictErr(l, "strict: '" + f.directive + "' is a non-canonical spelling — write '" +
+                                 firstToken(canon) + "'");
+            }
             const std::string &U = f.directive;
             if (isDataDir(U)) {
                 auto ops = splitTopLevel(f.operands, ',');
@@ -1581,7 +1632,13 @@ private:
 
             // --- constante EQU / variable '=' : observée, pas consommée ---
             if (!label.empty()) {
-                if (kw == "EQU") noteAsmDefinition(label, restAfterFirst(rest), env, raw, /*isConst=*/true);
+                if (kw == "EQU") {
+                    // `:` marque un label ; une constante n'en est pas un.
+                    if (strict_ && code.size() > label.size() && code[label.size()] == ':')
+                        strictErr(raw, "strict: '" + label + "' is a constant, not a label — write '" +
+                                       label + " EQU …' without the ':'");
+                    noteAsmDefinition(label, restAfterFirst(rest), env, raw, /*isConst=*/true);
+                }
                 else {
                     size_t eq = kw::findAssign(rest);
                     if (eq != std::string::npos && trim(rest.substr(0, eq)).empty())

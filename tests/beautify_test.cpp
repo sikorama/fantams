@@ -258,6 +258,14 @@ int main() {
         "rend\nnop\n", "    rend\n    nop\n", kw::Phase::Preprocess);
     chk("MODULE n'ouvre pas de bloc (ADR 0016)",
         "module gfx\nnop\n", "    module gfx\n    nop\n", kw::Phase::Preprocess);
+    chk("corps de STRUCT : les champs ne sont ni détachés ni réindentés",
+        "STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\nENDSTRUCT\nnop\n",
+        "    STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\n    ENDSTRUCT\n    nop\n",
+        kw::Phase::Preprocess);
+    chk("STRUCT type instance n'ouvre pas de corps",
+        "STRUCT S c\nnop\n", "    STRUCT S c\n    nop\n", kw::Phase::Preprocess);
+    chk("une constante `X: EQU v` n'est pas détachée : EQU a besoin de son nom",
+        "INIT_MSG: EQU 0\nnop\n", "INIT_MSG: EQU 0\n    nop\n", kw::Phase::Preprocess);
     okc("opt-out : sans indentation de bloc, un seul cran",
         beautify::apply("repeat 2\nnop\nrend\n", kw::Phase::Preprocess, true, /*indentBlocks=*/false)
             == "    repeat 2\n    nop\n    rend\n");
