@@ -71,7 +71,7 @@ ce qui rend l'héritage consultable. Le préprocesseur, lui, n'interprète pas
 
 Le second paramètre d'`ORG` conserve sa sémantique usuelle — délier complètement
 rangement et adresse logique, comme `org 0x2000,0x3000`. Il est **implémenté**, et
-sa sémantique a été mesurée contre l'assembleur de référence plutôt que devinée :
+sa sémantique a été mesurée sur le corpus plutôt que devinée :
 le **premier**
 paramètre est l'adresse **logique**, celle que prennent les labels et pour laquelle
 le code est assemblé ; le **second** est l'adresse de **rangement**, où les octets
@@ -79,7 +79,7 @@ sont réellement écrits. Un bloc `org #A600,#100` est donc du code stocké en `
 et destiné à tourner en `#A600` — c'est exactement ce que fait la seule source du
 corpus qui l'utilise : elle recopie le bloc avant de l'appeler.
 
-Trois conséquences sont alignées sur l'assembleur de référence, mesure à l'appui :
+Trois conséquences en découlent, mesure à l'appui :
 
 - **`RUN` prend l'adresse logique.** `run label` doit valoir ce que vaut `label`,
   sinon `run label` et `run #A600` donneraient deux `PC` différents pour la même
@@ -139,7 +139,7 @@ même, `sna::build()` exige une image de 64 K exactement, et le harnais de
 comparaison de z80live-lite (`scripts/compare/`) ne
 reconstruit que le chunk `MEM0`, avec le commentaire « fantams ne gère pas le
 multi-bank » : sans mise à jour, tout code écrit en banque 4 serait déclaré
-identique à la référence sans jamais avoir été lu.
+identique sans jamais avoir été lu.
 
 Enfin, la notation diverge de celle d'amspirit-lite au-delà de la graphie. Le
 modèle plat y calcule `banque * 0x4000 + offset`, ce qui rend `C0:0x8000` et

@@ -50,8 +50,7 @@ les blocs conditionnels existent déjà au temps préprocesseur.
 
 L'opérateur `/` reste une division flottante. Le faire basculer en entier
 changerait silencieusement la sortie de sources qui compilent aujourd'hui —
-84 correspondent à l'assembleur de référence octet pour octet — ce qui est le pire
-type de régression :
+84 sources du corpus sont dans ce cas — ce qui est le pire type de régression :
 invisible à la relecture.
 
 ## Mélange flottant et opérateurs entiers

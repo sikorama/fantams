@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Pre-commit : lignes indexées au format, puis tests unitaires rapides.
+# Installation : make hooks   —   contournement ponctuel : git commit --no-verify
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+scripts/format.sh --staged || { echo "pre-commit : format refusé — make format, puis git add" >&2; exit 1; }
+make -s test-fast

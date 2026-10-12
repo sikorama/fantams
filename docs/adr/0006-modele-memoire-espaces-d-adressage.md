@@ -68,7 +68,7 @@ aucune forme, plutôt que de rendre des zéros.
 au même titre : `ramDump()`, dans le harnais de comparaison de z80live-lite
 (`scripts/compare/`), ne reconstruit que le chunk `MEM0`,
 avec le commentaire « fantams ne gère pas le multi-bank ». Sans mise à jour, tout
-octet écrit hors des 64 K de base serait déclaré conforme à la référence sans
+octet écrit hors des 64 K de base serait déclaré conforme sans
 jamais avoir été lu — un test qui passe en ne regardant rien.
 
 Le calcul du `loadAddress` et du `bin` contigu, aujourd'hui dérivés d'un minimum

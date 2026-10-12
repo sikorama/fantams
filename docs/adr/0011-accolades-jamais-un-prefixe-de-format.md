@@ -11,7 +11,7 @@ d'affichage de `PRINT` s'écrivent en mot-clé nu devant l'expression :
 
 ## Contexte
 
-L'usage établi surcharge les accolades. Dans une même source du corpus, on
+Les accolades sont surchargées. Dans une même source du corpus, on
 trouve à la
 fois la substitution de variable `{mode}` et le préfixe de format `{hex}` :
 
@@ -27,7 +27,7 @@ lequel s'applique.
 `unknown symbol 'hex'` du corpus ne signalaient pas une fonctionnalité
 manquante : le préprocesseur appliquait correctement sa propre grammaire, où
 `{X}` veut dire « évalue X ». `hex` n'existe pas, donc erreur. Il n'y avait rien
-à corriger — seulement une divergence à assumer et à diagnostiquer clairement.
+à corriger — seulement un refus à assumer et à diagnostiquer clairement.
 
 ## Pourquoi `sizeof` peut être une fonction et `hex` non
 
@@ -56,8 +56,7 @@ Accepter `{hex}` obligerait à réintroduire dans la grammaire l'ambiguïté mê
 qu'on refuse. Le diagnostic nomme en revanche la forme de remplacement, source
 par source.
 
-Environ treize sources du corpus passent donc de « manque à combler » à
-« divergence assumée » : elles devront être éditées. C'est un abaissement
+Environ treize sources du corpus devront donc être éditées. C'est un abaissement
 délibéré du plafond de compatibilité, décidé en connaissance du chiffre.
 
 Si un jour des opérateurs rendant des chaînes entrent dans le langage

@@ -79,10 +79,10 @@ la sortie du préprocesseur. Il aurait en outre couplé le `.sym` aux drapeaux d
 mise en forme — `--no-detach-labels` change le nombre de lignes que `-E` écrit
 (ADR 0013) — donc à un artefact que l'auteur n'a pas forcément demandé.
 
-**Pas de format de compatibilité tiers.** Le `.sym` en usage (`START #2000 B0 L`)
-ou celui d'un émulateur donné perdent le type, la provenance, ou les deux. Le jour
-où un émulateur précis est visé, il sera visé nommément ; en attendant, la
-conversion est un `awk` de trois lignes.
+**Un seul format.** Le `.sym` porte le type et la provenance ; une variante
+réduite à nom et adresse les perdrait. Le jour où un émulateur précis est visé,
+il sera visé nommément ; en attendant, la conversion est un `awk` de trois
+lignes.
 
 **Pas de métadonnées.** Ni point d'entrée ni adresse de chargement : le premier est
 déjà le `PC` du snapshot, la seconde est dans le binaire, et les redire ici

@@ -574,7 +574,7 @@ sans système de fichiers.
 Ce n'est pas une indifférence, c'est un argument contre deux exécutables : deux
 binaires forceraient les fichiers objets à transiter par un système de fichiers
 virtuel dans l'hôte navigateur. C'est exactement le CLI émulé dont le projet veut
-se défaire, et qui a déjà produit ses seules divergences d'octets.
+se défaire, et qui a déjà produit ses seules erreurs d'octets.
 
 Donc un binaire, qui est un **driver**, sur le modèle de `cc` :
 

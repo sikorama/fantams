@@ -21,7 +21,7 @@ Il y a trois façons de placer une section, et elles existaient déjà à deux :
   pour une autre machine — on change le script, pas le programme ;
 - **`org b<n>:` à la main** (ADR 0005). `aliased_org.asm` place tout lui-même :
   un préfixe de banque par bloc, et les valeurs de commutation en `equ`. C'est la
-  forme que prend un source venu d'un autre assembleur, et la seule utilisable
+  forme d'un source qui porte lui-même son placement, et la seule utilisable
   quand l'hôte ne sait pas éditer de script.
 
 La seconde paie un prix que son propre en-tête nomme : **chaque banque y est
@@ -98,8 +98,8 @@ pris séparément, et ne se voit qu'à l'exécution.
 
 L'ADR 0005 n'est pas amendé. `org b<n>:` garde exactement ce qu'il est : une
 notation d'**émission directe**, qui range des octets dans une banque nommée par
-son numéro, **sans linker**. Elle reste la forme d'accueil d'un source venu d'un
-autre assembleur, et la seule disponible quand aucun profil n'est donné.
+son numéro, **sans linker**. Elle reste la forme d'un source qui porte lui-même
+son placement, et la seule disponible quand aucun profil n'est donné.
 
 Les deux ne se recouvrent pas, et ne doivent pas être mêlées : **un `org` préfixé
 d'une banque à l'intérieur d'une section placée par `IN` est refusé**. `IN` a déjà

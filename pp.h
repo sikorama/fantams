@@ -8,11 +8,9 @@
 // expressions résolubles au préprocesseur (constantes, variables PP, arguments
 // de macro). Une référence à un label temps-assemblage est une erreur.
 //
-// Scope « auto-local » : dans un corps de macro (ou une itération de REPEAT), un
-// label PRÉFIXÉ PAR '@' est rendu unique par expansion — convention héritée, cf.
-// `collectLabels(..., onlyAtPrefixed)`. Un label ordinaire réutilisé entre deux
-// expansions reste une vraie collision (« duplicate symbol »), comme chez l'assembleur de référence.
-// MODULE, lui, renomme tout. @@export sort du renommage.
+// Une expansion (macro, REPEAT, WHILE, FOR) est un espace de noms (ADR 0038) : un label
+// écrit en dur dans son corps est local, préfixé `<nom>__<n>.`. Un label dont le nom
+// contient `{…}` reste global ; `@x` marque un label global, développable une seule fois.
 #pragma once
 
 #include <functional>

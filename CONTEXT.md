@@ -3,7 +3,7 @@
 Assembleur Z80 deux passes ciblant l'export de snapshots CPC, doté d'un
 préprocesseur dont la source déroulée est un livrable de premier plan. Le
 vocabulaire ci-dessous existe parce que « symbole » et « variable » recouvrent,
-dans le monde des assembleurs Z80, des objets qui n'ont ni la même phase de
+en assembleur Z80, des objets qui n'ont ni la même phase de
 résolution ni les mêmes règles de réaffectation — confusion qui a un coût direct
 sur la conception du préprocesseur.
 
@@ -128,22 +128,23 @@ pris un à un.
 
 ### Portée
 
-**Scope auto-local** :
-Règle rendant unique, à chaque expansion, un label **préfixé par `@`** défini dans
-un corps de macro ou une itération de boucle. Un label sans le préfixe n'est pas
-renommé : réutilisé d'une expansion à l'autre, il reste une vraie collision.
-`@@export` sort un label du renommage, pour que toutes les expansions partagent un
-seul nom — il ne concerne donc que les labels préfixés.
-_Éviter_ : scope local, renommage
+**Espace de noms d'expansion** :
+Une expansion (macro, `repeat`, `while`, `for`) est un espace de noms. Un label, une
+constante ou une instance **écrits en dur** dans son corps sont locaux à chaque
+expansion (`poke__1.retry`, `poke__2.retry`). Un nom qui **contient une substitution
+`{…}`** reste global : c'est l'appelant qui l'a construit. `@x` marque un nom global,
+sans `@` dans le nom, et la macro ne peut alors être développée qu'une fois. Le motif
+`__<chiffres>` est réservé aux noms ainsi générés.
+_Éviter_ : scope local, scope auto-local, renommage
 
 **Module** :
 Espace de noms des symboles : un module actif préfixe les labels, les constantes,
 les structures et les instances de structure qui y sont définis (`gfx.plot`,
 `gfx.S_COLORS`). Les champs d'une structure ne sont jamais préfixés par le module :
 ils sont qualifiés par leur structure (`gfx.S_COLORS.HUD`). Hors du module, un nom
-s'écrit qualifié, sans recherche de repli. Il se **commute**, il ne s'imbrique pas —
-`MODULE nom` remplace le module actif, `MODULE OFF` et `ENDMODULE` le désactivent.
-_Éviter_ : namespace, portée (qui désigne le scope auto-local)
+s'écrit qualifié, sans recherche de repli.
+`MODULE nom` ouvre un module, `ENDMODULE` (ou `end`) le ferme ; les modules s'imbriquent (`toto.chose.ADDR`). `MODULE OFF` n'existe plus.
+_Éviter_ : namespace, portée (qui désigne l'espace de noms d'expansion)
 
 ### Mémoire
 
@@ -447,27 +448,25 @@ _Éviter_ : plugin, exporter, writer
 ### Mesure
 
 **Corpus** :
-Un ensemble de sources Z80 réelles, conservé hors de fantams, servant à mesurer
-la **diversité syntaxique** rencontrée dans la nature — et donc le travail
-d'implémentation restant. Il contient des sources dont la correction n'est pas
-garantie : c'est un instrument de mesure, jamais une référence de correction, et
-la compatibilité avec un autre assembleur n'est pas un objectif du projet.
+Un ensemble de sources Z80 réelles, conservé hors de fantams, qui ne sert qu'à
+savoir si une source compile en l'état avec fantams. Si elle ne compile pas, c'est
+le mainteneur qui corrige la source, pas fantams. Il contient des sources dont la
+correction n'est pas garantie : c'est un instrument de mesure, jamais une
+référence de correction.
 Son **intégralité** n'est jamais publiée : une source n'en sort
 qu'individuellement et sur déverrouillage nommé du mainteneur (ADR 0029).
-_Éviter_ : base de test, suite de tests (qui désignent les tests unitaires),
-corpus de compatibilité
+_Éviter_ : base de test, suite de tests (qui désignent les tests unitaires)
 
 **Texte distinct** :
 Une source du corpus après regroupement des copies de même contenu. C'est
-l'unité de mesure de la diversité syntaxique, et donc du travail
-d'implémentation restant. Le regroupement se fait sur le texte et non sur la
+l'unité de mesure du corpus. Le regroupement se fait sur le texte et non sur la
 filiation, celle-ci n'étant pratiquement pas renseignée dans la base ; il ne
 capture que les copies exactes, ce qui en fait une borne haute.
 
 **Cas de référence** :
 Une source minimale et autonome, versionnée dans fantams, exerçant une seule
 construction du langage. Contrairement au corpus, sa sortie attendue fait
-autorité : c'est ce qui *défend* la compatibilité contre les régressions.
+autorité : c'est ce qui *défend* le langage contre les régressions.
 _Éviter_ : fixture, exemple, échantillon
 
 **Portage** :

@@ -256,8 +256,9 @@ int main() {
         kw::Phase::Preprocess);
     chk("fermeture orpheline : pas de dérive vers la gauche",
         "rend\nnop\n", "    rend\n    nop\n", kw::Phase::Preprocess);
-    chk("MODULE n'ouvre pas de bloc (ADR 0016)",
-        "module gfx\nnop\n", "    module gfx\n    nop\n", kw::Phase::Preprocess);
+    chk("MODULE ouvre un bloc : son corps est indenté, ENDMODULE s'aligne",
+        "module gfx\nnop\nendmodule\n", "    module gfx\n        nop\n    endmodule\n",
+        kw::Phase::Preprocess);
     chk("corps de STRUCT : les champs ne sont ni détachés ni réindentés",
         "STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\nENDSTRUCT\nnop\n",
         "    STRUCT S\nPOINTER1    DEFB 1\nCOLORS  T\n    ENDSTRUCT\n    nop\n",

@@ -67,6 +67,11 @@ const std::vector<BlockKind> &blockKinds();
 
 // Le bloc qu'ouvre ce mot-clé (MAJUSCULES), ou "".
 std::string blockOfOpener(const std::string &kw);
+
+// Le nom porte-t-il un préfixe d'expansion `__<chiffres>` (`poke__1.retry`, ADR 0038) ? Le motif
+// est réservé aux noms que le préprocesseur génère : c'est ce qui permet à l'assembleur de
+// reconnaître le label d'une expansion sans qu'aucun nom écrit à la main puisse le contrefaire.
+bool hasExpansionPrefix(const std::string &name);
 // Le bloc que ferme ce mot-clé, "*" pour `END` qui ferme n'importe lequel, ou "".
 std::string blockOfCloser(const std::string &kw);
 // `STRUCT nom` (un seul argument) déclare une structure et ouvre un corps de champs ;
@@ -112,9 +117,9 @@ bool parenCall(const std::string &s, std::string &name, std::string &args);
 //
 // Le canon reste `jp (hl)` bien que la notation soit mauvaise — les parentheses
 // y suggerent une indirection qui n'existe pas. Mais `ld pc,hl` n'est du Z80
-// standard pour personne, et un canon que les autres assembleurs refusent perd
+// standard pour personne, et un canon que personne n'écrit perd
 // ce qui fait sa valeur.
-// Couvre aussi « jp hl » (idem ix, iy), la forme de l'assembleur de référence sans parentheses.
+// Couvre aussi « jp hl » (idem ix, iy), la forme sans parentheses.
 std::string canonicalJump(const std::string &stmt);
 
 // Les orthographes de `EX`, ou la chaine inchangee :
@@ -153,8 +158,8 @@ bool isBankRef(const std::string &tok);
 std::string reservedName(const std::string &name, const std::string &position);
 
 // Sépare un éventuel label de tête « ident: » du reste — ou « ident » seul
-// (sans ':') si `ident` n'est pas réservé à cette phase, forme tolérée et
-// courante chez l'assembleur de référence. `code` doit être dépourvu de commentaire et d'espaces de
+// (sans ':') si `ident` n'est pas réservé à cette phase, forme tolérée.
+// `code` doit être dépourvu de commentaire et d'espaces de
 // tête ; `rest` est rendu trimé.
 //
 // `sawColon` (optionnel) : lequel des deux cas s'est produit, pour permettre
@@ -175,7 +180,7 @@ void peelLabel(const std::string &code, std::string &label, std::string &rest, P
 //
 // Un littéral court jusqu'à la prochaine occurrence de SON PROPRE délimiteur :
 // l'autre y est un caractère ordinaire, sans échappement (« db 'a"b' » émet
-// trois octets). C'est ce que fait déjà l'assembleur de référence, et ce que faisaient déjà les
+// trois octets). C'est ce que faisaient déjà les
 // scanners de pp.cpp et parser.cpp — l'écrire ici une fois supprime une
 // divergence plutôt qu'elle n'en ajoute une.
 struct Literal {

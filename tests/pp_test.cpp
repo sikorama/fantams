@@ -141,7 +141,7 @@ int main() {
     // passe-plat + suppression commentaires/vides
     chk("passthrough", "  ld a,1  ; commentaire\n\n  ret\n", "ld a,1\nret\n");
 
-    // commentaires bloc /* ... */ (comme l'assembleur de référence), y compris multi-lignes et sur une ligne de code
+    // commentaires bloc /* ... */, y compris multi-lignes et sur une ligne de code
     chk("commentaire bloc simple", "/* commentaire */\n  ld a,1\n", "ld a,1\n");
     chk("commentaire bloc multi-lignes", "/* ligne1\nligne2\nligne3 */\n  ld a,1\n", "ld a,1\n");
     chk("commentaire bloc + code sur la même ligne", "/* c */ ld a,1\n", "ld a,1\n");
@@ -150,13 +150,13 @@ int main() {
     chk("LET + subst", "LET N = 3\n  ld a,{N}\n", "ld a,3\n");
     chk("subst expr", "LET N = 3\n  ld a,{=N*2+1}\n", "ld a,7\n");
 
-    // REPEAT avec index (1-based, comme l'assembleur de référence : {i} vaut 1 à la 1re itération)
+    // REPEAT avec index (1-based : {i} vaut 1 à la 1re itération)
     chk("REPEAT", "REPEAT 3, k\n  ld a,{k}\nREND\n", "ld a,0\nld a,1\nld a,2\n");
     chkErr("registre en index de boucle", "REPEAT 3, i\n  ld a,{i}\nREND\n");
     chk("REPEAT expr count", "LET n=2\nREPEAT n\n  nop\nREND\n", "nop\nnop\n");
 
-    // Variables PP / compteurs de boucle écrits en clair (sans {}) : l'assembleur de référence les
-    // expose comme des symboles ordinaires, fantams les substitue textuellement.
+    // Variables PP / compteurs de boucle écrits en clair (sans {}) : fantams les substitue
+    // textuellement.
     chk("compteur REPEAT en clair", "REPEAT 3, k\n  db k*2\nREND\n", "db 0*2\ndb 1*2\ndb 2*2\n");
     chk("LET en clair", "LET v=7\n db v+1\n", "db 7+1\n");
     chk("substitution hors chaînes/caractères",
@@ -310,8 +310,8 @@ int main() {
 
     // --- ADR 0020 : le sucre syntaxique hérité ---------------------------------------
     //
-    // (1) « ld rr,rr' » : un-vers-plusieurs, donc canonisation. Le HAUT d'abord,
-    // comme l'assembleur de référence — et aucun recouvrement n'est possible, les paires etant
+    // (1) « ld rr,rr' » : un-vers-plusieurs, donc canonisation. Le HAUT d'abord ;
+    // aucun recouvrement n'est possible, les paires etant
     // disjointes.
     chk("ld de,hl", " ld de,hl\n", "ld d,h\n    ld e,l\n");
     chk("ld bc,de", " ld bc,de\n", "ld b,d\n    ld c,e\n");
@@ -320,7 +320,7 @@ int main() {
     chk("la casse du mnemonique est gardee", " LD DE,HL\n", "LD d,h\n    LD e,l\n");
     chk("un label devant est conserve", "cp16: ld de,hl\n", "cp16: ld d,h\n    ld e,l\n");
     // H et IXH ne se nomment pas dans la meme instruction : le prefixe DD fait de
-    // « h » la moitie de IX. Contrainte de la machine, pas choix — l'assembleur de référence refuse aussi.
+    // « h » la moitie de IX. Contrainte de la machine, pas choix.
     chk("ld hl,ix n'existe pas : laisse tel quel", " ld hl,ix\n", "ld hl,ix\n");
     chk("ld ix,iy non plus", " ld ix,iy\n", "ld ix,iy\n");
     chk("ld hl,sp n'est pas de cette famille", " ld hl,sp\n", "ld hl,sp\n");
@@ -355,10 +355,10 @@ int main() {
     // (4) La repetition : du DEROULAGE, pas de la canonisation.
     chk("nop 3", " nop 3\n", "nop\n    nop\n    nop\n");
     chk("ldi 4", " ldi 4\n", "ldi\n    ldi\n    ldi\n    ldi\n");
-    // La regle porte sur TOUT mnemonique sans operande, plus large que les dix que
-    // l'assembleur de référence code a la main : « pourquoi ldi 4 et pas cpi 4 ? » n'a pas de reponse.
-    chk("cpi 4, que l'assembleur de référence refuse", " cpi 4\n", "cpi\n    cpi\n    cpi\n    cpi\n");
-    chk("ldir 2, que l'assembleur de référence refuse", " ldir 2\n", "ldir\n    ldir\n");
+    // La regle porte sur TOUT mnemonique sans operande, sans liste fermée
+    // de mnémoniques : « pourquoi ldi 4 et pas cpi 4 ? » n'aurait pas de reponse.
+    chk("cpi 4 se déplie en quatre cpi", " cpi 4\n", "cpi\n    cpi\n    cpi\n    cpi\n");
+    chk("ldir 2 se déplie en deux ldir", " ldir 2\n", "ldir\n    ldir\n");
     chk("nop 0 n'emet rien", " nop 0\n", "");
     chk("le compteur est une expression", "n equ 2\n nop n*2\n",
         "n equ 2\nnop\n    nop\n    nop\n    nop\n");
@@ -370,7 +370,7 @@ int main() {
     chkErr("compteur negatif", " nop -1\n");
     // Le compteur est une valeur de preprocesseur, comme celui de `repeat` dont
     // cette ecriture est le raccourci. Le refus en decoule au lieu d'etre un cas
-    // particulier — l'assembleur de référence, lui, l'accepte, sa repetition vivant dans l'assembleur.
+    // particulier.
     chkErr("un compteur mesure sur des labels est refuse", "l1: nop\nl2:\n nop l2-l1\n");
     chkStrict("strict refuse la repetition", " nop 3\n", false);
     chkStrict("strict refuse ld de,hl", " ld de,hl\n", false);
@@ -443,28 +443,98 @@ int main() {
         "ADDXY MACRO x,y\n  ld hl,{=x+y}\nENDM\n  ADDXY 10,20\n",
         "ld hl,30\n");
 
-    // auto-local : seul un label préfixé par '@' est unique par invocation
-    // (convention héritée) ; un label ordinaire n'est PAS renommé (une vraie
-    // collision, détectée par l'assembleur si réutilisé, reste possible).
-    chk("MACRO auto-local (@ préfixé)",
-        "MACRO DELAY\n@loop: djnz @loop\nENDM\n  DELAY\n  DELAY\n",
-        "@loop__1: djnz @loop__1\n@loop__2: djnz @loop__2\n");
-    chk("MACRO label ordinaire non renommé",
+    // --- Une expansion est un espace de noms (ADR 0038) ---
+    chk("MACRO : un label écrit en dur est local à chaque expansion",
         "MACRO DELAY\nloop: djnz loop\nENDM\n  DELAY\n  DELAY\n",
-        "loop: djnz loop\nloop: djnz loop\n");
-
-    // @@export : un label @ reste global malgré le préfixe
-    chk("MACRO export",
-        "MACRO M\n@@export @total\n@total: nop\n@loc: nop\nENDM\n  M\n",
-        "@total: nop\n@loc__1: nop\n");
-
-    // REPEAT : seuls les labels @ sont uniques par itération
-    chk("REPEAT auto-local (@ préfixé)",
-        "REPEAT 2\n@lab: nop\nREND\n",
-        "@lab__1: nop\n@lab__2: nop\n");
-    chk("REPEAT label ordinaire non renommé",
+        "DELAY__1.loop: djnz DELAY__1.loop\nDELAY__2.loop: djnz DELAY__2.loop\n");
+    chk("MACRO : un nom que la macro ne définit pas reste visible tel quel",
+        "table: db 1\nMACRO LOOKUP\nld hl,table\nENDM\n  LOOKUP\n",
+        "table: db 1\nld hl,table\n");
+    chk("MACRO : le local masque le global de même nom",
+        "loop: nop\nMACRO M\nloop: djnz loop\nENDM\n  M\n  jp loop\n",
+        "loop: nop\nM__1.loop: djnz M__1.loop\njp loop\n");
+    chk("MACRO : label construit par argument, global, quelle que soit la place des accolades",
+        "MACRO FN(name)\nmon_{name}: nop\n{name}_fin: nop\n{name}.x: nop\nENDM\n  FN(a)\n  FN(b)\n",
+        "mon_a: nop\na_fin: nop\na.x: nop\nmon_b: nop\nb_fin: nop\nb.x: nop\n");
+    chk("MACRO : @ marque un label global, sans @ dans le nom, atteignable de l'extérieur",
+        "MACRO M\n@entry: nop\nl: jp entry\nENDM\n  M\n  jp entry\n",
+        "entry: nop\nM__1.l: jp entry\njp entry\n");
+    chk("MACRO : @ marque aussi une constante",
+        "MACRO M\n@K EQU 5\nld a,K\nENDM\n  M\n  ld b,K\n",
+        "K EQU 5\nld a,K\nld b,K\n");
+    chkErrMsg("MACRO : un label @ ne permet qu'une seule expansion",
+              "MACRO M\n@entry: nop\nENDM\n  M\n  M\n",
+              "duplicate symbol: 'entry' — the macro 'M' marks it with '@'", "zzzz");
+    chkErrMsg("REPEAT : un label @ ne permet qu'une seule itération",
+              "REPEAT 2\n@lab: nop\nREND\n",
+              "duplicate symbol: 'lab' — this repeat body marks it with '@'", "zzzz");
+    chkErrMsg("@ hors expansion : erreur nommée",
+              "@x: nop\n", "'@' marks a label of a macro or loop body", "zzzz");
+    chkErrMsg("@ dans un module, hors expansion : erreur nommée",
+              "MODULE a\n@x: nop\nENDMODULE\n", "'@' marks a label of a macro or loop body", "zzzz");
+    chkErrMsg("STRUCT type @x hors expansion : erreur nommée",
+              "STRUCT T\nx db 0\nENDSTRUCT\nSTRUCT T @s\n", "'@' marks a label of a macro or loop body", "zzzz");
+    chkErrMsg("@@export n'existe plus : erreur nommée vers @",
+              "MACRO M\n@@export x\nx: nop\nENDM\n  M\n", "'@@export' no longer exists", "zzzz");
+    chkErrMsg("@@export dans un module : erreur nommée",
+              "MODULE a\n@@export main\nmain: nop\nENDMODULE\n", "'@@export' no longer exists", "zzzz");
+    chkErrMsg("__<n> réservé : un label écrit à la main",
+              "foo__1: nop\n", "reserved for names generated by expansions", "zzzz");
+    chkErrMsg("__<n> réservé : un label écrit dans une macro",
+              "MACRO M\nx__2: nop\nENDM\n  M\n", "reserved for names generated by expansions", "zzzz");
+    chkErrMsg("__<n> réservé : un label de module",
+              "MODULE a\nx__3: nop\nENDMODULE\n", "reserved for names generated by expansions", "zzzz");
+    // Le motif __<n> est refusé pour CHAQUE genre de nom écrit à la main, dans chaque contexte.
+    {
+        const char *kinds[][2] = {
+            {"label", "x__2: nop\n"},
+            {"constante", "x__2 EQU 1\n"},
+            {"variable", "x__2 = 1\n"},
+            {"structure", "STRUCT x__2\nf db\nENDSTRUCT\n"},
+            {"instance", "STRUCT T x__2\n"},
+        };
+        const char *wraps[][3] = {
+            {"au niveau supérieur", "", ""},
+            {"dans un module", "MODULE a\n", "ENDMODULE\n"},
+            {"dans une macro", "MACRO M\n", "ENDM\n  M\n"},
+        };
+        for (auto &k : kinds)
+            for (auto &w : wraps) {
+                const std::string desc = std::string("__<n> réservé : ") + k[0] + " " + w[0];
+                chkErrMsg(desc.c_str(), std::string("STRUCT T\nf db\nENDSTRUCT\n") + w[1] + k[1] + w[2],
+                          "reserved for names generated by expansions", "zzzz");
+            }
+    }
+    chk("__ suivi d'autre chose que des chiffres seuls reste permis",
+        "x__a: nop\ny__1b: nop\n", "x__a: nop\ny__1b: nop\n");
+    chk("Expansion imbriquée : un nom de la macro reste visible dans la boucle",
+        "MACRO M\nstart: nop\nREPEAT 2\njp start\nREND\nENDM\n  M\n",
+        "M__1.start: nop\njp M__1.start\njp M__1.start\n");
+    chk("Expansion imbriquée : le nom défini par la boucle masque celui de la macro",
+        "MACRO M\nstart: nop\nREPEAT 2\nstart: nop\njp start\nREND\njp start\nENDM\n  M\n",
+        "M__1.start: nop\nM__1.repeat__2.start: nop\njp M__1.repeat__2.start\n"
+        "M__1.repeat__3.start: nop\njp M__1.repeat__3.start\njp M__1.start\n");
+    chk("MACRO : une constante EQU est locale à l'expansion",
+        "MACRO M\nK EQU 5\nld a,K\nENDM\n  M\n  M\n",
+        "M__1.K EQU 5\nld a,M__1.K\nM__2.K EQU 5\nld a,M__2.K\n");
+    chk("MACRO : une variable (=) reste l'accumulateur de l'appelant, jamais scopée",
+        "n = 0\nMACRO M\nn = n + 1\nENDM\n  M\n  M\n",
+        "n = 0\nn = n + 1\nn = n + 1\n");
+    chk("REPEAT : un label écrit en dur est local à chaque itération",
         "REPEAT 2\nlab: nop\nREND\n",
-        "lab: nop\nlab: nop\n");
+        "repeat__1.lab: nop\nrepeat__2.lab: nop\n");
+    chk("WHILE : un label écrit en dur est local à chaque itération",
+        "LET N = 2\nWHILE N > 0\nlab: nop\nLET N = N - 1\nWEND\n",
+        "while__1.lab: nop\nwhile__2.lab: nop\n");
+    chk("FOR : un label écrit en dur est local à chaque itération",
+        "FOR k = 0 UNTIL 2\nlab: nop\nENDFOR\n",
+        "for__1.lab: nop\nfor__2.lab: nop\n");
+    chk("Expansions imbriquées : le préfixe se compose",
+        "MACRO M\nREPEAT 2\nx: nop\nREND\nENDM\n  M\n",
+        "M__1.repeat__2.x: nop\nM__1.repeat__3.x: nop\n");
+    chk("Expansion dans un module : le préfixe de module précède",
+        "MODULE a\nMACRO M(v)\nx: nop\nENDM\n  M(1)\nENDMODULE\n",
+        "a.M__1.x: nop\n");
 
     // WHILE piloté par variable PP
     chk("WHILE",
@@ -509,8 +579,8 @@ int main() {
     chk("label + REPEAT",
         "start: REPEAT 2\n nop\nREND\n", "start:\nnop\nnop\n");
 
-    // MODULE : préfixe les labels définis avec '.' (PAS '_' comme l'assembleur de référence — délibérément
-    // incompatible : '_' est un caractère d'identifiant ordinaire donc ambigu, alors que
+    // MODULE : préfixe les labels définis avec '.'
+    // ('_' est un caractère d'identifiant ordinaire donc ambigu, alors que
     // '.' est déjà le séparateur des labels locaux ; ça permet de chaîner "module.label.local"
     // sans mécanisme séparé). Laisse les globaux non définis dans le module en fallback.
     chk("MODULE prefix",
@@ -519,21 +589,38 @@ int main() {
     chk("MODULE fallback global",
         "MODULE m\nfoo: call ext\nENDMODULE\n",
         "m.foo: call ext\n");
-    // l'assembleur de référence ne cumule PAS les MODULE : "MODULE b" remplace "MODULE a" (pas de préfixe a.b.).
-    chk("MODULE switch (pas de nesting)",
-        "MODULE a\nz: nop\nMODULE b\nx: nop\nENDMODULE\ny: jp x\n",
-        "a.z: nop\nb.x: nop\ny: jp x\n"); // y est hors module -> x (non renommé) reste global
-    chk("MODULE OFF",
-        "MODULE a\nz: nop\nMODULE OFF\ny: nop\n",
-        "a.z: nop\ny: nop\n");
+    chk("MODULE imbriqués : préfixe composé, ENDMODULE ferme le plus interne",
+        "MODULE a\nz: nop\nMODULE b\nx: nop\nENDMODULE\ny: jp a.b.x\nENDMODULE\nw: nop\n",
+        "a.z: nop\na.b.x: nop\na.y: jp a.b.x\nw: nop\n");
+    chk("MODULE imbriqués sur trois niveaux, `end` ferme un module",
+        "MODULE a\nMODULE b\nMODULE c\nx: nop\nend\nENDMODULE\nENDMODULE\n",
+        "a.b.c.x: nop\n");
+    chk("MODULE imbriqué : un nom de l'intérieur masque celui de l'extérieur",
+        "MODULE a\nx: nop\nMODULE b\nx: nop\njp x\nENDMODULE\njp x\nENDMODULE\n",
+        "a.x: nop\na.b.x: nop\njp a.b.x\njp a.x\n");
+    chk("MODULE imbriqué : un nom de l'extérieur reste visible à l'intérieur",
+        "MODULE a\nx: nop\nMODULE b\nlda: jp x\nENDMODULE\nENDMODULE\n",
+        "a.x: nop\na.b.lda: jp a.x\n");
+    chk("MODULE rouvert : constante du premier bloc",
+        "MODULE a\nCONST EQU 123\nENDMODULE\nMODULE a\n  ld a,CONST\nENDMODULE\n",
+        "a.CONST EQU 123\nld a,a.CONST\n");
+    chk("MODULE imbriqué rouvert : constante du premier bloc",
+        "MODULE a\nMODULE b\nK EQU 1\nENDMODULE\nENDMODULE\nMODULE a\nMODULE b\n ld a,K\nENDMODULE\nENDMODULE\n",
+        "a.b.K EQU 1\nld a,a.b.K\n");
+    chkErrMsg("STRUCT au motif __<n> réservé : erreur nommée",
+              "STRUCT S__2\nx db\nENDSTRUCT\n", "reserved for names generated", "zzzz");
+    chkErrMsg("MODULE OFF n'existe plus", "MODULE a\nENDMODULE\nMODULE OFF\n", "MODULE OFF no longer exists", "zzzz");
+    chkErrMsg("MODULE sans fermeture", "MODULE a\nx: nop\n", "MODULE without ENDMODULE", "zzzz");
+    chkErrMsg("ENDMODULE orphelin", "nop\nENDMODULE\n", "ENDMODULE without MODULE", "zzzz");
+    chkErrMsg("MODULE sans nom", "MODULE\nENDMODULE\n", "MODULE without a name", "zzzz");
     // label sans ':' dans un MODULE (comme un vrai bout de source existante)
     chk("MODULE label sans ':'",
-        "MODULE icons\ndisplay\n  ret\nMODULE OFF\n  call icons.display\n",
+        "MODULE icons\ndisplay\n  ret\nENDMODULE\n  call icons.display\n",
         "icons.display\nret\ncall icons.display\n");
     // label local ".nom" dans un MODULE : pas renommé par MODULE lui-même (laissé à
     // asm.cpp), mais le préprocesseur ne doit pas le casser -> passe-plat tel quel ici.
     chk("MODULE + label local (préprocesseur : passe-plat)",
-        "MODULE icons\ndisplay:\n.loop:\n  djnz .loop\n  ret\nMODULE OFF\n",
+        "MODULE icons\ndisplay:\n.loop:\n  djnz .loop\n  ret\nENDMODULE\n",
         "icons.display:\n.loop:\ndjnz .loop\nret\n");
 
     // STRUCT : déclaration -> offsets + sizeof (EQU portables)
@@ -586,14 +673,14 @@ int main() {
     chkErr("MODULE + STRUCT : le nom nu hors du module est inconnu",
         "MODULE m\nSTRUCT S\nx db 0\nENDSTRUCT\nENDMODULE\nSTRUCT S q\n");
 
-    // Une instance `@x` est un label auto-local : unique à chaque tour de boucle.
-    chk("STRUCT instance @x dans un REPEAT : un label par itération",
-        "STRUCT T\nx db 0\nENDSTRUCT\nrepeat 2\nSTRUCT T @s\nendrepeat\n",
-        "T.x EQU 0\nT EQU 1\n@s__1:\n@s__1.x EQU @s__1+0\nDB 0\n"
-        "@s__2:\n@s__2.x EQU @s__2+0\nDB 0\n");
-    chk("STRUCT instance sans @ dans un REPEAT : collision voulue, comme un label",
+    // Une instance est un label : locale à l'expansion, ou globale si elle est marquée `@x`.
+    chk("STRUCT instance écrite en dur dans un REPEAT : une instance par itération",
         "STRUCT T\nx db 0\nENDSTRUCT\nrepeat 2\nSTRUCT T s\nendrepeat\n",
-        "T.x EQU 0\nT EQU 1\ns:\ns.x EQU s+0\nDB 0\ns:\ns.x EQU s+0\nDB 0\n");
+        "T.x EQU 0\nT EQU 1\nrepeat__1.s:\nrepeat__1.s.x EQU repeat__1.s+0\nDB 0\n"
+        "repeat__2.s:\nrepeat__2.s.x EQU repeat__2.s+0\nDB 0\n");
+    chk("STRUCT instance @s dans une macro : globale, sans @ dans le nom",
+        "STRUCT T\nx db 0\nENDSTRUCT\nMACRO M\nSTRUCT T @s\nENDM\n  M\n",
+        "T.x EQU 0\nT EQU 1\ns:\ns.x EQU s+0\nDB 0\n");
 
     // Un nom de structure est un identifiant : `S:` est une faute, pas un nom.
     chkErr("STRUCT : un nom suivi de ':' est refusé",
@@ -625,7 +712,7 @@ int main() {
     chk("colon dans chaîne protégé", "  db \"a:b\" : nop\n", "db \"a:b\"\n    nop\n");
     chk("colon dans (ix+d)", "  ld a,(ix+0) : ret\n", "ld a,(ix+0)\n    ret\n");
 
-    // "mnémo:mnémo" collé (style non canonique, mais l'assembleur de référence le découpe quand même en 2
+    // "mnémo:mnémo" collé (style non canonique, mais découpé quand même en 2
     // instructions car "ei"/"ret" sont des mnémos connus, pas des labels) -> avertissement.
     chkWarn("mnémo:mnémo collé", "ei:ret\n", "ei\n    ret\n", true);
     chkWarn("mnémo: mnémo (espace après)", "ei: ret\n", "ei\n    ret\n", true);

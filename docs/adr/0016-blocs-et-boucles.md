@@ -56,10 +56,10 @@ en forme chaque ligne indépendamment, y compris dans un source déséquilibré.
 
 ## L'index de `repeat` passe à 0
 
-`repeat count[,var]` était 1-based, délibérément, par mimétisme. Il
+`repeat count[,var]` était 1-based, délibérément. Il
 passe à 0.
 
-Cette divergence est la seule du projet qui **ne peut pas** être détectée. Un
+Ce changement est le seul du projet qui **ne peut pas** être détecté. Un
 `{hex}` produit une erreur : la source ne s'assemble pas, l'auteur est prévenu,
 et l'ADR 0011 a pu assumer un nombre de sources à éditer. Un index qui démarre à
 0 au lieu de 1 produit une source qui s'assemble parfaitement et des données
@@ -69,7 +69,7 @@ Elle est néanmoins acceptée, à une condition qui la rend bruyante : **tout**
 usage de la forme `repeat n,i` déclenche un avertissement de dépréciation. Le
 signalement ne repose donc pas sur une détection impossible, mais sur le fait que
 la construction elle-même est ce qu'on déprécie — aucun faux positif n'est
-possible, et aucune source importée ne peut produire de données décalées sans
+possible, et aucune source écrite pour l'ancien index ne peut produire de données décalées sans
 qu'un avertissement l'ait dit. L'avertissement nomme le remède disponible : une
 source existante doit lire `i+1`, et la forme recommandée est `for`.
 
@@ -96,8 +96,7 @@ Un séparateur qui est un mot-clé n'a pas ce problème.
 Le remaniement de `findMatching` et de `classify` est un préalable à `end` : les
 deux ne se livrent pas séparément.
 
-`endr` reste à trancher, et n'est pas retenu ici. Contrairement à ce que son
-allure suggère, ce n'est pas une forme de compatibilité : les fermetures acceptées
+`endr` reste à trancher, et n'est pas retenu ici. Les fermetures acceptées
 jusqu'ici étaient `ENDM`/`MEND`, `REND`, `WEND`, `ENDMODULE` et
 `ENDSTRUCT`/`ENDS`. L'ajouter en ferait une **troisième** graphie pour un même
 bloc à côté de `rend` et de `endrepeat`, sans compter `end` — soit quatre façons

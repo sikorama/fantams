@@ -51,7 +51,7 @@ La seconde ferait vivre la règle à un seul endroit au lieu de deux et demi.
 
 `peelLabel` est sur le chemin de `asm.cpp` (l. 1159), donc sur un chemin qui
 **produit des octets**. Le corriger sans mesurer demanderait au minimum un
-passage de la comparaison sur corpus avant/après, ce qui est le genre de
+passage de la mesure sur corpus avant/après, ce qui est le genre de
 vérification qu'on ne bâcle pas en marge d'un correctif de mise en forme.
 
 Le garde-fou posé dans `beautify.cpp` interroge `kw::isReservedWord`, donc la

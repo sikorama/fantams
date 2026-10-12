@@ -169,7 +169,7 @@ std::string canonicalJump(const std::string &stmt) {
     if (peelBinary(stmt, "LD", head, mnemoTok, A, B) && A == "PC" &&
         (B == "HL" || B == "IX" || B == "IY"))
         return head + casedAs(mnemoTok, "JP (" + B + ")");
-    // « jp hl » : la forme de l'assembleur de référence, sans les parenthèses. Un pour un lui aussi,
+    // « jp hl » : la forme sans les parenthèses. Un pour un lui aussi,
     // et le canon reste `jp (hl)` pour la raison dite dans l'en-tête.
     {
         std::string label, rest;
@@ -293,12 +293,13 @@ size_t findAssign(const std::string &s) {
 
 const std::vector<BlockKind> &blockKinds() {
     static const std::vector<BlockKind> t = {
-        {"IF",      {"IF", "IFDEF", "IFNDEF"}, {"ENDIF"}},
-        {"REPEAT",  {"REPEAT"},                {"ENDREPEAT", "REND"}},
-        {"WHILE",   {"WHILE"},                 {"ENDWHILE", "WEND"}},
-        {"FOR",     {"FOR"},                   {"ENDFOR"}},
-        {"MACRO",   {"MACRO"},                 {"ENDMACRO", "ENDM", "MEND"}},
-        {"STRUCT",  {"STRUCT"},                {"ENDSTRUCT", "ENDS"}},
+        {"IF", {"IF", "IFDEF", "IFNDEF"}, {"ENDIF"}},
+        {"REPEAT", {"REPEAT"}, {"ENDREPEAT", "REND"}},
+        {"WHILE", {"WHILE"}, {"ENDWHILE", "WEND"}},
+        {"FOR", {"FOR"}, {"ENDFOR"}},
+        {"MACRO", {"MACRO"}, {"ENDMACRO", "ENDM", "MEND"}},
+        {"STRUCT", {"STRUCT"}, {"ENDSTRUCT", "ENDS"}},
+        {"MODULE", {"MODULE"}, {"ENDMODULE"}},
     };
     return t;
 }
@@ -339,6 +340,15 @@ std::string blockOfOpener(const std::string &kw) {
     }();
     auto it = byOpener.find(kw);
     return it == byOpener.end() ? "" : it->second;
+}
+
+bool hasExpansionPrefix(const std::string &n) {
+    for (size_t i = n.find("__"); i != std::string::npos; i = n.find("__", i + 1)) {
+        size_t j = i + 2;
+        while (j < n.size() && std::isdigit((unsigned char)n[j])) ++j;
+        if (j > i + 2 && (j == n.size() || n[j] == '.')) return true;
+    }
+    return false;
 }
 
 bool isStructDecl(const std::string &stmt) {

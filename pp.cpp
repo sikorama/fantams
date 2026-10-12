@@ -195,8 +195,7 @@ std::vector<std::string> expandPushPop(const std::string &stmt) {
 // Les deux moitiés 8 bits d'une paire 16 bits, ou false si la paire n'en a pas
 // (`SP` et `AF` ne sont pas adressables par moitiés).
 //
-// Les moitiés de IX/IY sont NON DOCUMENTÉES mais assemblées par fantams comme par
-// l'assembleur de référence. Elles restent du Z80 canonique au sens de l'ADR 0017 — un opcode, une
+// Les moitiés de IX/IY sont NON DOCUMENTÉES mais assemblées par fantams. Elles restent du Z80 canonique au sens de l'ADR 0017 — un opcode, une
 // ligne — ce qui est la seule condition qu'une règle de canonisation doive tenir.
 bool reg16Halves(const std::string &R, std::string &hi, std::string &lo) {
     if (R == "BC") { hi = "b";  lo = "c";  return true; }
@@ -212,14 +211,14 @@ inline bool isIndexPair(const std::string &R) { return R == "IX" || R == "IY"; }
 // indexées. Sucre un-vers-plusieurs, donc canonisation de préprocesseur
 // (ADR 0017/0020) : la source déroulée doit montrer les deux opcodes.
 //
-// L'ordre est HAUT puis BAS, comme l'assembleur de référence. Aucun recouvrement n'est possible : les
+// L'ordre est HAUT puis BAS. Aucun recouvrement n'est possible : les
 // deux paires sont disjointes (le cas dest == src est écarté), donc la moitié
 // haute écrite n'est jamais la moitié basse encore à lire.
 //
 // `ld hl,ix` et ses semblables n'existent pas, et c'est une contrainte de la
 // machine, pas un choix : le préfixe DD fait de `h` la moitié de IX, si bien
 // qu'aucune instruction ne nomme H et IXH à la fois. Deux paires d'index non
-// plus, pour la même raison. l'assembleur de référence les refuse aussi.
+// plus, pour la même raison.
 std::vector<std::string> expandLd16(const std::string &stmt) {
     std::string label, rest; peelLabel(stmt, label, rest);
     const std::string mnTok = firstToken(rest);
@@ -377,7 +376,7 @@ std::string canonicalizeSpelling(const std::string &stmt) {
 
 // --- Blocs (ADR 0016) --------------------------------------------------------
 // Un bloc a un OUVREUR, une fermeture CANONIQUE et d'éventuelles fermetures
-// TOLÉRÉES, héritées et conservées en silence : elles sont omniprésentes
+// TOLÉRÉES et conservées en silence : elles sont omniprésentes
 // et, la correspondance étant désormais vérifiée, elles ne sont plus ambiguës.
 // Les labels auto-locaux d'un corps (MACRO, REPEAT, FOR, WHILE) : ils ne
 // dépendent que du texte du corps et de l'ensemble des noms de macros, pas de
@@ -387,8 +386,9 @@ std::string canonicalizeSpelling(const std::string &stmt) {
 // un même ensemble de noms, donc un même découpage des labels.
 struct LocalNames {
     size_t macroCount = (size_t)-1;
-    std::vector<std::string> names;
-    bool hasExport = false;
+    std::vector<std::string> names;   // écrits en dur : locaux à l'expansion
+    std::vector<std::string> atNames; // marqués `@` : globaux, `@` retiré, une seule expansion
+    int expansions = 0;
 };
 
 struct Macro {
@@ -495,6 +495,8 @@ private:
     // Préfixe du module dont on déroule le corps ("" hors module) : sert aux seuls
     // diagnostics, qui citent le nom écrit dans la source et non le nom renommé.
     std::string modulePrefix_;
+    std::string expPrefix_;                                       // préfixe de l'expansion en cours (`m__1.repeat__2.`), vide hors expansion
+    std::map<std::string, std::vector<std::string>> moduleNames_; // chemin du module (« a. ») -> noms de tous ses blocs
     std::string shown(const std::string &name) const {
         return !modulePrefix_.empty() && name.compare(0, modulePrefix_.size(), modulePrefix_) == 0
                    ? name.substr(modulePrefix_.size()) : name;
@@ -649,9 +651,9 @@ private:
                 while (j < text.size() && d) { if (text[j] == '{') ++d; else if (text[j] == '}') --d; if (d) ++j; }
                 if (j >= text.size()) { error(sl, "unclosed brace '{'"); out += text.substr(i); break; }
                 std::string inner = trim(text.substr(i + 1, j - i - 1));
-                // l'assembleur de référence surcharge les accolades : « {hex}valeur » y est un format
-                // d'affichage et « {sizeof}type » un opérateur. Dans fantams, {X}
-                // a un seul rôle — évaluer X et substituer. Ces sources doivent
+                // Dans fantams, {X} a un seul rôle — évaluer X et substituer.
+                // « {hex}valeur » (format d'affichage) et « {sizeof}type »
+                // (opérateur) ne sont pas des formes valides : ces sources doivent
                 // être éditées, autant le dire précisément. Cf. ADR 0011.
                 static const std::map<std::string, std::string> formatBrace = {
                     {"SIZEOF", "write sizeof(name) instead"},
@@ -714,8 +716,7 @@ private:
 
     // Remplace, dans les opérandes d'une ligne prête à être émise, les variables du
     // préprocesseur (LET) et les compteurs de boucle (REPEAT/WHILE) écrits en clair
-    // par leur valeur. l'assembleur de référence les expose comme des symboles ordinaires de l'assembleur ;
-    // ici elles n'existent qu'au préprocesseur, d'où cette substitution textuelle.
+    // par leur valeur. Elles n'existent qu'au préprocesseur, pas comme symboles de l'assembleur, d'où cette substitution textuelle.
     // Chaînes et littéraux caractère sont recopiés tels quels, et un identifiant collé
     // à un préfixe numérique (#FF, $1A, %10, 0x1F) n'est pas un symbole.
     std::string substituteVars(const std::string &code, const Env &env,
@@ -820,7 +821,7 @@ private:
     // C'est le preprocesseur qui porte cette connaissance : apres l'abaissement
     // des STRUCT, il n'y a plus de structure, seulement des EQU.
     //
-    // On n'implemente PAS la notation l'assembleur de référence {sizeof}NOM : dans fantams, {X}
+    // On n'implemente PAS la notation {sizeof}NOM : dans fantams, {X}
     // signifie « evalue X et substitue », un seul role grammatical. Cf. ADR 0011.
     std::string expandSizeof(const std::string &code, const SrcLine &src) {
         std::string out; size_t i = 0;
@@ -859,8 +860,8 @@ private:
     // d'un label. Aucune règle de résolution nouvelle, et le refus de
     // « nop fin-debut » en découle au lieu d'être un cas particulier.
     //
-    // La règle porte sur TOUT mnémonique sans opérande, plus large que les dix
-    // que l'assembleur de référence code à la main : « pourquoi `ldi 4` et pas `cpi 4` ? » n'a pas de
+    // La règle porte sur TOUT mnémonique sans opérande, sans liste
+    // fermée de mnémoniques : « pourquoi `ldi 4` et pas `cpi 4` ? » n'a pas de
     // réponse, et une règle sans exception coûte moins cher à retenir (ADR 0015).
     bool repetitionCount(const std::string &stmt, const Env &env, const SrcLine &src,
                          std::string &one, long &count) {
@@ -979,37 +980,54 @@ private:
                          " : ...' if that is what you meant");
     }
 
-    // Collecte les labels définis (par "ident:") dans un corps, hors @@export.
-    // skipNestedModule=true : ignore les labels des blocs MODULE imbriqués
-    // (ils seront préfixés par le MODULE interne lors de la récursion).
-    // onlyAtPrefixed=true : ne retient que les labels préfixés par '@' — c'est la
-    // convention héritée pour l'auto-unicité par expansion (MACRO/REPEAT/WHILE) ; un
-    // label ordinaire réutilisé entre deux expansions doit rester une vraie collision
-    // ("symbole déjà défini"), comme chez l'assembleur de référence. MODULE, lui, renomme tout (onlyAtPrefixed=false).
-    std::vector<std::string> collectLabels(const std::vector<SrcLine> &body, bool skipNestedModule,
-                                           bool onlyAtPrefixed = false) {
+    // Une région qui ouvre son propre espace de noms (ADR 0037, ADR 0038) : ce qu'elle
+    // définit lui appartient, et la région qui l'englobe ne le renomme pas.
+    static bool opensNameScope(const std::string &kind) {
+        return kind == "MODULE" || kind == "MACRO" || kind == "REPEAT" || kind == "WHILE" || kind == "FOR";
+    }
+    // Noms définis DIRECTEMENT par un corps : labels, constantes, noms de structure,
+    // instances. `skipNested` : une région imbriquée qui ouvre un espace de noms
+    // (module, macro, boucle) nomme ses propres définitions, on ne les compte pas.
+    // Les noms sont rendus tels qu'écrits — `@x` garde son `@`, `{n}_x` ses accolades :
+    // c'est à l'appelant de trier ce qui se renomme. `variables=false` écarte les
+    // variables (`n = n - 1`) : réaffectables par conception (ADR 0003), elles servent
+    // d'accumulateur d'une expansion à l'autre et ne sont jamais scopées par expansion.
+    std::vector<std::string> collectLabels(const std::vector<SrcLine> &body, bool skipNested,
+                                           bool variables = true) {
         std::vector<std::string> locals;
-        std::map<std::string, bool> exported;
-        for (const auto &l : body) {
-            std::string code = trim(stripComment(l.text));
-            if (upper(firstToken(code)) == "@@EXPORT")
-                for (const auto &n : splitTopLevel(restAfterFirst(code), ' '))
-                    if (!n.empty()) exported[n] = true;
-        }
-        int moduleDepth = 0;
+        auto add = [&](const std::string &n) {
+            if (!n.empty() && std::find(locals.begin(), locals.end(), n) == locals.end()) locals.push_back(n);
+        };
+        // Pile des blocs ouverts : `end` ferme le plus interne, quel qu'il soit, donc
+        // ne compter que les ouvreurs d'espaces de noms perdrait la trace d'une région
+        // fermée par `end`.
+        std::vector<std::string> blocks;
+        int nested = 0;
         bool inStruct = false;
         for (const auto &l : body) {
             std::string kw = classify(l.text);
-            if (skipNestedModule) {
-                if (kw == "MODULE") { ++moduleDepth; continue; }
-                if (kw == "ENDMODULE") { --moduleDepth; continue; }
-                if (moduleDepth > 0) continue;
+            if (skipNested) {
+                const std::string op = kw::blockOfOpener(kw), cl = kw::blockOfCloser(kw);
+                if (!op.empty()) {
+                    blocks.push_back(op);
+                    if (opensNameScope(op)) {
+                        ++nested;
+                        continue;
+                    }
+                } else if (!cl.empty() && !blocks.empty()) {
+                    const bool was = opensNameScope(blocks.back());
+                    blocks.pop_back();
+                    if (was) {
+                        --nested;
+                        continue;
+                    }
+                }
+                if (nested > 0) continue;
             }
             std::string code = trim(stripComment(l.text));
             // Le corps d'un STRUCT ne définit aucun label : ses mots en colonne 1 sont
             // des champs, qualifiés par leur structure. Seul le NOM de la structure
-            // est un symbole du scope — et seulement pour un scope de module : une
-            // macro ou une boucle ne renomme que ses labels `@`.
+            // est un symbole du scope.
             if (inStruct) {
                 if (kw::closesStruct(kw)) inStruct = false;
                 continue;
@@ -1017,41 +1035,37 @@ private:
             if (kw == "STRUCT") {
                 inStruct = true;
                 std::string l0, r0; peelLabel(code, l0, r0);
-                std::string sname = firstToken(restAfterFirst(r0));
-                if (!onlyAtPrefixed && !sname.empty() &&
-                    std::find(locals.begin(), locals.end(), sname) == locals.end())
-                    locals.push_back(sname);
+                add(firstToken(restAfterFirst(r0)));
                 continue;
             }
             if (kw == "STRUCTINS") {
-                // « STRUCT type instance » : l'instance est un label du scope — pour une
-                // macro ou une boucle, seulement si elle est préfixée `@`, comme tout label.
+                // « STRUCT type instance » : l'instance est un label du scope.
                 std::string lbl, afterLabel; peelLabel(code, lbl, afterLabel);
-                std::string inst = firstToken(restAfterFirst(restAfterFirst(afterLabel)));
-                if (!lbl.empty() && !exported.count(lbl) && (!onlyAtPrefixed || lbl[0] == '@') &&
-                    std::find(locals.begin(), locals.end(), lbl) == locals.end())
-                    locals.push_back(lbl);
-                if (!inst.empty() && (!onlyAtPrefixed || inst[0] == '@') && !exported.count(inst) &&
-                    std::find(locals.begin(), locals.end(), inst) == locals.end())
-                    locals.push_back(inst);
+                add(lbl);
+                add(firstToken(restAfterFirst(restAfterFirst(afterLabel))));
                 continue;
             }
             std::string label, rest; peelLabel(code, label, rest, [&](const std::string &n) { return macros.count(n) != 0; });
-            if (!label.empty() && !exported.count(label) && (!onlyAtPrefixed || label[0] == '@')) {
-                bool seen = false; for (auto &x : locals) if (x == label) seen = true;
-                if (!seen) locals.push_back(label);
-            }
+            if (!variables && !rest.empty() && rest[0] == '=') continue;
+            // `mon_{name}:` : la lecture du label s'arrête avant l'accolade, mais le nom
+            // est construit par argument, donc ce n'est pas `mon_` qui est défini.
+            if (code.compare(0, label.size(), label) == 0 && code.size() > label.size() &&
+                code[label.size()] == '{') continue;
+            // `M(1)` : un appel de macro, pas un label — la macro n'est pas encore connue
+            // quand un module est balayé avant d'être exécuté. Les macros restent globales.
+            if (code.compare(0, label.size(), label) == 0 && code.size() > label.size() &&
+                code[label.size()] == '(') continue;
+            add(label);
         }
         return locals;
     }
-    // Applique un renommage (def+réfs) aux labels donnés, retire les @@export.
+    // Applique un renommage (def+réfs) aux labels donnés.
     std::vector<SrcLine> renameScope(const std::vector<SrcLine> &body,
                                      const std::vector<std::string> &names,
                                      const std::function<std::string(const std::string &)> &mangle) {
         std::vector<SrcLine> out;
         bool inStruct = false;
         for (const auto &l : body) {
-            if (upper(firstToken(trim(stripComment(l.text)))) == "@@EXPORT") continue;
             std::string t = l.text;
             // Dans un corps de STRUCT, le nom du champ échappe au renommage (il est
             // qualifié par sa structure) ; son type et ses opérandes le subissent.
@@ -1073,22 +1087,120 @@ private:
         }
         return out;
     }
-    // Renommage auto-local (macros, itérations REPEAT/WHILE) : suffixe __id.
+    // Fermeture du bloc ouvert à `start`, sans diagnostic (-1 si absente) : pour les
+    // balayages qui précèdent l'exécution, où l'erreur sera annoncée une seule fois
+    // par le handler du bloc.
+    int matchQuiet(const std::vector<SrcLine> &lines, int start) {
+        int depth = 1;
+        for (int i = start + 1; i < (int)lines.size(); ++i) {
+            const std::string kw = classify(lines[i].text);
+            if (!kw::blockOfOpener(kw).empty()) ++depth;
+            else if (!kw::blockOfCloser(kw).empty() && --depth == 0) return i;
+        }
+        return -1;
+    }
+    // Renommage d'un corps qui ouvre un espace de noms (module, macro, boucle) :
+    // applique `names`, mais une région imbriquée qui ouvre le sien garde ses propres
+    // noms — ce qu'elle définit elle-même masque le nom de la région englobante, et
+    // un nom que seule l'englobante définit reste visible. Les lignes `MODULE x` et
+    // `MACRO x` ne sont jamais renommées (le nom y est une définition) ; celles d'une
+    // boucle le sont (`repeat N` lit une constante). Sans cela un label `x` défini dans
+    // les deux deviendrait `a.b.a.x` : renommé par l'extérieur, puis par l'intérieur.
+    std::vector<SrcLine> renameScoped(const std::vector<SrcLine> &body,
+                                      const std::vector<std::string> &names,
+                                      const std::function<std::string(const std::string &)> &mangle) {
+        std::vector<SrcLine> out, seg;
+        auto flush = [&] {
+            if (seg.empty()) return;
+            auto r = renameScope(seg, names, mangle);
+            out.insert(out.end(), r.begin(), r.end());
+            seg.clear();
+        };
+        for (int i = 0, n = (int)body.size(); i < n;) {
+            const std::string kind = kw::blockOfOpener(classify(body[i].text));
+            const int e = opensNameScope(kind) ? matchQuiet(body, i) : -1;
+            if (e < 0) {
+                seg.push_back(body[i++]);
+                continue;
+            }
+            flush();
+            if (kind == "MODULE" || kind == "MACRO") out.push_back(body[i]);
+            else {
+                auto r = renameScope({body[i]}, names, mangle);
+                out.insert(out.end(), r.begin(), r.end());
+            }
+            const std::vector<SrcLine> inner(body.begin() + i + 1, body.begin() + e);
+            const auto own = collectLabels(inner, /*skipNested=*/true);
+            std::vector<std::string> visible;
+            for (const auto &nm : names)
+                if (std::find(own.begin(), own.end(), nm) == own.end()) visible.push_back(nm);
+            auto r = renameScoped(inner, visible, mangle);
+            out.insert(out.end(), r.begin(), r.end());
+            out.push_back(body[e]);
+            i = e + 1;
+        }
+        flush();
+        return out;
+    }
+    // Renommage par expansion (macros, itérations REPEAT/WHILE/FOR, ADR 0038) : un label
+    // écrit en dur est local à l'expansion, préfixé par `<nom>__<n>.`. Un label dont le
+    // nom contient une substitution `{…}` garde le nom que l'appelant a construit.
     //
     // `cache` porte les noms d'un appel à l'autre sur un MÊME corps : la boucle
-    // qui itère, ou la macro qu'on réexpanse. Sans label ni @@export, le corps
-    // passe tel quel.
-    std::vector<SrcLine> renameLocals(const std::vector<SrcLine> &body, long id, LocalNames &cache) {
+    // qui itère, ou la macro qu'on réexpanse. Sans label, le corps passe tel quel.
+    std::vector<SrcLine> renameLocals(const std::vector<SrcLine> &body, long id, LocalNames &cache,
+                                      const std::string &scopeName, const SrcLine &site, bool isMacro) {
         if (cache.macroCount != macros.size()) {
-            cache.names = collectLabels(body, false, /*onlyAtPrefixed=*/true);
-            cache.hasExport = false;
-            for (const auto &l : body)
-                if (upper(firstToken(trim(stripComment(l.text)))) == "@@EXPORT") { cache.hasExport = true; break; }
+            cache.names.clear();
+            cache.atNames.clear();
+            // Les variables ne sont pas renommées, mais leur nom ne peut pas porter le motif réservé.
+            for (const auto &n : collectLabels(body, /*skipNested=*/true, /*variables=*/true))
+                if (generatedPattern(n)) error(site, reservedPatternMsg(n[0] == '@' ? n.substr(1) : n));
+            for (const auto &n : collectLabels(body, /*skipNested=*/true, /*variables=*/false)) {
+                if (n[0] == '@') cache.atNames.push_back(n);
+                else if (n[0] != '.' && n.find('{') == std::string::npos) cache.names.push_back(n);
+            }
             cache.macroCount = macros.size();
         }
-        if (cache.names.empty() && !cache.hasExport) return body;
-        std::string suf = "__" + std::to_string(id);
-        return renameScope(body, cache.names, [&](const std::string &n) { return n + suf; });
+        // `@x` est un label global : la deuxième expansion le redéfinirait. L'erreur tombe
+        // sur l'appel, là où l'auteur peut agir, et dit pourquoi (ADR 0038).
+        if (!cache.atNames.empty() && cache.expansions++ >= 1) {
+            error(site, "duplicate symbol: '" + cache.atNames[0].substr(1) + "' — " +
+                            (isMacro ? "the macro '" + scopeName + "'" : "this " + scopeName + " body") +
+                            " marks it with '@' (a global label), so it can be expanded only once");
+            return {};
+        }
+        if (cache.names.empty() && cache.atNames.empty()) return body;
+        const std::string prefix = modulePrefix_ + expPrefix_ + scopeName + "__" + std::to_string(id) + ".";
+        std::vector<std::string> all = cache.names;
+        all.insert(all.end(), cache.atNames.begin(), cache.atNames.end());
+        return renameScoped(body, all, [&](const std::string &n) { return n[0] == '@' ? n.substr(1) : prefix + n; });
+    }
+
+    // `__<chiffres>` : le motif des préfixes d'expansion (`poke__1.retry`). Un nom écrit par
+    // l'utilisateur ne peut pas le porter, sans quoi il pourrait être aussi un nom généré.
+    static bool generatedPattern(const std::string &n) { return kw::hasExpansionPrefix(n); }
+    static std::string reservedPatternMsg(const std::string &n) {
+        return "'" + n + "' cannot be used: the pattern '__<digits>' is reserved for names generated by expansions";
+    }
+    // Un nom `@x`, éventuellement déjà préfixé par un module : le marqueur d'un label
+    // global dans une expansion. Hors expansion, il n'y a rien à marquer.
+    static bool isAtName(const std::string &n) {
+        return !n.empty() && (n[0] == '@' || n.find(".@") != std::string::npos);
+    }
+    static std::string atOutsideMsg() {
+        return "'@' marks a label of a macro or loop body; here every label is global already — remove the '@'";
+    }
+    // Développe un corps dans son espace de noms : renomme, puis exécute avec le préfixe
+    // d'expansion posé, pour que les expansions imbriquées se composent.
+    void runExpansion(const std::vector<SrcLine> &body, long id, LocalNames &cache,
+                      const std::string &scopeName, const SrcLine &site, bool isMacro,
+                      const Env &env, int depth) {
+        const std::string outer = expPrefix_;
+        auto scoped = renameLocals(body, id, cache, scopeName, site, isMacro);
+        expPrefix_ = outer + scopeName + "__" + std::to_string(id) + ".";
+        run(scoped, env, depth);
+        expPrefix_ = outer;
     }
 
     // Trouve la ligne de fermeture correspondante (ADR 0016).
@@ -1100,9 +1212,6 @@ private:
     // est une ERREUR qui le dit — là où l'ancienne version rendait -1 et laissait
     // l'appelant annoncer « REPEAT without REND », diagnostic trompeur.
     //
-    // MODULE est délibérément absent de la table : « MODULE x » bascule le module
-    // actif au lieu d'ouvrir un bloc, si bien que deux MODULE pour un ENDMODULE est
-    // la forme normale — le compter déséquilibrerait la pile.
     int findMatching(const std::vector<SrcLine> &lines, int start, const std::string &block) {
         std::vector<std::string> stack{block};
         for (int i = start + 1; i < (int)lines.size(); ++i) {
@@ -1178,8 +1287,7 @@ private:
                                   r.error.find("has no value") == std::string::npos;
             ne.args[m.params[k]] = a;
         }
-        std::vector<SrcLine> scoped = renameLocals(m.body, ++uid, m.locals);
-        run(scoped, ne, depth + 1);
+        runExpansion(m.body, ++uid, m.locals, m.name, sl, /*isMacro=*/true, ne, depth + 1);
     }
 
     // Analyse un champ de structure : "[nom] directive operandes" ou "nom StructType".
@@ -1295,9 +1403,24 @@ private:
             std::string sub = substitute(stripComment(raw.text), env, raw);
             std::string code = trim(sub);
             if (code.empty()) { ++i; continue; }
+            if (upper(firstToken(code)) == "@@EXPORT") {
+                error(raw, "'@@export' no longer exists: use '@' on the label");
+                ++i;
+                continue;
+            }
 
             std::string label, rest; peelLabel(code, label, rest, [&](const std::string &n) { return macros.count(n) != 0; });
             if (!label.empty()) seenLabels.insert(label);
+            if (expPrefix_.empty() && generatedPattern(label)) {
+                error(raw, reservedPatternMsg(label));
+                ++i;
+                continue;
+            }
+            if (expPrefix_.empty() && isAtName(label)) {
+                error(raw, atOutsideMsg());
+                ++i;
+                continue;
+            }
             std::string kw = upper(firstToken(rest));
             std::string secondUp = upper(firstToken(restAfterFirst(rest)));
 
@@ -1319,8 +1442,7 @@ private:
             }
 
             // --- INCBIN "fichier"[, offset[, longueur]] ---
-            // Nom et arguments des assembleurs courants (rasm, sjasmplus, vasm,
-            // pasmo). Les octets deviennent des `db` : la source déroulée reste
+            // Les octets deviennent des `db` : la source déroulée reste
             // plate et réassemblable sans le fichier, comme pour INCLUDE.
             if (kw == "INCBIN") {
                 if (!label.empty()) emit(label + ":", raw);
@@ -1425,7 +1547,7 @@ private:
                     std::string bad = kw::reservedName(var, "a loop index");
                     if (!bad.empty()) { error(raw, bad); var.clear(); }
                 }
-                // ADR 0016 : l'index vaut 0 au premier tour, contre 1 chez l'assembleur de référence. C'est
+                // ADR 0016 : l'index vaut 0 au premier tour. C'est
                 // la seule divergence du projet qu'aucune détection ne peut trouver — une
                 // table décalée d'un cran s'assemble parfaitement. Elle est donc rendue
                 // bruyante autrement : TOUT usage de la forme à index est signalé, sans
@@ -1441,7 +1563,7 @@ private:
                     LocalNames names;
                     for (int k = 0; k < r.value; ++k) {
                         Env ne = env; if (!var.empty()) ne.locals[var] = k;
-                        run(renameLocals(body, ++uid, names), ne, depth);
+                        runExpansion(body, ++uid, names, "repeat", raw, false, ne, depth);
                     }
                 }
                 i = rend + 1; continue;
@@ -1484,7 +1606,7 @@ private:
                     LocalNames names;
                     for (long k = lo.value; k <= last; ++k) {
                         Env ne = env; ne.locals[var] = k;
-                        run(renameLocals(body, ++uid, names), ne, depth);
+                        runExpansion(body, ++uid, names, "for", raw, false, ne, depth);
                     }
                 }
                 i = endfor + 1; continue;
@@ -1504,7 +1626,7 @@ private:
                     if (!r.ok) { error(raw, "WHILE: " + r.error); break; }
                     if (r.value == 0) break;
                     if (++guard > 1000000) { error(raw, "WHILE: too many iterations"); break; }
-                    run(renameLocals(body, ++uid, names), env, depth);
+                    runExpansion(body, ++uid, names, "while", raw, false, env, depth);
                 }
                 i = wend + 1; continue;
             }
@@ -1538,7 +1660,7 @@ private:
                 if (!m.name.empty() && m.name.back() == ':') m.name.pop_back();
                 if (m.name.empty()) error(raw, "MACRO without a name");
                 else {
-                    // « nom MACRO p,q » : graphie héritée. Elle est la seule
+                    // « nom MACRO p,q » : graphie tolérée. Elle est la seule
                     // raison d'une exception dans peelLabel — un nom en tête de ligne
                     // qui n'est pas un label — et rien ne la distingue d'un appel de
                     // macro sans la connaître. Avertie une fois, comme l'appel nu.
@@ -1551,36 +1673,64 @@ private:
                 i = endm + 1; continue;
             }
 
-            // --- MODULE name | MODULE [OFF] | ENDMODULE (scope par préfixe) ---
-            // l'assembleur de référence : PAS de nesting. "MODULE x" bascule le module actif (remplace, ne cumule
-            // pas) ; "MODULE", "MODULE OFF" et "ENDMODULE" désactivent le module en cours.
-            if (kw == "MODULE" || kw == "ENDMODULE") {
+            // --- MODULE name ... ENDMODULE (scope par préfixe, les modules s'imbriquent) ---
+            // `MODULE x` ouvre un module, `ENDMODULE` (ou `end`) le ferme ; le préfixe se
+            // compose : `MODULE b` dans `a` donne `a.b.`. Le séparateur est '.', comme pour
+            // les labels locaux ".nom" (asm.cpp) : « module.label.local » sort naturellement
+            // du global précédent renommé, sans traitement spécial. Les labels locaux ne
+            // sont donc PAS renommés ici : asm.cpp s'en charge lui-même.
+            if (kw == "ENDMODULE") {
+                error(raw, "ENDMODULE without MODULE");
+                ++i;
+                continue;
+            }
+            if (kw == "MODULE") {
                 std::string arg = trim(restAfterFirst(rest));
-                if (kw == "ENDMODULE" || arg.empty() || upper(arg) == "OFF") { ++i; continue; }
                 std::string mname = firstToken(arg);
-                // fin de CE module : prochaine ligne MODULE/ENDMODULE (qu'elle ferme ou ouvre
-                // un autre module), sinon fin du bloc courant.
-                int endIdx = (int)lines.size();
-                for (int j = i + 1; j < endIdx; ++j) {
-                    std::string kw2 = classify(lines[j].text);
-                    if (kw2 == "MODULE" || kw2 == "ENDMODULE") { endIdx = j; break; }
+                if (mname.empty()) {
+                    error(raw, "MODULE without a name");
+                    ++i;
+                    continue;
+                }
+                if (upper(mname) == "OFF") {
+                    error(raw, "MODULE OFF no longer exists: a module is closed by ENDMODULE (or end)");
+                    ++i;
+                    continue;
+                }
+                int endIdx = findMatching(lines, i, "MODULE");
+                if (endIdx < 0) {
+                    if (endIdx == -1) error(raw, "MODULE without ENDMODULE or end");
+                    return;
                 }
                 std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + endIdx);
-                // Séparateur '.' (pas '_' comme l'assembleur de référence) : cohérent avec le mécanisme des labels
-                // locaux ".nom" (asm.cpp), qui qualifie déjà par le label global précédent —
-                // ici ce "global précédent" devient le nom renommé "module.label", donnant
-                // naturellement "module.label.local" sans traitement spécial. Les labels
-                // locaux (".nom") ne sont donc PAS renommés ici : asm.cpp s'en charge lui-même.
-                std::string prefix = mname + ".";
-                auto names = collectLabels(body, /*skipNestedModule=*/true);
+                const std::string outerPrefix = modulePrefix_;
+                const std::string prefix = outerPrefix + mname + ".";
+                // Les noms du module sont ceux de TOUS ses blocs frères : une constante définie
+                // dans un premier « MODULE a » reste visible, sans préfixe écrit, dans un second.
+                // Table indexée par le chemin complet du module.
+                auto &known = moduleNames_[prefix];
+                auto addNames = [&](const std::vector<SrcLine> &blk) {
+                    for (const auto &n : collectLabels(blk, /*skipNested=*/true))
+                        if (std::find(known.begin(), known.end(), n) == known.end()) known.push_back(n);
+                };
+                for (int j = 0, n = (int)lines.size(); j < n; ++j) {
+                    if (classify(lines[j].text) != "MODULE") continue;
+                    const int e = matchQuiet(lines, j);
+                    if (e < 0) break;
+                    if (firstToken(trim(restAfterFirst(trim(stripComment(lines[j].text))))) == mname)
+                        addNames(std::vector<SrcLine>(lines.begin() + j + 1, lines.begin() + e));
+                    j = e; // les modules imbriqués ne sont pas des frères
+                }
+                addNames(body);
+                auto names = known;
                 names.erase(std::remove_if(names.begin(), names.end(),
                             [](const std::string &n) { return !n.empty() && n[0] == '.'; }), names.end());
-                auto scoped = renameScope(body, names, [&](const std::string &n) { return prefix + n; });
-                const std::string outerPrefix = modulePrefix_;
+                auto scoped = renameScoped(body, names, [&](const std::string &n) { return prefix + n; });
                 modulePrefix_ = prefix;
                 run(scoped, env, depth);
                 modulePrefix_ = outerPrefix;
-                i = endIdx; continue; // ne consomme pas la ligne de fin : rejouée (OFF/ENDMODULE ou MODULE suivant)
+                i = endIdx + 1;
+                continue;
             }
 
             // --- STRUCT : déclaration (1 arg) ou instanciation (2+ args) ---
@@ -1591,10 +1741,21 @@ private:
                     std::string sname = firstToken(restAfterFirst(rest));
                     std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + ends);
                     if (!kw::isIdentifier(sname)) error(raw, "struct: invalid name '" + shown(sname) + "'");
+                    else if (expPrefix_.empty() && generatedPattern(sname)) error(raw, reservedPatternMsg(sname));
                     else defineStruct(sname, body, env, raw);
                     i = ends + 1; continue;
                 }
                 // Un label devant « STRUCT type instance » reste un label, juste avant l'instance.
+                if (expPrefix_.empty() && isAtName(firstToken(restAfterFirst(restAfterFirst(rest))))) {
+                    error(raw, atOutsideMsg());
+                    ++i;
+                    continue;
+                }
+                if (expPrefix_.empty() && generatedPattern(firstToken(restAfterFirst(restAfterFirst(rest))))) {
+                    error(raw, reservedPatternMsg(firstToken(restAfterFirst(restAfterFirst(rest)))));
+                    ++i;
+                    continue;
+                }
                 if (!label.empty()) emit(label + ":", raw);
                 instantiateStruct(rest, raw);
                 ++i; continue;
@@ -1604,8 +1765,6 @@ private:
             // (ENDMODULE est intercepté plus haut avec MODULE, jamais atteint ici.)
             if (kw == "ENDSTRUCT" || kw == "ENDS") { ++i; continue; }
 
-            // --- @@export hors macro : ignorer ---
-            if (kw == "@@EXPORT") { ++i; continue; }
 
             // --- appel de macro : « nom args » ou « nom(args) » (ADR 0018) ---
             std::string pcName, pcArgs;

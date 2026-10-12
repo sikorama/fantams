@@ -1,8 +1,7 @@
 // sym.h - Table des symboles exportable (ADR 0019)
 //
 // Rend la table des symboles d'une IMAGE en un CSV d'une ligne par symbole,
-// destine a un desassembleur ou a un emulateur — l'equivalent de ce que l'assembleur de référence
-// ecrit avec son `.sym`, plus le type et la PROVENANCE.
+// destine a un desassembleur ou a un emulateur : nom et adresse, plus le type et la PROVENANCE.
 //
 // Pas un LISTING : un listing donne banque, adresse et octets ligne de source par
 // ligne de source (cf. CONTEXT.md). Ici il y a une ligne par NOM, et aucun octet.

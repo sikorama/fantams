@@ -237,7 +237,7 @@ bool encodeAlu(IAsmContext &ctx, int idx, const Operand &src) {
 // Rotation/décalage sur r8/(HL)/(IX+d) : préfixe CB (ordre spécial si indexé)
 bool encodeRot(IAsmContext &ctx, int idx, const Operand &tgt) {
     Emitter e{ctx};
-    // « rlc hl », « rr de » : l'assembleur de référence les accepte et les déplie en deux à QUATRE
+    // « rlc hl », « rr de » : formes qui se déplieraient en deux à QUATRE
     // opérations `cb`. Refusées (ADR 0020) : ce ne sont pas des orthographes mais
     // des ROUTINES. Le lecteur ne peut lire ni leur taille ni l'ordre dans lequel
     // les drapeaux sont touchés, et une routine mérite le nom que son auteur lui
@@ -346,7 +346,7 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
         else { e.op(0xED); e.op((uint8_t)(0x43 + rr * 16)); }
         e.addr16(A.expr); return true;
     }
-    // « ld hl,sp » : l'assembleur de référence l'accepte et produit « ld hl,0 : add hl,sp ». Refusée
+    // « ld hl,sp » : elle produirait « ld hl,0 : add hl,sp ». Refusée
     // (ADR 0020) parce qu'elle n'est pas un réarrangement d'un transfert mais une
     // ARITHMÉTIQUE inventée : quatre octets, et le carry est écrasé. Toutes les
     // autres facilités de la table rendent exactement ce que l'auteur aurait tapé.
@@ -366,7 +366,7 @@ bool encodeLD(IAsmContext &ctx, const Operand &A, const Operand &B) {
 // ---------------------------------------------------------------------------
 bool encodeIncDec(IAsmContext &ctx, Mnemo m, const Operand &A, const Operand &B) {
     Emitter e{ctx};
-    // « inc hl,de » : l'assembleur de référence en fait deux instructions, fantams le refuse (ADR 0020).
+    // « inc hl,de » : fantams le refuse (ADR 0020).
     // Le refus est explicite parce que le silence était pire : le second opérande
     // était simplement ignoré, et la ligne rendait UN octet sans rien dire.
     //
@@ -544,7 +544,7 @@ bool encode(IAsmContext &ctx, const Instruction &in) {
         }
 
         case Mnemo::RST: {
-            // « rst z,#38 » : l'assembleur de référence rend DEUX octets, 28 FF, où le FF est à la fois le
+            // « rst z,#38 » : elle rendrait DEUX octets, 28 FF, où le FF est à la fois le
             // déplacement du `jr z` et l'opcode `rst #38` sur lequel ce `jr` retombe.
             // Refusée (ADR 0020) : les deux instructions PARTAGENT un octet, donc
             // aucune paire de lignes Z80 canoniques ne la reproduit, et `-E` ne

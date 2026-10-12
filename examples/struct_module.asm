@@ -1,6 +1,6 @@
 ; Démo STRUCT + MODULE (fantams)
         org 0x8000
-        run main
+        run gfx.main
 
 ; --- structure ---
 STRUCT Sprite
@@ -14,7 +14,6 @@ STRUCT Sprite hero 16, 32, 250
 
 ; --- module (scope par préfixe) ---
 MODULE gfx
-@@export main              ; main reste global (accessible par RUN)
 main:
         ld a,(hero.x)      ; accès à un champ d'instance
         ld hl,Sprite       ; Sprite = sizeof (=4)

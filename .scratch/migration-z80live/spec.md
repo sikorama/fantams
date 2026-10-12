@@ -5,7 +5,7 @@ Status: ready-for-agent
 ## Problem Statement
 
 z80live ne peut plus être reconstruit. Ses trois instruments — l'assemblage dans
-le navigateur, la comparaison sur le corpus, et l'épreuve sur émulateur qu'on
+le navigateur, la mesure sur le corpus (chaque source assemble-t-elle en l'état ?), et l'épreuve sur émulateur qu'on
 veut ajouter — sont tous les trois hors service, et pour la même cause.
 
 Le script de construction WASM déclare sa propre liste de fichiers sources, et
@@ -54,7 +54,7 @@ Du point de vue du mainteneur, après ce chantier :
 - l'adaptateur WASM est **testé comme n'importe quelle autre couture** : le même
   `argv` à travers l'adaptateur natif et l'adaptateur WASM doit rendre les mêmes
   octets, ce qui est exactement la propriété qu'un artefact périmé viole ;
-- la comparaison sur le corpus retourne en état de marche ;
+- la mesure sur le corpus retourne en état de marche ;
 - une **épreuve** existe : l'artefact produit part dans l'émulateur et la machine
   l'exécute — la première vérification du projet qui porte sur la *recevabilité*
   d'un artefact et non sur ses octets ;
@@ -96,7 +96,7 @@ Du point de vue du mainteneur, après ce chantier :
     fantams et non dans le dépôt consommateur, afin que ce soit fantams qui
     garantisse la justesse de son propre adaptateur.
 13. En tant que mainteneur, je veux que le binaire natif soit constructible dans
-    le répertoire du sous-module, afin que la comparaison sur le corpus puisse
+    le répertoire du sous-module, afin que la mesure sur le corpus puisse
     tourner.
 14. En tant que mainteneur, je veux que le dépôt consommateur enregistre par un
     commit explicite la version de fantams qu'il utilise, afin que le pointeur
@@ -202,7 +202,7 @@ existe, « quelle version de fantams a produit cet artefact » devient la questi
 qui décide si un échec est un bug ou une dérive de version.
 
 Le binaire natif doit par ailleurs être constructible dans le répertoire du
-sous-module, faute de quoi la comparaison sur le corpus ne peut pas tourner. Cette
+sous-module, faute de quoi la mesure sur le corpus ne peut pas tourner. Cette
 panne est **distincte** de celle du WASM et se répare séparément.
 
 ### L'épreuve

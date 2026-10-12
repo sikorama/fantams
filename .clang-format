@@ -1,0 +1,23 @@
+# Style du dépôt, calé sur le code en place (4 espaces, `&` collé au nom).
+# ColumnLimit 0 : les lignes longues et les alignements faits à la main restent.
+# Voir scripts/format.sh pour la version épinglée de clang-format.
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 0
+PointerAlignment: Right
+DerivePointerAlignment: false
+SortIncludes: false
+IncludeBlocks: Preserve
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortBlocksOnASingleLine: Always
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+IndentCaseLabels: false
+KeepEmptyLinesAtTheStartOfBlocks: false
+AlignTrailingComments: true

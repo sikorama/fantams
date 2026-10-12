@@ -1,21 +1,22 @@
-; Démo fantams : macros, REPEAT, IF, scope auto-local + export SNA
+; Démo fantams : macros, REPEAT, IF, une expansion est un espace de noms + export SNA
 LET DEBUG = 1
 LET COUNT = 4
         org 0x8000
         run start
 
-; macro avec label local (auto-local -> unique par appel). Convention héritée : seul un
-; label préfixé par '@' est rendu unique par expansion ; un label ordinaire (sans '@')
-; réutilisé entre deux appels resterait une vraie collision ("symbole déjà défini").
-MACRO WAIT n
-@wloop: dec {n}
-        jr nz,@wloop
+; macro avec un label écrit en dur : il est local à chaque expansion (WAIT__1.wloop,
+; WAIT__2.wloop), donc deux appels ne se heurtent pas. Pour qu'un label d'une macro
+; reste global, on le marque '@' (la macro ne se développe alors qu'une fois) ou on le
+; construit par argument ({n}_fin:).
+MACRO WAIT(n)
+wloop:  dec {n}
+        jr nz,wloop
 ENDM
 
 start:
         ld b,{COUNT}    ; {} = substitution PP (COUNT est une variable préprocesseur)
-        WAIT b          ; 1er appel -> @wloop__x
-        WAIT b          ; 2e appel  -> @wloop__y (pas de collision)
+        WAIT(b)         ; 1er appel -> WAIT__1.wloop
+        WAIT(b)         ; 2e appel  -> WAIT__2.wloop (pas de collision)
 
 ; table générée par FOR : les bornes sont écrites, rien à deviner.
 ; `to` inclut la borne haute, `until` l'exclut.

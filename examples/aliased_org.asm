@@ -3,8 +3,7 @@
 ;
 ; Ici la source dit tout : la banque de chaque bloc par `org bN:adresse`
 ; (ADR 0005), et les valeurs de commutation par des `equ` ecrits a la main.
-; C'est la forme que prend une source venue d'un autre assembleur, et c'est
-; aussi celle qu'il faut quand l'hote ne sait pas editer de script de lien.
+; C'est la forme qu'il faut quand l'hote ne sait pas editer de script de lien.
 ;
 ; Elle n'est pas un pis-aller : un placement peut etre une propriete du
 ; PROGRAMME. Mais il se paie — chaque banque est nommee DEUX FOIS, une fois

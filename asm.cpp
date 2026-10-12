@@ -104,7 +104,14 @@ public:
         const auto nopT = given_.find("NOP_TABLE");
         if (nopT != given_.end() && nopT->second == 1) hasNopTable_ = true;
 
-        pass_ = 1; pc_ = 0; orgBank_ = -1; displacement_ = 0; definedP1_.clear(); equDefs_.clear(); currentGlobal_.clear();
+        pass_ = 1;
+        pc_ = 0;
+        orgBank_ = -1;
+        displacement_ = 0;
+        definedP1_.clear();
+        defForm_.clear();
+        equDefs_.clear();
+        currentGlobal_.clear();
         frags_.clear(); curFrag_ = -1; fragBase_ = 0; sawOrg_ = false;
         badNames_.clear();
         pendingBoundary_ = 0; measuring_ = 0; openBoundary_ = 0; curSection_.clear();
@@ -756,6 +763,7 @@ private:
     std::map<std::string, std::string> ciIndex_; // MAJUSCULES(nom) -> nom exact, pour le repli insensible à la casse
     std::map<std::string, Symbol> symInfo_;      // type, rangement et provenance, pour la table exportable
     std::set<std::string> definedP1_;
+    std::map<std::string, std::string> defForm_;               // nom qualifié -> comment il a été défini, pour dire les deux côtés d'une collision
     std::vector<std::pair<std::string, std::string>> equDefs_; // (nom, texte expr) pour la résolution
     std::set<std::string> badNames_;          // noms refusés déjà signalés (ADR 0015)
     std::vector<Diagnostic> errors_;
@@ -1030,7 +1038,7 @@ private:
     SourceLine cur_;
     bool evalOk_ = true;
     // dernier label "global" (non local) rencontré : contexte de qualification des
-    // labels locaux ".nom" (comme l'assembleur de référence : ".nom" == "<global>.nom" — cf. defineLabel/qualify).
+    // labels locaux ".nom" (".nom" == "<global>.nom" — cf. defineLabel/qualify).
     std::string currentGlobal_;
 
     // Muets pendant une mesure : le bloc est parcouru DEUX fois, et le
@@ -1042,7 +1050,7 @@ private:
     void structErr(const std::string &msg) { if (pass_ == 1) push(msg); }
 
     // Un label local ".nom" est qualifié par le dernier label global rencontré
-    // (comme l'assembleur de référence : deux ".loop" sous deux labels globaux différents ne collisionnent pas).
+    // (deux ".loop" sous deux labels globaux différents ne collisionnent pas).
     std::string qualify(const std::string &n) const {
         return (!n.empty() && n[0] == '.') ? currentGlobal_ + n : n;
     }
@@ -1118,7 +1126,7 @@ private:
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
             if (it != symbols_.end()) { o = it->second; return true; }
-            // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse des symboles) : on
+            // repli insensible à la casse (les symboles ne distinguent pas la casse) : on
             // avertit plutôt que d'échouer silencieusement sur une simple différence de casse.
             auto cit = ciIndex_.find(upper(qn));
             if (cit != ciIndex_.end()) {
@@ -1157,6 +1165,23 @@ private:
         return true;
     }
 
+    // Un nom pointé peut venir de plusieurs chemins — `gfx.plot.x` est aussi bien le
+    // local `.x` du label `gfx.plot` que le label `x` d'un module `gfx.plot` — et le
+    // séparateur est le même partout (ADR « les modules »). Une collision n'est donc
+    // pas une règle de syntaxe, c'est une erreur à la définition : elle dit où et
+    // comment le nom est déjà défini, pour que les deux côtés soient lisibles.
+    std::string duplicateMsg(const std::string &qn, const std::string &formNow) const {
+        std::string msg = "duplicate symbol: '" + qn + "'";
+        const auto f = defForm_.find(qn);
+        const auto si = symInfo_.find(qn);
+        const std::string where = si == symInfo_.end() ? ""
+                                                       : " (" + si->second.file + ":" + std::to_string(si->second.line) + ")";
+        if (f == defForm_.end()) return msg;
+        if (f->second == formNow) return msg + " — already defined as " + f->second + where;
+        return msg + " — the same dotted name is defined two ways: as " + f->second + where +
+               " and as " + formNow;
+    }
+
     void defineLabel(const std::string &n) {
         if (measuring_) {
             // Le premier label du bloc le NOMME, pour le diagnostic de
@@ -1170,7 +1195,14 @@ private:
         // depassement — comme le premier label d'un BOUNDARY.
         if (!sizeAsserts_.empty() && sizeAsserts_.back().name.empty()) sizeAsserts_.back().name = n;
         std::string qn = qualify(n);
-        if (pass_ == 1) { if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; } }
+        const std::string form = n[0] == '.' ? "the local label '" + n + "' of '" + currentGlobal_ + "'" : "a label";
+        if (pass_ == 1) {
+            if (!definedP1_.insert(qn).second) {
+                structErr(duplicateMsg(qn, form));
+                return;
+            }
+            defForm_[qn] = form;
+        }
         setSymbol(qn, here(pc_));
         noteSymbol(qn, /*isConst=*/false);
         if (pass_ == 1) { Timeline t = tl_; t.pc = pc_; if (tlAt_.emplace(qn, t).second) tlOrder_.push_back(qn); }
@@ -1182,9 +1214,19 @@ private:
         if (measuring_) return;
         if (nameRefused(n, "a symbol")) return;
         std::string qn = qualify(n);
+        const std::string form = n[0] == '.'    ? "the local constant '" + n + "' of '" + currentGlobal_ + "'"
+                                 : reassignable ? "a variable"
+                                                : "a constant";
         if (pass_ == 1 && !reassignable) {
-            if (!definedP1_.insert(qn).second) { structErr("duplicate symbol: '" + qn + "'"); return; }
-        } else if (pass_ == 1) definedP1_.insert(qn);
+            if (!definedP1_.insert(qn).second) {
+                structErr(duplicateMsg(qn, form));
+                return;
+            }
+            defForm_[qn] = form;
+        } else if (pass_ == 1) {
+            definedP1_.insert(qn);
+            defForm_[qn] = form;
+        }
         setSymbol(qn, v);
         // Une variable ne va pas dans la table exportable : sa valeur n'est celle
         // d'aucun point precis du programme, et un desassembleur n'en ferait rien.
@@ -1225,7 +1267,7 @@ private:
             emit((uint8_t)(evalExpr(std::to_string((unsigned char)c) + " " + tail) & 0xFF));
     }
     // Une virgule finale ("db 1,2,") est tolérée : elle est courante dans les
-    // tables de données générées, et l'assembleur de référence l'accepte. Seul le DERNIER élément vide
+    // tables de données générées. Seul le DERNIER élément vide
     // est retiré — "db 1,,2" reste une erreur.
     static void dropTrailingEmpty(std::vector<std::string> &parts) {
         if (parts.size() > 1 && parts.back().empty()) parts.pop_back();
@@ -1280,7 +1322,7 @@ private:
     // rangement serait decrit de part et d'autre de l'adresse logique.
     //
     // Le deplacement N'EST PAS REMANENT : un ORG sans second parametre le remet a
-    // zero. C'est le comportement de l'assembleur de référence, et c'est le comportement SUR — la
+    // zero. C'est le comportement SUR — la
     // remise a zero remet le bloc la ou son ORG le dit. La banque, elle, reste
     // remanente et AVERTIT : c'est l'heritage silencieux qui est risque, pas la
     // remise a zero, d'ou l'asymetrie entre les deux.
@@ -1465,11 +1507,10 @@ private:
         // appartiennent toujours à la routine. Sans ça, ils devenaient « delta.x » et
         // « ld (plot.x+1),a » ne trouvait plus rien.
         //
-        // Un label `@nom` (renommé « @nom__N » par une expansion de macro, de `repeat`
-        // ou de `while`) ne le change pas non plus : il est interne à l'expansion, et
-        // le laisser propriétaire casserait le « .loop » écrit avant la macro et
-        // référencé après.
-        if (!label.empty() && label[0] != '.' && label[0] != '@' && !isDefinition) currentGlobal_ = label;
+        // Un label d'expansion (« poke__1.retry », préfixe `__<n>` réservé, ADR 0038) ne le
+        // change pas non plus : il est interne à l'expansion, et le laisser propriétaire
+        // casserait le « .loop » écrit avant la macro et référencé après.
+        if (!label.empty() && label[0] != '.' && !kw::hasExpansionPrefix(label) && !isDefinition) currentGlobal_ = label;
 
         // L'assembleur TOLÈRE des orthographes, jamais des structures (ADR 0017) :
         // « ld pc,hl », « jp hl », « ex hl,de » sont acceptées ici au même titre que
@@ -1499,7 +1540,7 @@ private:
         std::string after0 = restAfterFirst(rest);
         std::string W1 = upper(firstToken(after0));
 
-        // contrôle du listing : aucun effet sur le code généré (no-op, comme chez l'assembleur de référence)
+        // contrôle du listing : aucun effet sur le code généré (no-op)
         if (W0 == "NOLIST" || W0 == "LIST") { if (!label.empty()) defineLabel(label); return; }
 
         // BUILDSNA / BANKSET : en-tête d'export de snapshot. fantams produit

@@ -2,7 +2,7 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -O2
 
-.PHONY: all test bench clean
+.PHONY: all test test-fast format hooks bench clean
 
 # Les modules du coeur sont declares une seule fois, dans sources.manifest, que
 # les trois points d'entree de construction LISENT (cf. l'en-tete du manifeste).
@@ -111,6 +111,18 @@ ppdump: pp.cpp expr.cpp z80.cpp keywords.cpp pp_main.cpp $(HDRS)
 fantams: $(MANIFEST) $(CORE) asm_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) $(CORE) asm_main.cpp -o $@
 
+# Tests unitaires seuls (sans les scripts d'acceptation) : la boucle courte, et le hook pre-commit.
+test-fast: $(TESTS)
+	@for t in $(TESTS); do ./$$t || exit 1; done
+
+# Format des lignes modifiées (clang-format épinglé) ; `make format` les réécrit.
+format:
+	@scripts/format.sh --fix
+
+# Branche le hook pre-commit versionné (scripts/hooks/pre-commit).
+hooks:
+	git config core.hooksPath scripts/hooks
+
 test: $(TESTS) fantams
 	@for t in $(TESTS); do ./$$t || exit 1; done
 	@$(T)/accept_separate.sh
@@ -120,6 +132,7 @@ test: $(TESTS) fantams
 	@$(T)/accept_const.sh
 	@$(T)/accept_list_files.sh
 	@$(T)/accept_cro.sh
+	@$(T)/accept_expansion.sh
 	@$(T)/no_machine_names.sh
 	@# Le verrou natif == WASM. Il se SAUTE (code 77) quand l'artefact WASM ou
 	@# node manquent : ici comme sous ctest, un saut est bruyant et n'est pas un

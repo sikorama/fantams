@@ -451,6 +451,19 @@ Refused, each at its line: exporting a name nothing defines, exporting a name
 declared `extern`, and declaring `extern` a name this object also defines — in
 either order, since it is the same mistake both ways.
 
+**Inside a module, exported names are qualified.** A name defined in `MODULE lib`
+is `lib.init`, so another object imports it with `extern lib.init` — not
+`extern init`, which names a symbol no object exports and fails at link time
+(`unresolved EXTERN symbol 'init'`). The same goes for `public`, which is written
+inside the module with the plain name (`public init`).
+
+**Sharing constants between a library and its users.** Put the constants (`EQU`)
+in a common header, guarded by `ifndef` so that including it twice is harmless,
+and include it from both the library and its users. Keep the `extern` lines in a
+**separate** file, included by the users only. A header that holds both `extern lib.init`
+and the definition of `lib.init` is refused (see above): it would be read by the
+library too, which would then both define and import the same name.
+
 `public`, `extern`, `high` and `low` are **reserved at every phase** (ADR 0015):
 they cannot name a label or a symbol, and formatting knows them — a `public` at
 the start of a line is a directive, never a label to be given a colon.
@@ -881,33 +894,75 @@ Braces are never a format prefix.
 
 ### Scope
 
-A label prefixed with **`@`** is made **unique to each expansion**. A label
-without the prefix is **not renamed**: reused across two
-expansions, it stays a real collision, and the assembler says so
-(`duplicate symbol`).
+An expansion — of a macro, a `repeat`, a `while` or a `for` — is a **namespace**. A
+label written **literally** in its body is **local to each expansion**: the
+preprocessor prefixes it with the macro name and a call number, so two expansions
+never collide, and nothing has to be written to ask for it.
 
 ```
-macro poke addr,val
-    ld a,val
-@retry:                 ; -> @retry__1, @retry__2, … one per expansion
-    ld (addr),a
-    jr nz,@retry
+macro delay()
+loop:   djnz loop       ; -> delay__1.loop, delay__2.loop, … one per expansion
+endmacro
+        delay()
+        delay()
+```
+
+The `--sym` file shows these names as they are. The same goes for constants
+(`K EQU 5`) and struct instances (`STRUCT T s`) written in the body, and for the
+iterations of `repeat`, `while` and `for` (`repeat__1.lab`, `repeat__2.lab`).
+Expansions nest: a `repeat` inside a macro gives `m__1.repeat__2.x`, and inside a
+module the module prefix comes first (`a.m__1.x`). A **variable** (`n = n + 1`) is
+never scoped: it stays the accumulator its caller reads.
+
+A name the body does not define itself stays visible as written — a table defined
+outside, a label of the enclosing macro. A name it does define **hides** the same
+name outside (the rule of nested modules, §Modules):
+
+```
+start:  nop
+macro m()
+start:  nop             ; the macro's own start: m__1.start
+        jp start        ; -> m__1.start, not the global one
 endmacro
 ```
 
-The rule is the same for the iterations of `repeat` and `while`. `module`, on the
-other hand, renames **every** label of its body by prefixing it (`M.plain`).
-
-`@@export name` takes a label out of the renaming, so that every expansion shares
-one name. It therefore only concerns `@`-prefixed labels — on a plain label it has
-nothing to exempt:
+**What the caller names is the caller's.** A label whose name contains a
+substitution is global, wherever the braces are:
 
 ```
-macro m
-@@export @glob
-@glob:  nop            ; -> @glob in every expansion, hence a shared name
+macro fn(name)
+mon_{name}:  nop        ; -> mon_a, mon_b
+{name}_fin:  nop        ; -> a_fin, b_fin
 endmacro
+        fn(a)
+        fn(b)
+        jp mon_a        ; reachable from outside: the caller chose the name
 ```
+
+Two calls that build the same name (`fn(a)` twice) are a real collision:
+`duplicate symbol: 'mon_a'`.
+
+**`@` marks a global label.** `@entry:` in a macro body defines the label `entry`
+(the `@` is not part of the name), reachable from outside — and the macro can then be
+expanded **only once**, since a second expansion would define it again. The error
+falls on the second call:
+
+```
+macro boot()
+@entry: nop             ; -> entry
+endmacro
+        boot()
+        jp entry
+        boot()          ; duplicate symbol: 'entry' — the macro 'boot' marks it with '@'
+```
+
+`@` marks constants (`@K EQU 5`) and struct instances (`STRUCT T @s`) the same way.
+Outside a macro or loop body there is nothing to mark, and every label is global:
+`@x` there is an error. `@@export` no longer exists (it is refused, pointing to `@`).
+
+The pattern `__<digits>` is **reserved** to the names the preprocessor generates:
+`foo__1:` written by hand is refused. `module`, for its part, prefixes every name it
+defines (`M.plain`); see Modules.
 
 ---
 
@@ -931,11 +986,58 @@ to it expects (`db idx*8`).
 
 A block can open and close on one line: `repeat 3 : dw a,b : rend`.
 
+### `ifdef` and `ifndef`
+
+`ifdef name` and `ifndef name` test whether **a name is already known** to the
+preprocessor at that point of the source. They do not test its value: a name
+is known or not, whatever it stands for. `if` is the form that tests a value.
+
+A name counts as known when it is one of:
+
+- a preprocessor variable (`LET FOO = 0`), even if its value is zero;
+- a macro;
+- a local or an argument of the enclosing macro or `repeat`;
+- a constant (`EQU`) or a variable (`=`) whose value the preprocessor can compute;
+- a constant or a variable whose value depends on a label or on the current
+  address: it is known, although the preprocessor cannot compute it yet;
+- a label already defined above.
+
+The preprocessor makes a single pass, so a name defined **below** the test is
+not known yet, and `ifdef` is false for it. A label is known only once it has
+been met in the source.
+
+```
+LET DEBUG = 0
+ifdef DEBUG
+    ; assembled: DEBUG exists, although its value is 0
+endif
+ifdef start      ; true only if the label start is defined above this line
+endif
+```
+
+To test the value of `DEBUG` instead, write `if DEBUG`, which is false here.
+
 ### Modules
 
-`MODULE name` **switches** the active module — it does not nest. `MODULE`,
-`MODULE OFF`, and `ENDMODULE` disable it. Labels, constants, structs and struct
-instances defined in it are prefixed: `gfx.plot`, `gfx.S_COLORS`.
+`MODULE name` **opens** a module and `ENDMODULE` (or `end`) closes it, like any
+other block. Labels, constants, structs and struct instances defined in it are
+prefixed: `gfx.plot`, `gfx.S_COLORS`. There is no `MODULE OFF`: a module is
+closed by its end, and a `MODULE` without one is an error.
+
+Modules **nest**: `MODULE chose` inside `MODULE toto` gives `toto.chose.ADDR`, and
+each `ENDMODULE` closes the innermost one. Inside, a name defined by the module
+itself hides the same name of an enclosing module; a name that only an enclosing
+module defines is still visible bare. Reopening a module (a second `MODULE toto`)
+sees the constants and labels of its earlier blocks.
+
+`.` is the only separator, so one dotted name can come from several places:
+`gfx.plot.x` is the local `.x` of the label `gfx.plot`, and also the label `x` of a
+module `gfx.plot`, and also the field `x` of a struct `gfx.plot`. Nothing special is
+written for this: the name is simply defined twice, and the second definition is
+refused, naming both sides — `duplicate symbol: 'gfx.plot.x' — the same dotted name
+is defined two ways: as the local label '.x' of 'gfx.plot' (file:2) and as a label`.
+A module and a struct (or a label) sharing a name is allowed as long as no member
+name is the same.
 
 The **fields** of a struct are never prefixed by the module — they are qualified by
 their struct (`gfx.S_COLORS.HUD`). Inside the module a name is written bare; outside
@@ -1031,8 +1133,7 @@ leaves them, `--strict` takes both.
 
 `include "file"` inserts a source.
 
-`incbin "file"[, offset[, length]]` inserts the bytes of a binary file, as
-rasm, sjasmplus, vasm or pasmo do. `offset` (default 0) skips the start of the
+`incbin "file"[, offset[, length]]` inserts the bytes of a binary file. `offset` (default 0) skips the start of the
 file, `length` (default: up to the end) limits the count; both are
 preprocessor expressions. Reading past the end of the file is an error. The
 bytes become `db` lines, 16 per line, in the unrolled source (`-E`), which

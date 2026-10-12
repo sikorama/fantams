@@ -215,6 +215,13 @@ add_test(NAME accept_cro
 set_tests_properties(accept_cro PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 
+# Une expansion est un espace de noms (ADR 0038) : l'exemple, --sym et les erreurs voulues.
+add_test(NAME accept_expansion
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_expansion.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_expansion PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # L'etage E, etape E6 : un CONST est visible du source ET du SELECT qui
 # l'ecrit, et un profil sans CONST continue d'emettre __port_ a l'identique.
 add_test(NAME accept_const

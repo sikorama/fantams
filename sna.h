@@ -1,8 +1,8 @@
 // sna.h - Export snapshot CPC (.sna)
 //
 // Génère un snapshot CPC : en-tête 256 octets « MV - SNA » + image mémoire 64K.
-// Les valeurs matérielles par défaut (palette, CRTC, PPI, gate array) reprennent
-// celles de l'assembleur de référence pour qu'un émulateur démarre correctement.
+// Les valeurs matérielles par défaut (palette, CRTC, PPI, gate array) sont celles
+// qu'il faut pour qu'un émulateur démarre correctement.
 //
 // Une **base** (ADR 0012) remplace ces défauts : c'est un snapshot de référence
 // pris après le boot d'une machine, dont l'en-tête ET la mémoire font foi. Les

@@ -18,16 +18,17 @@ Le corpus compte 265 chaînes en `'…'` et 589 en `"…"` sur des lignes de don
 `PRINT`. **21 textes distincts emploient les deux délimiteurs**, ce qui suffit à
 dire que la distinction n'existe pas dans l'esprit des auteurs.
 
-Le manque de symétrie était du côté de fantams. Mesuré sur l'assembleur de
-référence : `3e 78` pour `ld a,"x"`, `42` pour `db "A"+1`, `61 22 62` pour
+Le manque de symétrie était du côté de fantams. Les octets visés
+sont : `3e 78` pour `ld a,"x"`, `42` pour `db "A"+1`, `61 22 62` pour
 `db 'a"b'` et `61 27 62` pour `db "a'b"`. Fantams, lui, réservait `"` aux chaînes de `DB` et
 `'` aux caractères d'expression — deux trous symétriques, pas un.
 
 **Cette ADR corrigeait une version antérieure d'elle-même qui affirmait un fait
 faux.** Elle donnait `db 'HELLO' - 'A'` comme distribuant l'arithmétique sur les
-caractères, à l'imitation d'un usage supposé. Vérification faite contre
-l'assembleur de référence : il émet **un seul octet, `0xBF`**, soit `(0 - 65) & 0xFF` — le littéral multi-caractères y vaut
-zéro, silencieusement, et il n'y a aucune distribution. `ld hl,'ab'`, `'abc'`,
+caractères, sur la foi d'un usage supposé, jamais vérifié. Vérification faite,
+cet usage n'existait pas : `db 'HELLO' - 'A'` ne donne **qu'un seul octet,
+`0xBF`**, soit `(0 - 65) & 0xFF` — le littéral multi-caractères pris comme
+expression vaut zéro, silencieusement, et il n'y a aucune distribution. `ld hl,'ab'`, `'abc'`,
 `'abcd'` valent zéro de la même façon. Toute la justification bâtie sur cette
 phrase était sans objet.
 
@@ -68,15 +69,16 @@ Tous les opérateurs binaires sont admis — restreindre à `+` et `-` serait un
 règle de plus à retenir sans rien acheter. Seuls `DB`/`DEFB`/`DM`/`DEFM`
 distribuent, plus la future famille `STRING` ; `DW` et `PRINT` refusent.
 
-C'est une **divergence assumée** : ailleurs, la même ligne produit un octet au
-lieu de cinq. Elle ne casse aucune source : la forme n'apparaît nulle
-part dans le corpus, et pour cause — elle y produirait du faux.
+fantams : la chaîne décalée produit un octet par caractère, `db 'hello'-'a'`
+en émet cinq. Elle ne casse aucune source : la forme n'apparaît nulle
+part dans le corpus.
 
 ## Pourquoi pas de mesure d'usage à l'appui
 
 L'argument « zéro occurrence dans le corpus, donc pas de besoin » ne vaut rien
 ici, et il faut le dire pour ne pas le refaire : on ne mesure pas la demande
-pour une écriture que l'implémentation de référence sabote en silence. L'absence
+pour une écriture que le littéral multi-caractères, nul en silence, rendait
+inutilisable. L'absence
 d'usage n'est une preuve d'absence de besoin que si l'usage était possible.
 
 Ce qui *justifie* la chaîne décalée est ailleurs : sans elle, décaler une chaîne
@@ -124,7 +126,7 @@ Prix assumé : 11 textes sur 377 demanderont du portage.
 
 Une famille `STRING <terminaison>` couvre les conventions de fin — `MSB`,
 `ASCIIZ`, `PASCAL` — et n'a qu'une raison d'être : apporter les vérifications
-qu'aucun des assembleurs du corpus n'offre. **La terminaison MSB est incompatible avec tout octet
+qu'une suite de `DB` ne fait pas. **La terminaison MSB est incompatible avec tout octet
 ≥ 0x80** : si un caractère a déjà son bit 7 à 1, la chaîne se termine en son
 milieu, silencieusement. Un assembleur peut le refuser, et c'est le seul gain de
 correction — non de confort — de toute cette famille.

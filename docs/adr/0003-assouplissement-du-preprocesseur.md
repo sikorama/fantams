@@ -41,7 +41,7 @@ L'argument décisif n'est cependant pas ce décompte, mais un renversement du
 raisonnement. Le risque de l'évaluation paresseuse est l'ambiguïté : savoir
 quelle valeur a réellement été vue, et à quel moment. Or c'est précisément ce
 qu'un préprocesseur permet de lever, en produisant une **source déroulée**
-inspectable — capacité que les assembleurs du corpus n'offrent pas. L'ambiguïté
+inspectable. L'ambiguïté
 n'est donc pas un
 argument contre l'assouplissement : elle est la raison d'être de l'outil qui la
 rend vérifiable. Nous relâchons la contrainte et nous appuyons sur la source

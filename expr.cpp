@@ -1,6 +1,6 @@
 // expr.cpp - Évaluateur d'expressions (voir expr.h)
 //
-// Calcul interne en double (comme l'assembleur de référence) : permet les littéraux flottants et les
+// Calcul interne en double : permet les littéraux flottants et les
 // fonctions (sin/cos/abs/hi/lo) sans perte de précision intermédiaire — seule la
 // valeur FINALE est convertie en entier (arrondi "half up", cf. toInt()). Les
 // opérateurs bit à bit (| ^ & << >> ~ %) convertissent chaque opérande en entier
@@ -28,9 +28,8 @@ namespace {
 
 struct EvalError { std::string msg; };
 
-// Arrondi "half up" (comme l'assembleur de référence : 3.5 -> 4, -3.5 -> -3 — cf. arrondi vers +infini,
-// pas arrondi au plus proche pair ni troncature vers zéro). Vérifié empiriquement
-// contre l'assembleur de référence (db 7/2 -> 4, db -7/2 -> -3).
+// Arrondi "half up" (3.5 -> 4, -3.5 -> -3 — cf. arrondi vers +infini,
+// pas arrondi au plus proche pair ni troncature vers zéro). Exemples : db 7/2 -> 4, db -7/2 -> -3.
 int64_t toInt(double v) { return (int64_t)std::floor(v + 0.5); }
 
 std::string lower(const std::string &n) {
@@ -261,8 +260,8 @@ struct Parser {
     }
     // Un littéral en EXPRESSION doit valoir un nombre, et seul un littéral d'un
     // octet en a un. « ld hl,'ab' » n'est pas un cas à tolérer : aucune
-    // convention d'endianness n'est écrite dans le source, et l'assembleur de référence y répond par
-    // un zéro silencieux — reproduire ça, c'est émettre du faux sans le dire.
+    // convention d'endianness n'est écrite dans le source, et un zéro silencieux serait
+    // émettre du faux sans le dire.
     // Le contexte qui accepte une SUITE d'octets, lui, c'est « db » : là le
     // littéral n'est pas un opérande, et la chaîne décalée s'en charge.
     int64_t parseLiteral() {
@@ -309,7 +308,7 @@ struct Parser {
         return (double)v;
     }
     // Fonctions usuelles reconnues, à une divergence près : les angles de sin/cos sont
-    // en RADIANS, pas en degrés comme l'assembleur de référence (ADR 0021).
+    // en RADIANS, pas en degrés (ADR 0021).
     //
     // high()/low() sont l'entrée EXPLICITE de l'extraction d'octet sur une
     // adresse qu'on ne connaît pas encore : les seules fonctions qui acceptent

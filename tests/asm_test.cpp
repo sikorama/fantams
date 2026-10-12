@@ -114,6 +114,19 @@ static void chkErr(const char *desc, const std::string &src) {
     else ++g_pass;
 }
 
+// Vérifie qu'un source est refusé et que le premier message contient chaque `needle`.
+static void chkErrHas(const char *desc, const std::string &src, std::initializer_list<const char *> needles) {
+    Built o = build(src, "t.asm");
+    std::string msg = o.errors.empty() ? "" : o.errors[0].message;
+    bool ok = !o.ok && !o.errors.empty();
+    for (const char *n : needles)
+        if (msg.find(n) == std::string::npos) ok = false;
+    if (!ok) {
+        ++g_fail;
+        printf("  \033[31mFAIL\033[0m %s\n    message: %s\n", desc, msg.c_str());
+    } else ++g_pass;
+}
+
 // Vérifie qu'un avertissement (bonne pratique) est bien émis, sans bloquer l'assemblage.
 static void chkWarn(const char *desc, const std::string &src, bool expectWarning) {
     Built o = build(src, "t.asm");
@@ -140,8 +153,8 @@ static void chkBank(const char *desc, const std::string &src,
 }
 
 int main() {
-    chkSym("label local : un label @x__N d'expansion ne change pas le proprietaire",
-           " org #300\nstart:\n.loop: nop\n@l__1: djnz @l__1\n jp .loop\n",
+    chkSym("label local : un label d'expansion (M__1.l) ne change pas le proprietaire",
+           " org #300\nstart:\n.loop: nop\nM__1.l: djnz M__1.l\n jp .loop\n",
            "start.loop", 0x300);
 
     printf("Tests assembleur 2 passes\n");
@@ -187,10 +200,10 @@ int main() {
     chkErr("db -129", "  db -129\n");
     chkErr("ds fill de deux octets", "  ds 4,0x1FF\n");
 
-    // label sans ':' (toléré, comme l'assembleur de référence) tant que le 1er mot n'est pas un mnémo/directive connu
+    // label sans ':' (toléré) tant que le 1er mot n'est pas un mnémo/directive connu
     chk("label sans ':'", "start\n  ld a,1\n  jp start\n", {0x3E, 0x01, 0xC3, 0x00, 0x00});
     chkSym("label sans ':' addr", "  org 0x4000\nstart\n  nop\n", "start", 0x4000);
-    // NOLIST/LIST : no-op (contrôle du listing seulement, comme l'assembleur de référence)
+    // NOLIST/LIST : no-op (contrôle du listing seulement)
     chk("nolist no-op", "  nolist\n  ld a,1\n  list\n  ld b,2\n", {0x3E, 0x01, 0x06, 0x02});
     // BUILDSNA/BANKSET : no-op chez fantams (le split sur ':' est fait par pp.cpp en amont ;
     // ici chaque statement est déjà sur sa propre ligne, comme le reçoit vraiment asm.cpp).
@@ -203,7 +216,7 @@ int main() {
     chkWarn("warn instruction en colonne 1", "start:\nnop\n", true);
     chkWarn("pas de warn instruction indentée", "start:\n  nop\n", false);
 
-    // labels locaux ".nom" : qualifiés par le dernier label global (comme l'assembleur de référence) ->
+    // labels locaux ".nom" : qualifiés par le dernier label global ->
     // deux ".loop" sous deux globaux différents ne collisionnent pas.
     chkSym("label local .nom sous 2 globaux distincts (A)",
         "blockA:\n.loop:\n  nop\nblockB:\n.loop:\n  nop\n", "blockA.loop", 0);
@@ -214,7 +227,7 @@ int main() {
     // référence qualifiée explicite "global.local" depuis un autre contexte
     chkSym("label local référencé via global.local", "blockA:\n.loop:\n  nop\n  jp blockA.loop\n", "blockA.loop", 0);
 
-    // repli insensible à la casse (l'assembleur de référence ne distingue pas la casse) : résolu + avertissement
+    // repli insensible à la casse (fantams ne distingue pas la casse) : résolu + avertissement
     chkWarn("repli casse : résolu avec avertissement", "Foo: nop\n  jp foo\n", true);
     chkErr("casse : rien à replier -> erreur si vraiment absent", "  jp doesNotExist\n");
 
@@ -247,6 +260,15 @@ int main() {
     // erreurs
     chkErr("symbole indéfini", "  ld a,UNDEF\n");
     chkErr("label dupliqué", "foo:\n  nop\nfoo:\n  nop\n");
+    // un nom pointé ambigu : erreur à la définition, les deux côtés nommés
+    chkErrHas("même nom pointé : local d'un label et label de module",
+              "gfx.plot: nop\n.x: nop\ngfx.plot.x: nop\n",
+              {"duplicate symbol: 'gfx.plot.x'", "the local label '.x' of 'gfx.plot'", "t.asm:2", "as a label"});
+    chkErrHas("même nom pointé : champ de structure et label",
+              "gfx.x EQU 0\ngfx.x: nop\n",
+              {"duplicate symbol: 'gfx.x'", "as a constant", "t.asm:1", "as a label"});
+    chkErrHas("même forme : la première définition est citée",
+              "foo: nop\nfoo: nop\n", {"already defined as a label", "t.asm:1"});
     chkErr("directive inconnue", "  bogus 1,2\n");
 
     // --- coverage et chevauchement (ADR 0012) ------------------------------
@@ -318,8 +340,8 @@ int main() {
             "  org #8000\n  db 'a'-'z'\n", {0xE7}, 0x8000);
 
         // --- Refus ----------------------------------------------------------
-        // Contexte SCALAIRE : aucune valeur n'existe, et l'assembleur de référence y repond par un
-        // zero silencieux qu'on se refuse a reproduire.
+        // Contexte SCALAIRE : aucune valeur n'existe ; fantams refuse plutôt que de produire un
+        // zéro silencieux.
         chkErr("refus : ld hl,'ab' (aucune convention d'endianness)",
                "  org #8000\n  ld hl,'ab'\n");
         chkErr("refus : ld hl,\"\" (litteral vide sans valeur)",
@@ -436,10 +458,9 @@ int main() {
         chkErr("prefixe sans adresse", "  org b4:\n  db 1\n");
     }
 
-
     // --- ORG a deux parametres : logique et rangement (ADR 0005) --------------
     //
-    // Semantique usuelle, mesuree contre l'assembleur de référence : le PREMIER parametre est l'adresse
+    // Sémantique : le PREMIER parametre est l'adresse
     // logique — celle des labels, celle pour laquelle le code est assemble — et le
     // SECOND l'adresse de rangement, ou les octets sont reellement ecrits en
     // attendant qu'un chargeur les recopie.
@@ -453,11 +474,11 @@ int main() {
         okc("deplace : rien a l'adresse logique", o.coverage[0x2000] == 0);
         okc("deplace : loadAddress est le rangement", o.loadAddress == 0x3000);
     }
-    // ALIGN aligne le LOGIQUE (comme l'assembleur de référence) : c'est l'adresse ou le code tournera
+    // ALIGN aligne le LOGIQUE : c'est l'adresse ou le code tournera
     // apres recopie. Le rangement suit du meme ecart, donc n'est pas aligne.
     chkSym("deplace : ALIGN aligne le logique",
            "  org #2000,#3000\n  nop\n  align 16\naligned:\n  nop\n", "aligned", 0x2010);
-    // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero (comme l'assembleur de référence).
+    // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero.
     {
         Built o = build("  org #2000,#3000\n  nop\n  org #5000\n  db #42\n", "t.asm");
         okc("deplace : un ORG nu remet le deplacement a zero", o.image[0x5000] == 0x42);
