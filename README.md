@@ -191,8 +191,8 @@ across two expansions it is a genuine duplicate symbol, and you get told.
 
 ```asm
 macro wait(n)
-@loop:  dec n
-        jr nz,@loop
+loop:   dec n
+        jr nz,loop
 end
 ```
 
@@ -214,8 +214,8 @@ LET COUNT = 4
         run start
 
 macro wait(n)
-@loop:  dec n
-        jr nz,@loop
+loop:   dec n
+        jr nz,loop
 end
 
 start:
@@ -236,12 +236,12 @@ comes out as:
     run start
 start:
     ld b,4
-@loop__1:
+wait__1.loop:
     dec b
-    jr nz,@loop__1
-@loop__2:
+    jr nz,wait__1.loop
+wait__2.loop:
     dec b
-    jr nz,@loop__2
+    jr nz,wait__2.loop
 tbl:
     db 1
     db 4

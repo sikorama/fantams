@@ -32,8 +32,8 @@ sans un seul octet. D'où l'extension `.sym`, et non `.lst` — ni `.map`, qui
 ```
 name,type,value,bank,store,file,line
 main,label,0x8000,2,0x8000,jeu.asm,9
-@retry__1,label,0x8002,2,0x8002,macros.asm,3
-@retry__2,label,0x8009,2,0x8009,macros.asm,3
+retry__1.retry,label,0x8002,2,0x8002,macros.asm,3
+retry__2.retry,label,0x8009,2,0x8009,macros.asm,3
 far,label,0x4000,4,0x100,jeu.asm,15
 SCREEN,const,0xC000,-,-,jeu.asm,2
 ```
@@ -67,9 +67,9 @@ exactement ce qu'on veut substituer dans un `ld hl,#C000`. Les variables de
 préprocesseur (`LET`) n'existent plus au temps d'assemblage.
 
 **Pas de dé-manglage.** Les noms sortent tels que l'assembleur les connaît :
-qualifiés (`top.inner`) et manglés (`@retry__2`). Le consommateur veut le nom qui
+qualifiés (`top.inner`) et manglés (`retry__2.retry`). Le consommateur veut le nom qui
 correspond *effectivement* à l'adresse ; une table qui afficherait trois fois
-`@retry` à trois adresses serait inutilisable. Corollaire assumé : trois
+`retry` à trois adresses serait inutilisable. Corollaire assumé : trois
 expansions d'une macro donnent trois noms et **une seule** ligne d'origine. C'est
 le nom qui distingue, pas le numéro de ligne.
 
