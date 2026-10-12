@@ -17,6 +17,14 @@ Il n'y a pas de tracker externe : les issues GitHub ne sont pas utilisées.
 - Les commentaires et l'historique de conversation s'ajoutent en bas du fichier,
   sous un titre `## Commentaires`
 
+## « Retrouver la spec d'un diff »
+
+Pour relire un diff contre sa spec : le chantier est le répertoire de
+`.scratch/` dont le nom reprend celui de la fonctionnalité (ou cité par les
+commits), la spec est son `spec.md`, les tickets sont sous `issues/`. Un diff
+non commité se relit contre `HEAD` (`git diff HEAD`, fichiers non suivis
+compris).
+
 ## « Publier sur le tracker »
 
 Créer un fichier sous `.scratch/<chantier>/`, en créant le répertoire au besoin.

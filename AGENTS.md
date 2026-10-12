@@ -17,3 +17,8 @@ Les cinq rôles canoniques, sans renommage. Voir `docs/agents/triage-labels.md`.
 
 Contexte unique : `CONTEXT.md` et `docs/adr/` à la racine.
 Voir `docs/agents/domain.md`.
+
+### Revue de code
+
+Un diff se relit selon `docs/agents/review.md` : reproduire avant d'affirmer,
+rapporter les verrous sautés.

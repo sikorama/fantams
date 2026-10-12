@@ -134,17 +134,18 @@ test: $(TESTS) fantams
 	@$(T)/accept_cro.sh
 	@$(T)/accept_expansion.sh
 	@$(T)/no_machine_names.sh
-	@# Le verrou natif == WASM. Il se SAUTE (code 77) quand l'artefact WASM ou
-	@# node manquent : ici comme sous ctest, un saut est bruyant et n'est pas un
-	@# succes.
-	@$(T)/accept_wasm_equiv.sh; rc=$$?; \
-	 if [ $$rc = 77 ]; then echo "   (saute — la suite n'a PAS verifie natif == WASM)"; \
-	 elif [ $$rc != 0 ]; then exit $$rc; fi
-	@# L'epreuve du snapshot. Meme discipline : absente l'une de ses
-	@# dependances, elle se saute — et le dit.
-	@$(T)/epreuve_snapshot.sh; rc=$$?; \
-	 if [ $$rc = 77 ]; then echo "   (saute — l'artefact n'a PAS ete eprouve sur machine)"; \
-	 elif [ $$rc != 0 ]; then exit $$rc; fi
+	@# Deux verrous se SAUTENT (code 77) quand leurs dependances manquent : le verrou
+	@# natif == WASM (artefact WASM, node) et l'epreuve du snapshot (frontal sans
+	@# affichage). Un saut est bruyant et n'est pas un succes : le recapitulatif final
+	@# dit combien de verrous n'ont PAS eu lieu.
+	@skipped=0; \
+	 $(T)/accept_wasm_equiv.sh; rc=$$?; \
+	 if [ $$rc = 77 ]; then echo "   (saute — la suite n'a PAS verifie natif == WASM)"; skipped=$$((skipped+1)); \
+	 elif [ $$rc != 0 ]; then exit $$rc; fi; \
+	 $(T)/epreuve_snapshot.sh; rc=$$?; \
+	 if [ $$rc = 77 ]; then echo "   (saute — l'artefact n'a PAS ete eprouve sur machine)"; skipped=$$((skipped+1)); \
+	 elif [ $$rc != 0 ]; then exit $$rc; fi; \
+	 if [ $$skipped != 0 ]; then echo "ATTENTION : $$skipped verrou(s) saute(s) — test OK mais NON complet"; fi
 
 # Chronomètre les sources déroulées longues et verrouille leurs empreintes
 # (ADR 0034). Hors de « test » : un temps dépend de la machine.
