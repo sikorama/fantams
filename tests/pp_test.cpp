@@ -559,6 +559,9 @@ int main() {
     chk("@ à l'usage ancre à la racine, y compris dans une macro appelée dans un module",
         "CONST EQU 1000\nMACRO toto\nld hl,@CONST\nENDM\nMODULE main\nCONST EQU 10\ntoto()\nld a,@CONST\nld b,@main.CONST\nENDMODULE\n",
         "CONST EQU 1000\nmain.CONST EQU 10\nld hl,CONST\nld a,CONST\nld b,main.CONST\n");
+    chk("Un paramètre de macro masque le nom du module qui porte le même",
+        "MACRO M(len)\nld a,len\nld b,{len}\nENDM\nMODULE mod\nlen EQU 9\nM(3)\nENDMODULE\n",
+        "mod.len EQU 9\nld a,3\nld b,3\n");
     chk("@x: dans une macro appelée dans un module : label racine",
         "MODULE m\nMACRO M\n@entry: nop\nENDM\n  M\nENDMODULE\n", "entry: nop\n");
 

@@ -1330,7 +1330,9 @@ private:
     // labels, ses constantes, ses locaux) lui appartient et n'est pas renommé ici.
     std::vector<SrcLine> readFromCaller(const Macro &m) {
         if (modulePrefix_.empty()) return m.body;
-        const auto own = collectLabels(m.body, /*skipNested=*/true);
+        auto own = collectLabels(m.body, /*skipNested=*/true);
+        // Un paramètre masque le nom du module qui porte le même : il est substitué à l'appel.
+        own.insert(own.end(), m.params.begin(), m.params.end());
         std::vector<std::string> names;
         std::map<std::string, std::string> prefixOf;
         std::string p = modulePrefix_;
