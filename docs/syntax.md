@@ -910,7 +910,11 @@ endmacro
 The `--sym` file shows these names as they are. The same goes for constants
 (`K EQU 5`) and struct instances (`STRUCT T s`) written in the body, and for the
 iterations of `repeat`, `while` and `for` (`repeat__1.lab`, `repeat__2.lab`).
-Expansions nest: a `repeat` inside a macro gives `m__1.repeat__2.x`, and inside a
+The call number counts **per name**: `toto__1`, `toto__2`, `titi__1`, `titi__2`,
+`repeat__1`… (a macro of a module counts under its qualified name). A **local** label
+(`.loop`) written in the body belongs to the expansion too (`toto__1.loop`) and does
+not change the owner of the caller's own locals.
+Expansions nest: a `repeat` inside a macro gives `m__1.repeat__1.x`, and inside a
 module the module prefix comes first (`a.m__1.x`). A **variable** (`n = n + 1`) is
 never scoped: it stays the accumulator its caller reads.
 
@@ -957,8 +961,13 @@ endmacro
 ```
 
 `@` marks constants (`@K EQU 5`) and struct instances (`STRUCT T @s`) the same way.
-Outside a macro or loop body there is nothing to mark, and every label is global:
-`@x` there is an error. `@@export` no longer exists (it is refused, pointing to `@`).
+At the top level there is nothing to mark, and every label is global: `@x:` there is
+an error. Inside a module, `@x:` defines `x` at the **root**. `@@export` no longer
+exists (it is refused, pointing to `@`).
+
+**`@` on a use anchors the name at the root**: `@CONST` is the global constant and
+`@toto.CONST` the full path from the root, with no module prefix and no search. It
+works for labels, constants, structs and macro calls (`@m.a()`).
 
 The pattern `__<digits>` is **reserved** to the names the preprocessor generates:
 `foo__1:` written by hand is refused. `module`, for its part, prefixes every name it
@@ -1043,6 +1052,16 @@ The **fields** of a struct are never prefixed by the module — they are qualifi
 their struct (`gfx.S_COLORS.HUD`). Inside the module a name is written bare; outside
 it is written qualified (`STRUCT gfx.S_COLORS inst`, `sizeof(gfx.S_COLORS)`), with no
 fallback search across modules.
+
+**Macros are qualified by their module.** A macro defined in `MODULE m` is `m.a`: it
+is called `m.a()` from outside and `a()` inside (same search as labels: innermost
+module, then enclosing ones, then global). Two modules can each define their own `a`.
+Called bare from outside, it is refused: `unknown macro 'a' — did you mean 'm.a'?`.
+
+**A macro body is read from the caller.** Its names resolve as if the body were
+written at the call: with `CONST EQU 1000` global, `CONST EQU 10` in `MODULE main`
+and a global macro reading `CONST`, a call inside `main` reads `main.CONST`. Write
+`@CONST` in the body to reach the global one.
 
 `--strict` refuses `DEFB`/`DEFW`… as a struct field's directive, as it does in code,
 and a `:` after a constant (`INIT_MSG: EQU 0`): a colon marks a label.

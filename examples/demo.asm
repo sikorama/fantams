@@ -7,7 +7,7 @@ LET COUNT = 4
 ; macro avec un label écrit en dur : il est local à chaque expansion (WAIT__1.wloop,
 ; WAIT__2.wloop), donc deux appels ne se heurtent pas. Pour qu'un label d'une macro
 ; reste global, on le marque '@' (la macro ne se développe alors qu'une fois) ou on le
-; construit par argument ({n}_fin:).
+; construit par argument ({n}_fin:). Le compteur est par macro : WAIT__1, WAIT__2.
 MACRO WAIT(n)
 wloop:  dec {n}
         jr nz,wloop

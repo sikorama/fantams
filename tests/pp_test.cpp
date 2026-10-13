@@ -470,8 +470,8 @@ int main() {
               "duplicate symbol: 'lab' — this repeat body marks it with '@'", "zzzz");
     chkErrMsg("@ hors expansion : erreur nommée",
               "@x: nop\n", "'@' marks a label of a macro or loop body", "zzzz");
-    chkErrMsg("@ dans un module, hors expansion : erreur nommée",
-              "MODULE a\n@x: nop\nENDMODULE\n", "'@' marks a label of a macro or loop body", "zzzz");
+    chk("@ dans un module, hors macro : définit à la racine (ADR 0039)",
+        "MODULE a\n@x: nop\njp @x\nENDMODULE\n", "x: nop\njp x\n");
     chkErrMsg("STRUCT type @x hors expansion : erreur nommée",
               "STRUCT T\nx db 0\nENDSTRUCT\nSTRUCT T @s\n", "'@' marks a label of a macro or loop body", "zzzz");
     chkErrMsg("@@export n'existe plus : erreur nommée vers @",
@@ -512,8 +512,8 @@ int main() {
         "M__1.start: nop\njp M__1.start\njp M__1.start\n");
     chk("Expansion imbriquée : le nom défini par la boucle masque celui de la macro",
         "MACRO M\nstart: nop\nREPEAT 2\nstart: nop\njp start\nREND\njp start\nENDM\n  M\n",
-        "M__1.start: nop\nM__1.repeat__2.start: nop\njp M__1.repeat__2.start\n"
-        "M__1.repeat__3.start: nop\njp M__1.repeat__3.start\njp M__1.start\n");
+        "M__1.start: nop\nM__1.repeat__1.start: nop\njp M__1.repeat__1.start\n"
+        "M__1.repeat__2.start: nop\njp M__1.repeat__2.start\njp M__1.start\n");
     chk("MACRO : une constante EQU est locale à l'expansion",
         "MACRO M\nK EQU 5\nld a,K\nENDM\n  M\n  M\n",
         "M__1.K EQU 5\nld a,M__1.K\nM__2.K EQU 5\nld a,M__2.K\n");
@@ -531,10 +531,36 @@ int main() {
         "for__1.lab: nop\nfor__2.lab: nop\n");
     chk("Expansions imbriquées : le préfixe se compose",
         "MACRO M\nREPEAT 2\nx: nop\nREND\nENDM\n  M\n",
-        "M__1.repeat__2.x: nop\nM__1.repeat__3.x: nop\n");
+        "M__1.repeat__1.x: nop\nM__1.repeat__2.x: nop\n");
     chk("Expansion dans un module : le préfixe de module précède",
         "MODULE a\nMACRO M(v)\nx: nop\nENDM\n  M(1)\nENDMODULE\n",
-        "a.M__1.x: nop\n");
+        "a.a.M__1.x: nop\n");
+
+    // ADR 0039 : macros qualifiées par module, corps lu côté appelant, @ ancre à la racine
+    chk("Compteur par nom de macro",
+        "MACRO A\nx: nop\nENDM\nMACRO B\ny: nop\nENDM\n  A\n  B\n  A\n  B\n",
+        "A__1.x: nop\nB__1.y: nop\nA__2.x: nop\nB__2.y: nop\n");
+    chk("Un local .x appartient à l'expansion : deux appels ne collisionnent pas",
+        "MACRO M\n.l: djnz .l\nENDM\nstart:\n  M\n  M\n",
+        "start:\nM__1.l: djnz M__1.l\nM__2.l: djnz M__2.l\n");
+    chk("Macro d'un module : appel qualifié depuis l'extérieur",
+        "MODULE m\nMACRO a\nnop\nENDM\nENDMODULE\nm.a()\n", "nop\n");
+    chk("Macro d'un module : appel sans préfixe à l'intérieur",
+        "MODULE m\nMACRO a\nnop\nENDM\na()\nENDMODULE\n", "nop\n");
+    chk("Deux modules, deux macros du même nom",
+        "MODULE m\nMACRO a\nnop\nENDM\nENDMODULE\nMODULE n\nMACRO a\nhalt\nENDM\nENDMODULE\nm.a()\nn.a()\n",
+        "nop\nhalt\n");
+    chkErrMsg("Macro d'un module appelée sans préfixe de l'extérieur : le nom qualifié est proposé",
+              "MODULE m\nMACRO foo\nnop\nENDM\nENDMODULE\nfoo()\n",
+              "unknown macro 'foo' — did you mean 'm.foo'?", "zzzz");
+    chk("Le corps d'une macro se lit côté appelant",
+        "CONST EQU 1000\nMACRO toto\nld hl,CONST\nENDM\nMODULE main\nCONST EQU 10\nld de,CONST\ntoto()\nENDMODULE\n",
+        "CONST EQU 1000\nmain.CONST EQU 10\nld de,main.CONST\nld hl,main.CONST\n");
+    chk("@ à l'usage ancre à la racine, y compris dans une macro appelée dans un module",
+        "CONST EQU 1000\nMACRO toto\nld hl,@CONST\nENDM\nMODULE main\nCONST EQU 10\ntoto()\nld a,@CONST\nld b,@main.CONST\nENDMODULE\n",
+        "CONST EQU 1000\nmain.CONST EQU 10\nld hl,CONST\nld a,CONST\nld b,main.CONST\n");
+    chk("@x: dans une macro appelée dans un module : label racine",
+        "MODULE m\nMACRO M\n@entry: nop\nENDM\n  M\nENDMODULE\n", "entry: nop\n");
 
     // WHILE piloté par variable PP
     chk("WHILE",

@@ -501,7 +501,60 @@ private:
         return !modulePrefix_.empty() && name.compare(0, modulePrefix_.size(), modulePrefix_) == 0
                    ? name.substr(modulePrefix_.size()) : name;
     }
-    long uid = 0;
+    // Compteur d'expansions PAR NOM (ADR 0039) : `toto__1`, `toto__2`, `titi__1`. La clé est le
+    // nom qualifié de la macro, ou le mot-clé de la boucle.
+    std::map<std::string, long> expCounters_;
+    long nextExpansion(const std::string &key) { return ++expCounters_[upper(key)]; }
+
+    // La macro que `name` désigne depuis le module courant (ADR 0039) : le module le plus
+    // interne d'abord, puis les englobants, puis le global — la recherche des labels. `@nom`
+    // ancre à la racine. Hors de cette règle, aucun repli : `a()` ne trouve pas `m.a`.
+    std::map<std::string, Macro>::iterator findMacro(const std::string &name) {
+        if (!name.empty() && name[0] == '@') return macros.find(upper(name.substr(1)));
+        std::string p = modulePrefix_;
+        for (;;) {
+            auto it = macros.find(upper(p + name));
+            if (it != macros.end() || p.empty()) return it;
+            p.pop_back();
+            const size_t d = p.rfind('.');
+            p = d == std::string::npos ? "" : p.substr(0, d + 1);
+        }
+    }
+    // Une macro qualifiée dont `name` est le dernier morceau : de quoi proposer « m.a » à qui a écrit `a()`.
+    std::string qualifiedCandidate(const std::string &name) {
+        const std::string tail = "." + upper(name);
+        for (const auto &kv : macros)
+            if (kv.first.size() > tail.size() &&
+                kv.first.compare(kv.first.size() - tail.size(), tail.size(), tail) == 0)
+                return kv.second.name;
+        return "";
+    }
+    // `@nom` à l'usage : la racine, sans préfixe de module. Le `@` ne va pas à l'assembleur.
+    // Les chaînes et les caractères ne sont pas touchés.
+    static std::string stripRootAnchors(const std::string &t) {
+        if (t.find('@') == std::string::npos) return t;
+        std::string out;
+        bool inStr = false;
+        char q = 0;
+        for (size_t i = 0; i < t.size(); ++i) {
+            const char c = t[i];
+            if (inStr) {
+                out += c;
+                if (c == q) inStr = false;
+                continue;
+            }
+            if (c == '"' || c == '\'') {
+                inStr = true;
+                q = c;
+                out += c;
+                continue;
+            }
+            if (c == '@' && (i == 0 || !isIdentChar(t[i - 1])) && i + 1 < t.size() &&
+                (std::isalpha((unsigned char)t[i + 1]) || t[i + 1] == '_' || t[i + 1] == '.')) continue;
+            out += c;
+        }
+        return out;
+    }
 
     void error(const SrcLine &sl, const std::string &msg) {
         result.ok = false;
@@ -578,7 +631,7 @@ private:
     // reste invisible, le préprocesseur n'ayant qu'une passe avant. Ce n'est pas
     // un manque, c'est ce qu'un préprocesseur peut savoir.
     bool isDefined(const std::string &name, const Env &env) {
-        return ppvars.count(name) || macros.count(upper(name)) ||
+        return ppvars.count(name) || findMacro(name) != macros.end() ||
                env.locals.count(name) || env.args.count(name) ||
                asmvars.count(name) || asmDeferred.count(name) ||
                seenLabels.count(name);
@@ -707,7 +760,7 @@ private:
             size_t r = q; while (r < code.size() && std::isspace((unsigned char)code[r])) ++r;
             std::string tok = upper(code.substr(0, q));
             if (r < code.size() && code[r] == ':') p = r + 1;
-            else if (!isReservedWord(tok) && !macros.count(tok)) p = q;
+            else if (!isReservedWord(tok) && findMacro(tok) == macros.end()) p = q;
         }
         while (p < code.size() && std::isspace((unsigned char)code[p])) ++p;
         while (p < code.size() && isIdentChar(code[p])) ++p; // mnémonique / directive
@@ -896,7 +949,7 @@ private:
     }
 
     void emit(const std::string &code, const SrcLine &src, const Env *env = nullptr) {
-        std::string t = trim(expandSizeof(code, src));
+        std::string t = trim(expandSizeof(stripRootAnchors(code), src));
         if (t.empty()) return;
         // ':' -> retour à la ligne ; push/pop multi-registres -> une instruction chacun.
         // Les sous-lignes après la 1re sont indentées (jamais lues comme un label).
@@ -1045,7 +1098,8 @@ private:
                 add(firstToken(restAfterFirst(restAfterFirst(afterLabel))));
                 continue;
             }
-            std::string label, rest; peelLabel(code, label, rest, [&](const std::string &n) { return macros.count(n) != 0; });
+            std::string label, rest;
+            peelLabel(code, label, rest, [&](const std::string &n) { return findMacro(n) != macros.end(); });
             if (!variables && !rest.empty() && rest[0] == '=') continue;
             // `mon_{name}:` : la lecture du label s'arrête avant l'accolade, mais le nom
             // est construit par argument, donc ce n'est pas `mon_` qui est défini.
@@ -1124,7 +1178,14 @@ private:
                 continue;
             }
             flush();
-            if (kind == "MODULE" || kind == "MACRO") out.push_back(body[i]);
+            if (kind == "MACRO") {
+                // Le corps d'une macro se lit côté appelant (ADR 0039) : ni le module ni
+                // l'expansion englobants ne le renomment à la définition.
+                out.insert(out.end(), body.begin() + i, body.begin() + e + 1);
+                i = e + 1;
+                continue;
+            }
+            if (kind == "MODULE") out.push_back(body[i]);
             else {
                 auto r = renameScope({body[i]}, names, mangle);
                 out.insert(out.end(), r.begin(), r.end());
@@ -1158,7 +1219,7 @@ private:
                 if (generatedPattern(n)) error(site, reservedPatternMsg(n[0] == '@' ? n.substr(1) : n));
             for (const auto &n : collectLabels(body, /*skipNested=*/true, /*variables=*/false)) {
                 if (n[0] == '@') cache.atNames.push_back(n);
-                else if (n[0] != '.' && n.find('{') == std::string::npos) cache.names.push_back(n);
+                else if (n.find('{') == std::string::npos) cache.names.push_back(n);
             }
             cache.macroCount = macros.size();
         }
@@ -1174,7 +1235,8 @@ private:
         const std::string prefix = modulePrefix_ + expPrefix_ + scopeName + "__" + std::to_string(id) + ".";
         std::vector<std::string> all = cache.names;
         all.insert(all.end(), cache.atNames.begin(), cache.atNames.end());
-        return renameScoped(body, all, [&](const std::string &n) { return n[0] == '@' ? n.substr(1) : prefix + n; });
+        return renameScoped(body, all, [&](const std::string &n) { return n[0] == '@' ? n.substr(1) : n[0] == '.' ? prefix + n.substr(1)
+                                                                                                                  : prefix + n; });
     }
 
     // `__<chiffres>` : le motif des préfixes d'expansion (`poke__1.retry`). Un nom écrit par
@@ -1263,6 +1325,32 @@ private:
         return false;
     }
 
+    // Le corps d'une macro, lu depuis le module de l'appelant (ADR 0039) : ses noms se
+    // résolvent comme s'il était écrit à l'appel. Ce que la macro définit elle-même (ses
+    // labels, ses constantes, ses locaux) lui appartient et n'est pas renommé ici.
+    std::vector<SrcLine> readFromCaller(const Macro &m) {
+        if (modulePrefix_.empty()) return m.body;
+        const auto own = collectLabels(m.body, /*skipNested=*/true);
+        std::vector<std::string> names;
+        std::map<std::string, std::string> prefixOf;
+        std::string p = modulePrefix_;
+        while (!p.empty()) {
+            auto it = moduleNames_.find(p);
+            if (it != moduleNames_.end())
+                for (const auto &n : it->second) {
+                    if (n.empty() || n[0] == '.' || prefixOf.count(n)) continue;
+                    if (std::find(own.begin(), own.end(), n) != own.end()) continue;
+                    prefixOf[n] = p;
+                    names.push_back(n);
+                }
+            p.pop_back();
+            const size_t d = p.rfind('.');
+            p = d == std::string::npos ? "" : p.substr(0, d + 1);
+        }
+        if (names.empty()) return m.body;
+        return renameScoped(m.body, names, [&](const std::string &n) { return n[0] == '@' ? n.substr(1) : prefixOf[n] + n; });
+    }
+
     void expandMacro(const Macro &m, const std::string &argstr,
                      const SrcLine &sl, int depth, const Env &caller) {
         if (depth > 200) { error(sl, "macro nesting too deep (recursive?)"); return; }
@@ -1287,7 +1375,7 @@ private:
                                   r.error.find("has no value") == std::string::npos;
             ne.args[m.params[k]] = a;
         }
-        runExpansion(m.body, ++uid, m.locals, m.name, sl, /*isMacro=*/true, ne, depth + 1);
+        runExpansion(readFromCaller(m), nextExpansion(m.name), m.locals, m.name, sl, /*isMacro=*/true, ne, depth + 1);
     }
 
     // Analyse un champ de structure : "[nom] directive operandes" ou "nom StructType".
@@ -1409,7 +1497,8 @@ private:
                 continue;
             }
 
-            std::string label, rest; peelLabel(code, label, rest, [&](const std::string &n) { return macros.count(n) != 0; });
+            std::string label, rest;
+            peelLabel(code, label, rest, [&](const std::string &n) { return findMacro(n) != macros.end(); });
             if (!label.empty()) seenLabels.insert(label);
             if (expPrefix_.empty() && generatedPattern(label)) {
                 error(raw, reservedPatternMsg(label));
@@ -1563,7 +1652,7 @@ private:
                     LocalNames names;
                     for (int k = 0; k < r.value; ++k) {
                         Env ne = env; if (!var.empty()) ne.locals[var] = k;
-                        runExpansion(body, ++uid, names, "repeat", raw, false, ne, depth);
+                        runExpansion(body, nextExpansion("repeat"), names, "repeat", raw, false, ne, depth);
                     }
                 }
                 i = rend + 1; continue;
@@ -1606,7 +1695,7 @@ private:
                     LocalNames names;
                     for (long k = lo.value; k <= last; ++k) {
                         Env ne = env; ne.locals[var] = k;
-                        runExpansion(body, ++uid, names, "for", raw, false, ne, depth);
+                        runExpansion(body, nextExpansion("for"), names, "for", raw, false, ne, depth);
                     }
                 }
                 i = endfor + 1; continue;
@@ -1626,7 +1715,7 @@ private:
                     if (!r.ok) { error(raw, "WHILE: " + r.error); break; }
                     if (r.value == 0) break;
                     if (++guard > 1000000) { error(raw, "WHILE: too many iterations"); break; }
-                    runExpansion(body, ++uid, names, "while", raw, false, env, depth);
+                    runExpansion(body, nextExpansion("while"), names, "while", raw, false, env, depth);
                 }
                 i = wend + 1; continue;
             }
@@ -1664,11 +1753,13 @@ private:
                     // raison d'une exception dans peelLabel — un nom en tête de ligne
                     // qui n'est pas un label — et rien ne la distingue d'un appel de
                     // macro sans la connaître. Avertie une fois, comme l'appel nu.
-                    if (kw != "MACRO" && warnedNameFirst_.insert(upper(m.name)).second)
+                    if (kw != "MACRO" && warnedNameFirst_.insert(upper(modulePrefix_ + m.name)).second)
                         warning(raw, "'" + m.name + " MACRO ...' is an inherited spelling; "
                                      "write 'macro " + m.name + " ...'");
+                    const std::string shortName = m.name;
+                    m.name = modulePrefix_ + m.name;
                     macros[upper(m.name)] = m;
-                    result.macroNames.push_back(upper(m.name));
+                    result.macroNames.push_back(upper(shortName));
                 }
                 i = endm + 1; continue;
             }
@@ -1725,7 +1816,7 @@ private:
                 auto names = known;
                 names.erase(std::remove_if(names.begin(), names.end(),
                             [](const std::string &n) { return !n.empty() && n[0] == '.'; }), names.end());
-                auto scoped = renameScoped(body, names, [&](const std::string &n) { return prefix + n; });
+                auto scoped = renameScoped(body, names, [&](const std::string &n) { return n[0] == '@' ? n.substr(1) : prefix + n; });
                 modulePrefix_ = prefix;
                 run(scoped, env, depth);
                 modulePrefix_ = outerPrefix;
@@ -1769,7 +1860,19 @@ private:
             // --- appel de macro : « nom args » ou « nom(args) » (ADR 0018) ---
             std::string pcName, pcArgs;
             const bool paren = kw::parenCall(rest, pcName, pcArgs);
-            auto mit = macros.find(upper(paren ? pcName : firstToken(rest)));
+            auto mit = findMacro(paren ? pcName : firstToken(rest));
+            if (mit == macros.end()) {
+                // `foo()` d'une macro qui n'existe que dans un module : le nom qualifié est proposé.
+                std::string uName, uArgs;
+                if (kw::parenCall(code, uName, uArgs) && !uName.empty() && !isReservedWord(upper(uName))) {
+                    const std::string q = qualifiedCandidate(uName);
+                    if (!q.empty()) {
+                        error(raw, "unknown macro '" + uName + "' — did you mean '" + q + "'?");
+                        ++i;
+                        continue;
+                    }
+                }
+            }
             if (mit != macros.end()) {
                 if (!label.empty()) emit(label + ":", raw);
                 // La forme nue reste licite, mais elle est indiscernable d'un label
