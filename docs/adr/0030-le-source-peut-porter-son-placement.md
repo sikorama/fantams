@@ -54,7 +54,7 @@ Une clé par banque vaudrait donc deux choses, et la règle qui gouverne les
 symboles du linker — un symbole qui vaudrait deux choses selon l'ordre de lecture
 est pire qu'un symbole absent — le ferait disparaître. **Un état et son argument
 désignent une carte, et une carte donne une valeur.** C'est aussi ce qui permet
-au source qui se place lui-même d'obtenir `__val_ram_ext_w1_1` : cette clé se
+au source qui se place lui-même d'obtenir `__val_ext_w1_1` : cette clé se
 dérive du profil seul, sans script.
 
 Le corollaire est que le vocabulaire du placement est **celui du profil**, et
@@ -163,11 +163,11 @@ passage des octets, et l'assembleur ne connaît toujours aucune machine.
   en **introduit** un, est refusée — il vaudrait rétroactivement pour les octets
   déjà posés.
 - **Les clés de commutation PAR SECTION restent réservées au script.**
-  `__val_ram_gfx1` demande de savoir quelle configuration voit `gfx1` ; avec `IN`
+  `__val_gfx1` demande de savoir quelle configuration voit `gfx1` ; avec `IN`
   le source le dit, mais le calcul tourne **avant** l'assemblage et ne peut pas le
   lire. Offrir cette clé au linkage et pas à l'assemblage ferait d'un même nom
   deux langages selon la façon dont on compile. Un source qui se place lui-même
-  nomme sa configuration — `__val_ram_ext_w1_1` —, et ce nom vaut par les deux
+  nomme sa configuration — `__val_ext_w1_1` —, et ce nom vaut par les deux
   chemins.
 - **Le format objet monte à la version 2.** Il porte deux clés de plus, et une
   section placée par le source s'y écrit `reloc` bien qu'elle porte un `org`. Un

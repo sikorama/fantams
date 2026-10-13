@@ -687,9 +687,9 @@ struct Linker {
             // LES CLÉS PAR SECTION S'EN TIENNENT AU SCRIPT, et c'est pourquoi
             // c'est `declared` qui est passé ici. `switchSymbols` tourne aussi
             // AVANT d'assembler, où le placement du source n'est pas lisible :
-            // offrir `__val_ram_gfx1` ici et pas là ferait d'un même nom deux
+            // offrir `__val_gfx1` ici et pas là ferait d'un même nom deux
             // langages selon la façon dont on compile. Un source qui se place
-            // lui-même nomme sa configuration — `__val_ram_ext_w1_1` —, et ce
+            // lui-même nomme sa configuration — `__val_ext_w1_1` —, et ce
             // nom-là vaut par les deux chemins.
             offerSwitchSymbols(declared, pr);
             // `__off_<section>` : son offset DANS sa banque. Celui-là dépend du
@@ -1368,7 +1368,7 @@ script::Script withSourcePlacements(const script::Script &sc,
     //
     // Mais la surcharge ne peut pas être MUETTE, et le piège n'est pas cosmétique :
     // un source qui se place lui-même commute avec la valeur de SA configuration
-    // — `__val_ram_ext_w1_1` —, qui est la mauvaise dès que le script l'a posé
+    // — `__val_ext_w1_1` —, qui est la mauvaise dès que le script l'a posé
     // ailleurs. La faute est alors indétectable à la lecture des deux fichiers
     // pris séparément, et ne se voit qu'à l'exécution.
     std::map<std::string, std::pair<std::string, int>> byScript;   // section -> (fichier, ligne)

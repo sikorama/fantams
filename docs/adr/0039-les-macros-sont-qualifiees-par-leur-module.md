@@ -39,9 +39,8 @@ une erreur nommée qui propose le nom qualifié : `unknown macro 'a' — did you
 **Le corps d'une macro se lit côté appelant.** Un nom du corps — label, constante,
 structure, autre macro — est cherché depuis le module de l'appelant, avec le même
 masquage : un nom que le module définit l'emporte sur le global. La macro est du
-texte déroulé dans le module appelant, ce qui est aussi le comportement attendu par
-les sources écrites pour d'autres assembleurs. Pour viser le global depuis un corps,
-on écrit `@CONST`.
+texte déroulé dans le module appelant : ses noms se lisent là où le texte atterrit.
+Pour viser le global depuis un corps, on écrit `@CONST`.
 
 **`@` ancre à la racine, à l'usage comme à la définition.**
 - À l'usage, `@toto.CONST` est le chemin complet depuis la racine, et `@CONST` la

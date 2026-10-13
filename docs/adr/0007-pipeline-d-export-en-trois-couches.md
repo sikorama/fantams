@@ -4,12 +4,13 @@ status: proposed
 
 # Pipeline d'export en trois couches, et noms de morceaux dérivés
 
-> **Rien de cet ADR n'est écrit.** Il n'existe aujourd'hui qu'un seul format —
-> `sna` — plus le binaire brut, choisis sur l'extension de `-o` dans
-> l'adaptateur CLI. Ni découpage, ni morceaux nommés, ni DSK, ni CPR, ni CRO, ni
-> en-tête AMSDOS. Ce document décrit la forme visée le jour où un deuxième
-> format arrivera ; il est conservé pour cela, et pour le piège RLE consigné
-> plus bas.
+> **Le pipeline n'est pas écrit.** Trois formats existent en plus du binaire
+> brut — `sna`, `cpr`, `cro` —, choisis sur l'extension de `-o`. Le CPR et le CRO
+> ont chacun leur extraction et leur fusion (`cpr.cpp`, `cro.cpp`), sans
+> découpage, sans morceaux nommés ni couche commune ; ni DSK ni en-tête AMSDOS.
+> Ce document décrit la forme visée quand un format à plusieurs fichiers
+> (binaire AMSDOS, DSK) arrivera : c'est là que le découpage partagé paie. Il est
+> conservé pour cela, et pour le piège RLE consigné plus bas.
 
 L'export se décompose en trois couches composables plutôt qu'en un backend
 monolithique par format :

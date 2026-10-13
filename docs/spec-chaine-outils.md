@@ -1,10 +1,12 @@
 # Spécification : assembleur, linker, builder
 
-> **Rien de ce document n'est écrit.** Il fixe la cible : ce qu'un assembleur
-> Z80A doit faire, ce qu'il doit refuser de faire, et par quelles informations il
-> passe la main aux deux outils qui le suivent. Le code actuel n'a ni section, ni
-> fichier objet, ni linker, ni builder ; le §10 dit ce qu'il en coûterait, et par
-> quels étages y aller.
+> **La cible, écrite avant le code.** Ce document fixe ce qu'un assembleur Z80A
+> doit faire, ce qu'il doit refuser de faire, et par quelles informations il passe
+> la main aux deux outils qui le suivent. Les étages A, B, C1 et E sont faits
+> (sections, fichier objet, linker qui place, profils et symboles de commutation —
+> leur suivi est dans `docs/archive/`) ; C2, D et le builder ne le sont pas. Le §10
+> décrit le code tel qu'il était avant l'étage A, et les encadrés « Correction »
+> font autorité sur le corps du texte.
 
 ## 1. Le périmètre d'un assembleur
 
@@ -400,7 +402,7 @@ SELECT rom_upper = OUT 0x7F00, MASK %00001000, CODE << 3
 >
 > Et elle disait **deux choses à la fois** : quels bits du port appartiennent à
 > l'axe, et quelle valeur chaque état y met. Or le §12.3 exige déjà les deux
-> séparément — `__mask_<axe>` et `__val_<axe>_<config>` —, et il n'y avait pas de
+> séparément — `__mask_<axe>` et `__val_<config>` —, et il n'y avait pas de
 > mot pour le premier. `MASK` est donc l'explicitation de ce que `__mask_`
 > réclamait, et le `[CODE …]` d'un état, qui existait déjà pour l'axe de RAM,
 > porte le second. Le ternaire disparaît avec le nom du registre, et l'analyseur
@@ -737,7 +739,7 @@ Ne sont pas concernés : `keywords.cpp`, `parser.cpp`, `beautify.cpp`, et
 | **D.** *(non engagé)* lecture des objets `.rel` de SDCC | interopérabilité C, au prix chiffré au §9 | — |
 
 > **Correction, écrite à l'étape C1.10.** Cette ligne rangeait aussi la
-> **compression** dans C1. Elle en est sortie, et `spec-etage-c1.md` (D9) dit
+> **compression** dans C1. Elle en est sortie, et `archive/spec-etage-c1.md` (D9) dit
 > pourquoi : la compression ne partage aucun calcul avec les fenêtres, les
 > banques et les configurations — il faut choisir un format, écrire ou embarquer
 > un compresseur, et le tester —, et la raison qui fait de C1 et C2 deux étages
@@ -860,21 +862,21 @@ loop:   call   sysbank_audio_play
 ;--- résident : jamais recouvert par une commutation ----------------------
         SECTION sysbank, "ro"
 sysbank_audio_init:
-        ld     bc, __port_ram_audio | __val_ram_audio   ; port ET valeur : §12.3
+        ld     bc, __port_ram_audio | __val_audio       ; port ET valeur : §12.3
         out    (c), c
         call   audio_init          ; vaut &4000 + offset : le linker le sait
-        ld     bc, __port_ram_linear | __val_ram_linear
+        ld     bc, __port_ram_linear | __val_linear
         out    (c), c
         ret
 
 sysbank_unpack:
-        ld     bc, __port_ram_music_lz | __val_ram_music_lz
+        ld     bc, __port_ram_music_lz | __val_music_lz
         out    (c), c
         ld     hl, music_lz        ; &4000 + offset dans la fenêtre
         ld     de, unpacked        ; &C000
         ld     bc, __size_music_lz ; taille COMPRESSÉE, connue au linkage
         call   depack
-        ld     bc, __port_ram_linear | __val_ram_linear
+        ld     bc, __port_ram_linear | __val_linear
         out    (c), c
         ret
 
@@ -971,7 +973,7 @@ Le linker expose donc un **triplet par axe**, jamais un octet global :
 | symbole | ce que c'est | valeur, pour l'exemple du §12.2 |
 |---------|--------------|---------------------------------|
 | `__port_<axe>_<config>` | l'adresse d'écriture, **sur seize bits** — port pour un `OUT`, adresse mémoire pour un `POKE`. Indexée par la configuration parce qu'elle peut en dépendre. | `__port_ram_audio` = `&7F00` |
-| `__val_<axe>_<config>` | la valeur à écrire, **bornée aux bits de l'axe** | `__val_ram_audio` = `%11000101` = `&C5` ; `__val_ram_music_lz` = `&C4` ; `__val_ram_linear` = `&C0` |
+| `__val_<config>` | la valeur à écrire, **bornée aux bits de l'axe** ; l'axe n'est pas dans la clé, une section n'appartenant qu'à un axe (ADR 0032, décision 2) | `__val_audio` = `%11000101` = `&C5` ; `__val_music_lz` = `&C4` ; `__val_linear` = `&C0` |
 | `__mask_<axe>` | les bits du port qui appartiennent à l'axe, pour que le source écrive `(état & ~__mask) \| __val` sans toucher aux autres | sans objet sur l'axe `ram` du CPC, indispensable sur `&7FFD` |
 
 S'y ajoutent les symboles qui ne relèvent d'aucun axe :
@@ -982,7 +984,7 @@ S'y ajoutent les symboles qui ne relèvent d'aucun axe :
 | `__romnum_myrom` | `15` | numéro de ROM haute : la **seconde** écriture d'un `SELECT` qui en compte deux (`&DF00`) |
 | `__off_<section>` | l'offset dans sa banque | pour un loader, ou une recopie |
 
-Le source écrit `ld bc, __port_ram_audio | __val_ram_audio`, jamais `&7F00 |
+Le source écrit `ld bc, __port_ram_audio | __val_audio`, jamais `&7F00 |
 &C5`. Le gain n'est pas cosmétique : déplacer une section change la valeur, et
 une valeur écrite en dur serait devenue fausse **en silence**. Les noms préfixés
 de `__` appartiennent au linker, et sont réservés au même titre que les mots de
@@ -999,11 +1001,11 @@ haut du bus d'adresse*, et c'est exactement ce que B porte.
 D'où **deux graphies, et une seule composition** :
 
 ```
-        ld   bc, __port_ram_audio | __val_ram_audio   ; 3 octets
+        ld   bc, __port_ram_audio | __val_audio       ; 3 octets
         out  (c), c
 
         ld   b,  high(__port_ram_audio)               ; 4 octets
-        ld   c,  low(__val_ram_audio)
+        ld   c,  low(__val_audio)
         out  (c), c
 ```
 
@@ -1079,7 +1081,7 @@ RAM, donc du ressort de l'auteur, au même titre que le loader du §12.4. Le
 linker donne `__mask_<axe>` pour que cette copie se mette à jour sans écraser
 les axes voisins ; il ne l'alloue pas.
 
-Le symbole `__val_ram_linear` mérite son nom : la version précédente de ce
+Le symbole `__val_linear` mérite son nom : la version précédente de ce
 document l'appelait `__cfg_none` et le glosait « aucune extension connectée ».
 C'est faux — `ccc = 000` est la disposition linéaire par défaut, extension
 présente ou pas — et l'erreur venait de la carte recopiée dans la spec. C'est
