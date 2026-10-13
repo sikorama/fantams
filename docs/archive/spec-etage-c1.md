@@ -1,8 +1,8 @@
 # Spécification : étage C1 — le linker qui place et calcule
 
 > **Spec d'étage.** Le *quoi* général est aux §6, §7, §9, §12 et §13 de
-> [spec-chaine-outils.md](spec-chaine-outils.md), le *où* dans
-> [coutures-de-la-chaine.md](coutures-de-la-chaine.md). Ce document tranche ce
+> [spec-chaine-outils.md](../spec-chaine-outils.md), le *où* dans
+> [coutures-de-la-chaine.md](../coutures-de-la-chaine.md). Ce document tranche ce
 > que ces cinq-là laissaient ouvert, et il **corrige** le §10 sur un point (le
 > porteur du profil) et l'ADR 0005 sur son statut. Le suivi d'étape vit dans
 > `etage-c1.md`.

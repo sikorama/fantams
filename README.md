@@ -495,7 +495,10 @@ the artifact.
 - [`docs/principes.md`](docs/principes.md) — design principles
 - [`docs/spec-chaine-outils.md`](docs/spec-chaine-outils.md) — the toolchain spec:
   memory model, profiles, link scripts, and the stages that build them
-- [`docs/etage-b.md`](docs/etage-b.md), [`docs/etage-c1.md`](docs/etage-c1.md) —
-  what each stage delivered, step by step, and what it deliberately did not
+- [`docs/syntax/`](docs/syntax) — one worked example per point of the syntax
+  reference, checked by `tests/accept_syntax_examples.sh`
+- [`docs/archive/`](docs/archive) — the specs and step-by-step tracking of the
+  finished stages (A, B, C1, E): what each delivered, and what it deliberately
+  did not
 - [`docs/adr/`](docs/adr) — architecture decision records
 - [`CONTEXT.md`](CONTEXT.md) — the codebase, module by module

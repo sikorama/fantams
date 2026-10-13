@@ -2,10 +2,10 @@
 
 ## Le problème
 
-`docs/spec-etage-c1.md` §Hors périmètre écartait délibérément « un deuxième
+`docs/archive/spec-etage-c1.md` §Hors périmètre écartait délibérément « un deuxième
 profil livré » de C1, pour ne pas payer « la conception de trois machines pour
 n'en livrer aucune » (§13.2). Mais trois questions concrètes, listées dans
-`docs/etage-c1.md` §C1.7 et la mémoire de chantier
+`docs/archive/etage-c1.md` §C1.7 et la mémoire de chantier
 `port-et-valeur-a-revoir-au-second-profil`, ne pouvaient pas se trancher avec
 un seul profil sur la table :
 

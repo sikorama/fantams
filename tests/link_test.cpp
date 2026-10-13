@@ -1805,7 +1805,7 @@ int main() {
     }
 
     // --- Le profil LIVRE cpcplus : la RAM du 6128, et l'axe RMR2 en plus ----
-    // Etage E, E3-E5. Critere de fin d'etage (spec-etage-e.md §E4) : la RAM
+    // Etage E, E3-E5. Critere de fin d'etage (docs/archive/spec-etage-e.md §E4) : la RAM
     // n'a pas change, et GA_PORT est le meme domicile pour les deux ROM
     // classiques et pour l'axe neuf.
     {

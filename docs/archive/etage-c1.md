@@ -3,7 +3,7 @@
 > **Ce fichier tient lieu de ticket.** Une ligne d'état par étape, mise à jour au
 > fur et à mesure ; il n'y a rien d'autre à synchroniser. Le *quoi* est dans
 > [spec-etage-c1.md](spec-etage-c1.md), le *où* dans
-> [coutures-de-la-chaine.md](coutures-de-la-chaine.md) ; ici, l'ordre, les arêtes
+> [coutures-de-la-chaine.md](../coutures-de-la-chaine.md) ; ici, l'ordre, les arêtes
 > et l'état.
 
 **Ce qu'est l'étage C1**, d'après le §10 : le linker qui **place et calcule** —
@@ -663,13 +663,16 @@ surveille rien sur l'autre.**
 
 ## C1.10 — l'ADR de clôture, et l'ADR 0005 relu
 
-- [x] ADR : le profil est un **texte embarqué**, un porteur, un analyseur, un export qui est une copie — [ADR 0028](adr/0028-le-profil-est-un-texte-embarque.md)
+- [x] ADR : le profil est un **texte embarqué**, un porteur, un analyseur, un export qui est une copie — [ADR 0028](../adr/0028-le-profil-est-un-texte-embarque.md)
 - [x] L'ADR 0005 : son statut est **écrit**, dans son propre fichier. `org b<n>:` reste licite et rien de ce qu'il décrit n'a changé d'un octet ; ce qui a changé est qu'il existe une **seconde** façon de placer, qui ne passe pas par la source — et une section ne peut pas relever des deux
 - [x] Le tableau du §10 de `spec-chaine-outils.md` : la compression sort de C1 (D9), corrigé sur place avec la raison
 - [x] `docs/syntax.md` à jour : `bankof()`, les noms `__`, les deux familles de symboles et pourquoi `__off_` n'est pas une constante
 - [x] Les décisions prises en cours de route sont dans **l'étape qui les a provoquées**, pas ici
 
 ## C1.V — les sources de vérification sur machine réelle *(autonome)*
+
+> **Archivé ouvert.** Cette étape continue dans
+> `.scratch/verification-machine/issues/01-valeurs-litigieuses-gate-array.md`.
 
 **Ce qu'il livre.** Ce que le §12.3 reconnaît ne pas avoir : « vérifiée une fois,
 sur machine ou sur émulateur » est son argument central, et **rien ne l'incarne**.

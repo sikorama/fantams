@@ -100,7 +100,7 @@ change à chaque itération et contourne son propre garde-fou. La clé doit êtr
 proportionnelle au nombre de problèmes **distincts**, jamais au nombre de
 déroulages. Quand un avertissement concerne deux lieux — un corps de macro et
 son site d'appel — les nommer tous les deux règle la déduplication au bon grain.
-_`readAtPP` : quatorze avertissements pour une ligne (`pp.cpp:284`)._
+_`readAtPP` : quatorze avertissements pour une ligne (`readAtPP`, `pp.cpp`)._
 
 **Un fait, un étage.** Deux diagnostics pour la même faute, dont le plus faible
 arrive en premier, c'est du bruit avec une étape de plus. Le refus appartient à
@@ -148,7 +148,7 @@ ré-analyser** (macros, boucles), et exiger une **valeur avant qu'aucune adresse
 existe** (contrôle de flux). Tout le reste — sucre, facilités d'écriture,
 orthographes héritées — est une **politique**, pas une conséquence. Un assembleur
 peut parfaitement émettre plusieurs octets depuis une ligne : `emitDB` le fait
-déjà (`asm.cpp:337`). Ne jamais justifier un placement par une contrainte qu'on
+déjà (`emitDB`, `asm.cpp`). Ne jamais justifier un placement par une contrainte qu'on
 n'a pas vérifiée.
 
 **La source déroulée juge le placement.** Parmi les choix libres, la canonisation
@@ -158,7 +158,8 @@ L'**un-pour-un** peut rester à l'assembleur : la fidélité n'y est pas en jeu.
 _`push hl,de` au préprocesseur, `defb` à l'assembleur._
 
 **La canonisation est la dernière étape.** Elle n'intervient qu'en aval de toute
-substitution (`pp.cpp:551-559`), et une règle de canonisation ne produit que du Z80
+substitution (`canonicalizeSpelling`, appelée dans `pp.cpp` après
+l'expansion), et une règle de canonisation ne produit que du Z80
 canonique — jamais de directive de préprocesseur, jamais de substitution, jamais
 de sucre. C'est ce qui garantit qu'une seule passe suffira toujours, et ce qui
 met `-E`, `--normalize` et l'assembleur d'accord **par construction** plutôt que
@@ -184,7 +185,7 @@ d'assemblage doit déjà l'accepter.
 
 **Une transformation outillée énonce une promesse vérifiable.** Idempotence, et
 neutralité de l'assemblage : `assemble(f(src)) == assemble(src)`, testée
-(`beautify_test.cpp:78`). Une transformation sans propriété testable n'est pas un
+(`sameBytes`, `tests/beautify_test.cpp`). Une transformation sans propriété testable n'est pas un
 outil, c'est une habitude.
 
 **Rétrécir la promesse plutôt que la trahir.** Quand un outil ne peut pas tenir sa

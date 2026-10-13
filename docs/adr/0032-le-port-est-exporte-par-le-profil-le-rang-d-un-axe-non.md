@@ -5,7 +5,7 @@ status: accepted
 # Le port de commutation devient une constante `CONST` du profil ; l'axe sort de la clé de `__val_` (pas de `__mask_`) ; le rang de `__port_` reste ouvert
 
 [[port-et-valeur-a-revoir-au-second-profil]] (mémoire de chantier) et
-`docs/etage-c1.md` §C1.7 posaient trois questions et les réservaient
+`docs/archive/etage-c1.md` §C1.7 posaient trois questions et les réservaient
 explicitement au moment où un second profil arriverait. Le CPC+ est ce second
 profil. Cet ADR les reprend une à une — et refuse de trancher la troisième en
 disant pourquoi.
@@ -17,7 +17,7 @@ seul port** : `ram`, `rom_lower`, `rom_upper` écrivent tous les trois sur
 `0x7F00` (`SELECT ram = OUT 0x7F00, …`, `SELECT rom_lower = OUT 0x7F00, MASK
 …`, `SELECT rom_upper = OUT 0x7F00, MASK …`). Le §12.3 en tire un symbole par
 axe et par section — `__port_ram_audio`, `__port_rom_lower_x`… — dont
-`docs/etage-c1.md` §C1.7 note déjà que, sur ce triplet, « un symbole sur trois
+`docs/archive/etage-c1.md` §C1.7 note déjà que, sur ce triplet, « un symbole sur trois
 porte de l'information » : le port ne varie jamais, seule `__val_` bouge avec
 le placement.
 
@@ -97,7 +97,7 @@ signalait déjà : décider d'après le cas particulier.
 ## Ce que cet ADR ne décide pas
 
 **Les macros de profil** — un cran au-dessus d'`CONST`, réservées par
-`docs/etage-c1.md` §C1.7 à « quand deux profils seront sur la table » pour la
+`docs/archive/etage-c1.md` §C1.7 à « quand deux profils seront sur la table » pour la
 question de savoir jusqu'où le profil va sans devenir du code. Un profil,
 `CONST` seul, reste. **Le contenu du profil CPC+ lui-même** — fenêtres,
 banques, `CONFIG SET`, l'axe `lrom2` — est écrit à la suite de cet ADR, pas

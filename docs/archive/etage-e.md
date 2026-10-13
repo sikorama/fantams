@@ -2,7 +2,7 @@
 
 > **Ce fichier tient lieu de ticket.** Une ligne d'état par étape. Le *quoi*
 > est dans [spec-etage-e.md](spec-etage-e.md), la décision dans
-> [adr/0032-…](adr/0032-le-port-est-exporte-par-le-profil-le-rang-d-un-axe-non.md).
+> [adr/0032-…](../adr/0032-le-port-est-exporte-par-le-profil-le-rang-d-un-axe-non.md).
 
 **Ce qu'est l'étage E** : le second profil, CPC+, et le langage de profil
 qu'il faut pour l'écrire sans compromis — `CONST`, et le retrait de l'axe
@@ -104,5 +104,5 @@ soldée ici.
 ## Notes de suivi
 
 *(à tenir à jour au fil de l'implémentation — une ligne par décision prise en
-cours de route, comme `docs/etage-c1.md` §C1.7 « Deux corrections, après
+cours de route, comme `docs/archive/etage-c1.md` §C1.7 « Deux corrections, après
 usage ».)*

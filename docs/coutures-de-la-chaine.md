@@ -1,6 +1,8 @@
 # Les coutures de la chaîne : assembleur, linker, builder
 
-> **Document de conception, rien n'est écrit.** Le §10 de
+> **Document de conception, écrit avant l'étage A.** L'assembleur (`assemble()`,
+> `asm.h`) et le linker (`build()`, `link.h`) existent depuis les étages B et C1 ;
+> le §1 décrit le code d'avant, et le builder (§2.3) reste à écrire. Le §10 de
 > [spec-chaine-outils.md](spec-chaine-outils.md) dit *quoi* découper et par quels
 > étages. Celui-ci dit *où passent les interfaces* et *ce qui doit rester
 > derrière* — la question qui décide si le découpage donne trois modules profonds

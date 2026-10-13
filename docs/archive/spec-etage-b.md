@@ -1,8 +1,8 @@
 # Spécification : étage B — fichier objet et expressions relocalisables
 
 > **Spec d'étage.** Le *quoi* général est au §4 et §10 de
-> [spec-chaine-outils.md](spec-chaine-outils.md), le *où* dans
-> [coutures-de-la-chaine.md](coutures-de-la-chaine.md). Ce document tranche ce
+> [spec-chaine-outils.md](../spec-chaine-outils.md), le *où* dans
+> [coutures-de-la-chaine.md](../coutures-de-la-chaine.md). Ce document tranche ce
 > que ces deux-là laissaient ouvert, et il **corrige** le §10 sur un point
 > (`z80.cpp`) et l'ADR 0019 sur un autre (`--sym`). Le suivi d'étape vit dans
 > `etage-b.md`.

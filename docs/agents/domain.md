@@ -48,4 +48,5 @@ Deux points propres à ce dépôt, à connaître avant de proposer quoi que ce s
 - Plusieurs ADR portent un encadré de correction daté d'une étape ultérieure.
   Cet encadré fait autorité sur le corps du document.
 - Un ADR en `status: proposed` décrit une forme visée, pas le code existant.
-  L'ADR 0007 le dit de lui-même : « rien de cet ADR n'est écrit ».
+  L'ADR 0007 en est un : son en-tête dit ce qui existe (les exports `.cpr` et
+  `.cro`) et ce qui reste visé (le pipeline en trois couches).

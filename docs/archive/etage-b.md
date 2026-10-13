@@ -3,7 +3,7 @@
 > **Ce fichier tient lieu de ticket.** Une ligne d'état par étape, mise à jour au
 > fur et à mesure ; il n'y a rien d'autre à synchroniser. Le *quoi* est dans
 > [spec-etage-b.md](spec-etage-b.md), le *où* dans
-> [coutures-de-la-chaine.md](coutures-de-la-chaine.md) ; ici, l'ordre, les arêtes
+> [coutures-de-la-chaine.md](../coutures-de-la-chaine.md) ; ici, l'ordre, les arêtes
 > et l'état.
 
 **Ce qu'est l'étage B**, d'après le §10 : fichier objet et expressions

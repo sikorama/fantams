@@ -2,8 +2,8 @@
 
 > **Ce fichier tient lieu de ticket.** Une ligne d'état par étape, mise à jour au
 > fur et à mesure ; il n'y a rien d'autre à synchroniser. Le *quoi* est au §4 et
-> §5 de [spec-chaine-outils.md](spec-chaine-outils.md), le *où* dans
-> [coutures-de-la-chaine.md](coutures-de-la-chaine.md) ; ici, l'ordre et l'état.
+> §5 de [spec-chaine-outils.md](../spec-chaine-outils.md), le *où* dans
+> [coutures-de-la-chaine.md](../coutures-de-la-chaine.md) ; ici, l'ordre et l'état.
 
 **Ce qu'est l'étage A**, d'après le §10 : `SECTION` interne, placement toujours
 absolu (`org` à l'intérieur), et trois gains — plafond de taille, détection
@@ -32,7 +32,7 @@ et c'est ce que doit écrire l'ADR de **A5**.
 | A2 | `"uninit"` n'émet pas d'octet | **fait** |
 | A3 | `ASSERT_SIZE max` — une sous-zone dans une section | **fait** |
 | A4 | `beautify` connaît les nouveaux mots-clés | **fait** |
-| A5 | ADR : une section déclarative, et pourquoi la migration attend B | **fait** — [ADR 0026](adr/0026-une-section-nomme-et-classe.md) |
+| A5 | ADR : une section déclarative, et pourquoi la migration attend B | **fait** — [ADR 0026](../adr/0026-une-section-nomme-et-classe.md) |
 | A6 | `TSTATES_BETWEEN` / `NOPS_BETWEEN` (§4.3, ADR 0035) — autonome, hors du chemin critique | optionnel |
 
 Fin de l'étage A : A1 à A5 faites, les sept suites vertes, `docs/syntax.md` à
@@ -209,7 +209,7 @@ porte les deux blocs.
 ## A5 — l'ADR — fait
 
 [ADR 0026 — À l'étage A, une section nomme et classe ; elle ne
-reloge pas](adr/0026-une-section-nomme-et-classe.md). Il porte les quatre
+reloge pas](../adr/0026-une-section-nomme-et-classe.md). Il porte les quatre
 décisions qui étaient dispersées dans ce fichier : pourquoi la migration
 `Space` → `Section` attend l'étage B, ce que « taille d'une section » veut dire et
 qu'`align` sera à recompter à l'étage C, le type et le plafond figés à la première

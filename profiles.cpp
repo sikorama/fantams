@@ -6,7 +6,7 @@
 //
 // Le texte ci-dessous est celui que l'analyseur lit, et celui que
 // `--dump-profile` rend. Il n'existe aucun écrivain qui pourrait en diverger, et
-// c'est tout l'objet de la décision D1 de `spec-etage-c1.md` : un porteur, un
+// c'est tout l'objet de la décision D1 de `docs/archive/spec-etage-c1.md` : un porteur, un
 // analyseur, un jeu de valeurs.
 //
 // Les commentaires en font partie. Un profil sans ses citations est un profil
