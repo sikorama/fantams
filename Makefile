@@ -112,7 +112,7 @@ fantams: $(MANIFEST) $(CORE) asm_main.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) $(CORE) asm_main.cpp -o $@
 
 # Tests unitaires seuls (sans les scripts d'acceptation) : la boucle courte, et le hook pre-commit.
-test-fast: $(TESTS)
+test-fast: $(TESTS) ppdump
 	@for t in $(TESTS); do ./$$t || exit 1; done
 
 # Format des lignes modifiées (clang-format épinglé) ; `make format` les réécrit.
@@ -123,7 +123,7 @@ format:
 hooks:
 	git config core.hooksPath scripts/hooks
 
-test: $(TESTS) fantams
+test: $(TESTS) fantams ppdump
 	@for t in $(TESTS); do ./$$t || exit 1; done
 	@$(T)/accept_separate.sh
 	@$(T)/accept_profile.sh

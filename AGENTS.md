@@ -22,3 +22,8 @@ Voir `docs/agents/domain.md`.
 
 Un diff se relit selon `docs/agents/review.md` : reproduire avant d'affirmer,
 rapporter les verrous sautés.
+
+### Boucle d'implémentation
+
+`make test-fast` en cours de travail ; `make test` (plus de deux minutes) une
+fois, avant le commit. Les deux reconstruisent `ppdump`.
