@@ -2,11 +2,13 @@
 
 This document describes what fantams accepts **today**, verified against the
 binary and not against intentions. Standard Z80 mnemonics are not included here:
-they are the same as everyone else's. What follows covers directives, expressions,
+they are Zilog's. What follows covers directives, expressions,
 macros, and extended notations.
 
 Here, only the facts: what to write, what it does, and where fantams is
-unusual.
+unusual. Each point has a worked example in [`syntax/`](syntax/), named after
+its section (`04-03-slash-vs-div.asm`); `tests/accept_syntax_examples.sh`
+assembles them all.
 
 ---
 
@@ -81,8 +83,8 @@ are interchangeable, and `'A'` is in no way different from `"A"`.
 | unary | `-` `+` `~` `not` `!` |
 | power | `**` — right-associative, more binding than unary |
 
-- **`/` is floating-point division**, `div` is integer division. `7/2` equals 3.5,
-  `7 div 2` equals 3.
+- **`/` is floating-point division**, `div` is integer division, rounding toward
+  −∞. `7/2` equals 3.5, `7 div 2` equals 3, `-7 div 2` equals −4.
 - Text aliases designate **bitwise** forms. There is deliberately
   no text alias for `&&`, `||`, and `!`.
 - `//` is **not** an operator: it is a comment.
@@ -97,6 +99,8 @@ are interchangeable, and `'A'` is in no way different from `"A"`.
 | `floor` `ceil` `int` `round` | 1 | toward −∞ / +∞ / zero / nearest |
 | `min` `max` | 2 | |
 | `sizeof` | 1 | size of a `struct` |
+| `bankof` | 1 | the storage slot of a relocatable label's section — see below |
+| `nops_between` `tstates_between` | 2 | duration of the code between two labels — see below |
 | `opcode` | 1–3 | a fixed byte of an instruction's encoding — see below |
 
 Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
@@ -105,8 +109,8 @@ Halves round **up** (`3.5 → 4`, `-3.5 → -3`).
 `sin(a*3.14159265/180)` for a degree argument.
 
 `high` and `low` are the explicit way to take one byte of a value; `hi` and `lo`
-are spellings of the same two functions. They are also the **only** functions
-that accept a relocatable address — see below.
+are spellings of the same two functions. With `bankof()`, they are the **only**
+functions that accept a relocatable address — see below.
 
 ### `opcode()`
 
@@ -164,7 +168,7 @@ included — nothing about it is special:
 ```
 
 The leading `xor` on the first line is the Z80 **mnemonic**; the one inside
-the operand is the **bitwise operator**, same as in `ld a,b and 3` — two
+the operand is the **bitwise operator**, same as in `and  mask and 3` — two
 homonyms, evaluated at different levels.
 
 **Parenthesizing the whole expression changes what it means**, and this bites
@@ -191,13 +195,15 @@ the T-states divided by 4: the Gate Array stretches each phase of an instruction
 to a multiple of 4 T-states, so `push` is 11 T-states and 4 NOPs, and `out (c),r`
 is 4 NOPs although 12 T-states would say 3. It comes from a measured table.
 
-        start:  ld   a, 5          ; 7 T-states  -> 2 NOPs
-                ld   (&4000), a    ; 13          -> 4
-                ld   hl, (&4000)   ; 16          -> 5
-                inc  (hl)          ; 11          -> 3
-        end:    nop
-                assert nops_between(start, end) == 14
-                assert tstates_between(start, end) == 47
+```
+start:  ld   a, 5          ; 7 T-states  -> 2 NOPs
+        ld   (#4000), a    ; 13          -> 4
+        ld   hl, (#4000)   ; 16          -> 5
+        inc  (hl)          ; 11          -> 3
+stop:   nop
+        assert nops_between(start, stop) == 14
+        assert tstates_between(start, stop) == 47
+```
 
 The NOPs are summed **per instruction** from that table: 47 T-states is 14 NOPs
 here (`ld hl,(nn)` is 5, not 4), not `ceil(47 / 4) = 12`.
@@ -262,8 +268,8 @@ profile and the link script:
 | Name | What it is |
 |---|---|
 | `__port_<axis>_<key>` | the address to write, **sixteen bits** — a port for an `OUT`, a memory address for a `POKE` |
-| `__val_<axis>_<key>` | the value, **bounded to the bits of that axis** |
-| `__mask_<axis>` | which bits of the port belong to that axis, so a source can write `(state & ~mask) \| val` |
+| `__val_<key>` | the value, **bounded to the bits of its axis**; the axis is not in the name |
+| `__mask_<axis>` | for an axis whose `SELECT` declares a `MASK`: which bits of the port belong to it, so a source can write `(state & ~mask) \| val` |
 | `__port2_<axis>_<key>`, `__romnum_<axis>_<key>`, `__mask2_<axis>` | the same three, for an axis that needs a **second** write — the one that says *which* bank, not *that* one appears |
 | `__off_<section>` | its offset inside its bank, for a loader or a copy |
 
@@ -300,9 +306,9 @@ except `__off_` are handed to the assembler as plain **constants**: they depend
 on no address, so arithmetic on them is ordinary arithmetic.
 
 ```
-        ld   bc, __port_ram_audio | __val_ram_audio   ; one number, computed here
+        ld   bc, __port_ram_audio | __val_audio   ; one number, computed here
         out  (c), c
-        ld   c,  __val_ram_linear                     ; and it fits in a byte
+        ld   c,  __val_linear                     ; and it fits in a byte
 ```
 
 #### Composing a port and a value
@@ -317,11 +323,11 @@ holds.
 Hence two spellings, and one composition:
 
 ```
-        ld   bc, __port_ram_audio | __val_ram_audio   ; 3 bytes
+        ld   bc, __port_ram_audio | __val_audio   ; 3 bytes
         out  (c), c
 
         ld   b,  high(__port_ram_audio)               ; 4 bytes
-        ld   c,  low(__val_ram_audio)
+        ld   c,  low(__val_audio)
         out  (c), c
 ```
 
@@ -358,7 +364,7 @@ for, because it moves when the script moves a section.
 
 `__off_<section>` is the exception: its value depends on where the section
 landed, so it is resolved at link time and a source must declare it with
-`EXTERN`. A unit assembled **without** a script does the same for all of them —
+`EXTERN`. A unit assembled **without** a profile does the same for all of them —
 the linker still resolves them — at the price of no arithmetic in that unit.
 
 They are **reserved**: declaring one with `EXTERN` is how you use it, and
@@ -368,10 +374,10 @@ placement's — without a word.
 
 ```
         extern __port_ram_audio
-        extern __val_ram_audio
+        extern __val_audio
         ld   bc, __port_ram_audio    ; the port the profile declares
         ld   b,  high(__port_ram_audio) ; and its high byte, across the seam
-        ld   hl, __val_ram_audio     ; the value that switches to audio's bank
+        ld   hl, __val_audio     ; the value that switches to audio's bank
 ```
 
 Comparisons, boolean operators and the real functions (`sin`, `abs`, `min`, …)
@@ -412,8 +418,8 @@ travels without a number per byte. Writing it, reading it back and writing it
 again gives the **same text**. A malformed one is refused with a diagnostic that
 names the faulty line.
 
-The `--sym` table is a **subset** of the `symbol` block: same names, plus the
-scope and the fragment each one is anchored in.
+The `--sym` table is a **subset** of the `symbol` block: same names; the block
+adds the scope and the fragment each one is anchored in.
 
 **What the linker refuses across objects**, each naming both sides: an `extern`
 no object exports, the same name exported twice, two objects writing to the same
@@ -499,22 +505,25 @@ A label starting with `.` belongs to the last global label encountered:
 
 ```
 plot:
-.x      ld a,0
+.x:     ld a,0
         ld (plot.x+1),a     ; reference from outside
 ```
 
 A **definition** interleaved (`delta equ 4`) does not change the owner.
 
-A `@`-prefixed label (per-expansion label of a macro, `repeat` or `while`) does
-**not** change the owner either: it is internal to the expansion, so a `.loop`
-defined before a macro call is still found by a `jp .loop` written after it.
+A label written in an expansion body — macro, `repeat`, `while`, `for` — does
+**not** change the owner either: it is local to the expansion (§9), so a `.loop`
+defined before a macro call is still found by a `jp .loop` written after it. A
+label the expansion makes global — `@name:`, or a name built with `{…}` — is a
+global label like any other, and does become the owner.
 
 ### Reserved words
 
-Registers, pairs, and conditions (`a`, `hl`, `i`, `p`, `nz`, `pc`…) cannot
-name a label, a macro parameter, or a loop index. The refusal names what
-the word is — hence the failure of `for i = …` or a
-parameter named `p`.
+Mnemonics, directives, preprocessor keywords, registers, pairs and conditions
+(`ld`, `org`, `end`, `a`, `hl`, `i`, `p`, `nz`, `pc`…) cannot name a label, a
+constant, a variable, a macro parameter, or a loop index. The refusal names the
+vocabulary the word belongs to — hence the failure of `for i = …`, of a
+parameter named `p`, or of a label `end:`.
 
 ---
 
@@ -532,6 +541,8 @@ bytes with value 1 then three with value 2.
 A single `ds` cannot exceed **`#10000`** bytes — the whole address space. Past
 that the bytes would come back over themselves, so it is refused rather than
 wrapped in silence.
+
+---
 
 ## 7. Placement
 
@@ -600,9 +611,9 @@ A section can also say **where it goes**, in the vocabulary of the target
 profile:
 
 ```asm
-        section gfx1, "ro" IN ext_w1<1>            ; a configuration
-        section gfx2, "ro" IN w1 OF all_ext        ; a window of one
-        section gfx3, "ro", 0x2000 IN ext_w1<2>    ; and a size cap beside it
+        section rom,  "ro" IN rom_lower.on              ; a configuration of one window
+        section gfx2, "ro" IN w1 OF all_ext             ; a window of one
+        section gfx3, "ro", 0x2000 IN w1 OF ext_w1<2>   ; and a size cap beside it
 ```
 
 The short form is legal when the configuration maps **one** window; when it maps
@@ -660,8 +671,9 @@ The type is **mandatory**, and a fourth one is refused, naming the three.
 - A section **reopens** — that is how code and data alternate — but it keeps the
   type of its **first** declaration. Changing it is refused: `"ro"` then `"rw"`
   under one name would silently disarm the check below.
-- Placement stays **absolute**: `org` inside a section still decides addresses.
-  A section names and classifies; it does not yet relocate.
+- A section with an `org` of its own is placed by it, at that absolute address.
+  A section without one is **relocatable**: the linker places it (§4, *Relocatable
+  values*).
 - The section that owns each symbol appears in the symbol table (`--sym`). A
   constant carries none: it lives nowhere.
 
@@ -710,7 +722,7 @@ flag:   ds 1
 
 - `ds` **advances the address without writing**: the labels are placed, the
   symbol table carries them with their section, and nothing enters the binary.
-  The image above is four bytes at `0x8000`, not sixteen kilobytes.
+  The image above is three bytes at `0x8000`, not sixteen kilobytes.
 - `db`, `dw`, a string and an instruction are **refused** there, naming the type
   of the section. A reserved area has nowhere to put bytes — a linker would have
   no file to write them to.
@@ -727,7 +739,7 @@ A section's maximum covers the unit a linker will place. `assert_size` covers a
 ```asm
         assert_size 8
 jump_table:
-        dw draw, move, hide, kill
+        dw draw, move, hide, kill, wait
         end_assert_size
 ```
 
@@ -776,7 +788,7 @@ runs; a loader elsewhere does the copying.
   `PC` therefore lands on memory nothing has loaded yet: this **warns**.
 - `align` aligns the **logical** address, the one the code will run at. The storage
   address shifts by the same amount and is not aligned.
-- The displacement is **not persistent**: a bare `org` resets it.
+- The displacement is **not persistent**: a one-address `org` resets it.
 - `loadAddress` and the binary's extent describe the **storage** address, so a raw
   binary no longer loads at the address of its labels.
 - The bank prefix qualifies the **storage** address, so it goes on the **last**
@@ -789,8 +801,8 @@ runs; a loader elsewhere does the copying.
 address**, the one labels take. The offset within the bank equals
 `address & 0x3FFF`.
 
-Nothing is deduced: a bank has no natural slot, the gate array RAM
-configurations paging any extra bank into slot 1.
+Nothing is deduced: a bank has no natural slot — the same extra bank can be
+paged into more than one window.
 
 - Banks **0 to 3** form the base 64 K; without a prefix, the bank follows
   the address (`#8000` is in bank 2).
@@ -811,7 +823,10 @@ A **raw binary** (`-o x.bin`) cannot carry banks — it is a
 contiguous interval of logical addresses. A banked source exported this way receives
 a warning.
 
-`R:` is reserved for cartridge ROMs, without being implemented.
+Cartridge ROMs are placed through the profile (`--target cpcplus`,
+`cart_rom.w0<n>`), not by a prefix — see `examples/cpr20`.
+
+---
 
 ## 8. Diagnostics in the source
 
@@ -820,9 +835,9 @@ a warning.
 | `assert condition[,"message"]` | fails in pass 2 if the condition is false |
 | `print value[,…]` | displays at assembly |
 
-`assert` expects a comparison operator, so `==` and not `=` (`=` is an
-assignment). `print` **swallows expression errors** and displays `0` — a known
-flaw, not a rule.
+`assert` passes when its expression is non-zero; equality is `==` — `=` is an
+assignment, and is refused there. `print` displays the final values, rounded to
+integers, and reports an expression error like any other line.
 
 ---
 
@@ -838,8 +853,8 @@ endmacro              |   endmacro              |   endmacro
 
 Closures: `endmacro` (canonical), `endm`, `mend`, or `end`.
 
-The third notation, `name MACRO p,q`, is **inherited and warns** once per macro;
-`--beautify` rewrites it to `macro name p,q`.
+The third notation, `name MACRO p1,p2`, is **inherited and warns** once per macro;
+`--beautify` rewrites it to `macro name p1,p2`.
 
 ### Call
 
@@ -915,7 +930,9 @@ The call number counts **per name**: `toto__1`, `toto__2`, `titi__1`, `titi__2`,
 (`.loop`) written in the body belongs to the expansion too (`toto__1.loop`) and does
 not change the owner of the caller's own locals.
 Expansions nest: a `repeat` inside a macro gives `m__1.repeat__1.x`, and inside a
-module the module prefix comes first (`a.m__1.x`). A **variable** (`n = n + 1`) is
+module the module prefix comes first: a global `m` called in `a` gives `a.m__1.x`,
+a macro of `a` called in `a` gives `a.a.m__1.x` (module prefix, then the qualified
+macro name). A **variable** (`n = n + 1`) is
 never scoped: it stays the accumulator its caller reads.
 
 A name the body does not define itself stays visible as written — a table defined
@@ -980,11 +997,12 @@ defines (`M.plain`); see Modules.
 | Opener | Closures | Note |
 |---|---|---|
 | `if` `ifdef` `ifndef` | `endif` | `else`, `elseif` |
-| `repeat n[,var]` | `endrepeat` `rend` | the index starts at **0** |
+| `repeat n[,var]` | `endrepeat` `rend` | the index starts at **0**; `,var` warns — prefer `for` |
 | `while cond` | `endwhile` `wend` | |
 | `for var = low to high` | `endfor` | `until` for an exclusive bound |
 | `macro` | `endmacro` `endm` `mend` | |
 | `struct name` | `endstruct` `ends` | `sizeof(name)` |
+| `module name` | `endmodule` | prefixes its names; see Modules |
 
 **`end` closes any block**, the innermost one. A named closure that does not
 match is an error stating so. Any block `X` closes with `endX` or
@@ -994,6 +1012,9 @@ The `repeat` index starts at 0, which is what the index arithmetic written next
 to it expects (`db idx*8`).
 
 A block can open and close on one line: `repeat 3 : dw a,b : rend`.
+
+`--strict` refuses `DEFB`/`DEFW`… as a struct field's directive, as it does in code,
+and a `:` after a constant (`INIT_MSG: EQU 0`): a colon marks a label.
 
 ### `ifdef` and `ifndef`
 
@@ -1005,7 +1026,8 @@ A name counts as known when it is one of:
 
 - a preprocessor variable (`LET FOO = 0`), even if its value is zero;
 - a macro;
-- a local or an argument of the enclosing macro or `repeat`;
+- a local or an argument of the enclosing macro, or the index of an enclosing
+  `repeat` or `for`;
 - a constant (`EQU`) or a variable (`=`) whose value the preprocessor can compute;
 - a constant or a variable whose value depends on a label or on the current
   address: it is known, although the preprocessor cannot compute it yet;
@@ -1029,8 +1051,8 @@ To test the value of `DEBUG` instead, write `if DEBUG`, which is false here.
 ### Modules
 
 `MODULE name` **opens** a module and `ENDMODULE` (or `end`) closes it, like any
-other block. Labels, constants, structs and struct instances defined in it are
-prefixed: `gfx.plot`, `gfx.S_COLORS`. There is no `MODULE OFF`: a module is
+other block. Labels, constants, variables, structs and struct instances defined in
+it are prefixed: `gfx.plot`, `gfx.S_COLORS`. There is no `MODULE OFF`: a module is
 closed by its end, and a `MODULE` without one is an error.
 
 Modules **nest**: `MODULE chose` inside `MODULE toto` gives `toto.chose.ADDR`, and
@@ -1056,15 +1078,17 @@ fallback search across modules.
 **Macros are qualified by their module.** A macro defined in `MODULE m` is `m.a`: it
 is called `m.a()` from outside and `a()` inside (same search as labels: innermost
 module, then enclosing ones, then global). Two modules can each define their own `a`.
-Called bare from outside, it is refused: `unknown macro 'a' — did you mean 'm.a'?`.
+Called unqualified from outside (`a()`), it is refused: `unknown macro 'a' — did you mean 'm.a'?`.
 
 **A macro body is read from the caller.** Its names resolve as if the body were
 written at the call: with `CONST EQU 1000` global, `CONST EQU 10` in `MODULE main`
 and a global macro reading `CONST`, a call inside `main` reads `main.CONST`. Write
 `@CONST` in the body to reach the global one.
 
-`--strict` refuses `DEFB`/`DEFW`… as a struct field's directive, as it does in code,
-and a `:` after a constant (`INIT_MSG: EQU 0`): a colon marks a label.
+A **parameter** hides a name of the caller's module: with `len EQU 9` in
+`MODULE mod`, a body using its parameter `len` reads the argument, bare or in
+braces.
+
 
 ---
 
@@ -1104,16 +1128,19 @@ them; `--beautify` leaves them alone (it formats, it does not canonicalize).
 | `ex hl,(sp)` · `ex ix,(sp)` | `ex (sp),hl` · `ex (sp),ix` |
 | `ex af,af` | `ex af,af'` — **warned** |
 | `defb` `dm` `defm` → `db` · `defw` → `dw` · `defs` `rmb` → `ds` | |
-| `endm` `mend` → `endmacro` · `rend` → `endrepeat` · `wend` → `endwhile` · `ends` → `endstruct` | |
 
-`ex af,af` is the **only** tolerance that warns. Its literal reading denotes a
+The short block closings — `endm` `mend` → `endmacro` · `rend` → `endrepeat` ·
+`wend` → `endwhile` · `ends` → `endstruct` — are rewritten by `--normalize` too,
+but `--strict` accepts them: they are block syntax, not Z80 (§10).
+
+`ex af,af` is the **only** orthography that warns. Its literal reading denotes a
 *different* operation — exchanging AF with itself, which is a no-op — where every
 other one is merely unfashionable. The rule generalizes: fantams warns when the
 text lies, not when it is out of style.
 
 `jp (hl)` remains the **canon**, despite parentheses suggesting a
-non-existent indirection: `ld pc,hl` is non-standard Z80 for everyone, and a
-canon that other assemblers refuse would lose what makes its value.
+non-existent indirection: it is the Zilog mnemonic, which is what canonical Z80
+means here. `ld pc,hl` and `jp hl` are spellings of that one opcode.
 
 ### Repetition
 
@@ -1132,12 +1159,12 @@ that reading exactly.
   exceptions costs more to remember than it saves. `ret` and `im` are not
   operand-less, so a count on them is not a count.
 
-### What is refused, though other assemblers accept it
+### What is refused, and why
 
 | Form | Why |
 |---|---|
-| `ld hl,sp` | it is usually rendered as `ld hl,0 : add hl,sp` — 4 bytes, and the carry is clobbered |
-| `rlc hl` · `rr de` · `srl8 de` | 2 to 4 `cb` operations: a routine, not an orthography — write a macro |
+| `ld hl,sp` | it would expand to `ld hl,0 : add hl,sp` — 4 bytes, and the carry clobbered: a notation that invents arithmetic |
+| `rlc hl` · `rr de` · `sla bc` | 2 to 4 `cb` operations: a routine, not an orthography — write a macro |
 | `rst z,#38` | 2 bytes that **overlap** — the `jr` displacement is itself the `rst` opcode — so no pair of canonical Z80 lines expresses it |
 | `inc hl,de` · `dec bc,de` | no idiom behind it, and it collides with `add hl,de`; multi-register lists stay on `push`/`pop`, which are a sequence by nature |
 
@@ -1177,7 +1204,7 @@ fail by naming the replacement:
 | Word | What the refusal says |
 |---|---|
 | `BANK` | write `org b<n>:<address>` — bank and address go on the same line |
-| `SNASET` `SETCPC` | describes the OUTPUT format, not the program: pass it to invocation |
+| `SNASET` `SETCPC` | describes the OUTPUT format, not the program: pass it at invocation |
 | `CHARSET` | a character set permutation is an asset encoding: generate the `db` with a script |
 | `TICKER` | counting cycles is a control flow analysis, not a directive: use `nops_between(a, b)` on two labels, which refuses what it cannot count exactly |
 | `STR` | not yet implemented: use `db` (`STR` sets bit 7 of the last character) |
@@ -1190,17 +1217,25 @@ effect here.
 
 ## 14. Where fantams is unusual
 
-These are the points a reader coming from another Z80 assembler is most likely to
-get wrong. None of them is negotiable, and each is argued in an ADR.
+The points where fantams reads a familiar-looking line differently from what
+habit suggests. None of them is negotiable; each is argued in an ADR and shown in
+the section given.
 
-| Point | fantams |
-|---|---|
-| `repeat` index | starts at **0** |
-| `sin` / `cos` | **radians**, never degrees |
-| modules | **switch**, they do not nest — labels get a `gfx.` prefix |
-| macro call | bare **or parenthesized** |
-| block closing | `endX` or **`end`** for any block; `endr` does not exist |
-| `/` | floating-point; `div` is the integer one |
+| Point | fantams | See |
+|---|---|---|
+| `repeat` index | starts at **0**; `repeat n,i` warns — prefer `for i = 0 until n` | §10 |
+| `sin` / `cos` | **radians**, never degrees | §4 |
+| `/` | floating-point; `div` is the integer one | §4 |
+| block closing | `endX` or **`end`** for any block; `endr` does not exist | §10 |
+| modules | **blocks**: `MODULE` … `ENDMODULE`/`end`; they **nest** (`a.b.x`); no `MODULE OFF` | §10 |
+| `.` | the **only** separator: one dotted name defined two ways is refused | §10 |
+| macro call | `name(args)`, parenthesis attached; the bare form warns once per macro | §9 |
+| macro argument | bare: the **value** at the call; `{x}`: the **text** | §9 |
+| expansion | a **namespace**: a label written in a macro or loop body is local to each expansion (`delay__1.loop`) | §9 |
+| macros and modules | a macro belongs to its module (`m.a()`); its body resolves names **at the call** | §10 |
+| `@` | on a definition: global, one expansion only; on a use: anchored at the root (`@CONST`) | §9 |
+| reserved words | `a`, `i`, `p`, `end`… never name a label, a parameter or a loop index | §5 |
+| output format | chosen at invocation (`-o` extension, options), never in the source | §13, §15 |
 
 ---
 
@@ -1208,24 +1243,33 @@ get wrong. None of them is negotiable, and each is argued in an ADR.
 
 | Option | Effect |
 |---|---|
+| `-o file` | output; the extension picks the kind — `.fo` object (§4), `.sna`, `.cpr`, `.cro`, anything else a raw binary |
 | `-E` | writes the **unrolled source**: macros expanded, loops unrolled, canonicalized |
+| `-E --fold` | writes what the assembler **receives**: operands resolvable at preprocessor time folded to their value |
 | `--normalize` | canonicalizes **without** unrolling |
 | `--beautify` | formats only (labels in column 1, blocks indented, call parentheses) |
 | `--strict` | refuses anything not canonical Z80 |
-| `--no-detach-labels` | keeps `label: instruction` on one line |
-| `--no-indent-blocks` | does not indent block bodies |
+| `--no-detach-labels` | with `--beautify`, keeps `label: instruction` on one line |
+| `--no-indent-blocks` | with `--beautify`, does not indent block bodies |
 | `--sym[=file]` | writes the **symbol table** (CSV) for a disassembler or emulator |
+| `-s` | prints the symbol table on the terminal, variables included |
 | `--timing[=file]` | writes the **duration table** (CSV): where the time goes, label by label |
+| `--list-files` | prints the closure — the source, every `include` and `incbin` file — and assembles nothing |
+| `--target name` · `-P file` | the target profile, built-in or a file (§4, §7) |
+| `-T file` | the link script: which section goes where |
+
+The container options (`--base`, `--cpr-bank`, `--cro-*`), `--dump-profile` and
+`--version` concern the output file, not the source: see the README.
 
 `--sym` writes one line per **label and constant** — name, type, owning section,
 logical value, storage bank and address, origin file and line. Not a listing: one line
 per *name*, and no bytes. Variables (`=`) are left out. The default path derives
 from `-o`, so the file travels next to the binary it describes. It refuses to
 combine with `--beautify` and `--normalize`, which never reach the assembler, and
-cohabits with `-E`. For a human reading a terminal, `-s` prints the table instead.
+cohabits with `-E`. For a human reading a terminal, `-s` prints the table instead, variables included.
 
-`--timing` writes `kind,name,file,line,tstates,nops,note` (default path
-`prog.timing.csv`, next to `-o`). One `label` line per label gives the duration
+`--timing` writes `kind,name,file,line,tstates,nops,note` (default path:
+the `-o` path with `.timing.csv` for its extension). One `label` line per label gives the duration
 **up to the next label** of the same block, in T-states and in NOPs; when that
 stretch has no exact duration the fields stay **empty** (an empty stretch lasts
 `0`, not nothing) and `note` names the first offending line. The last label of a

@@ -1,0 +1,1 @@
+WIDTH equ 40

@@ -133,6 +133,7 @@ test: $(TESTS) fantams ppdump
 	@$(T)/accept_list_files.sh
 	@$(T)/accept_cro.sh
 	@$(T)/accept_expansion.sh
+	@$(T)/accept_syntax_examples.sh
 	@$(T)/no_machine_names.sh
 	@# Deux verrous se SAUTENT (code 77) quand leurs dependances manquent : le verrou
 	@# natif == WASM (artefact WASM, node) et l'epreuve du snapshot (frontal sans
