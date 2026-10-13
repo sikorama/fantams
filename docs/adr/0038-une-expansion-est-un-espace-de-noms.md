@@ -38,7 +38,7 @@ Cette règle avait trois défauts :
 `poke__2.retry`. Un `repeat`, un `while` ou un `for` prend son mot-clé
 (`repeat__3.x`). Les expansions imbriquées se composent comme les modules
 (`m__1.repeat__2.x`), et dans un module le préfixe de module précède celui de
-l'expansion. Le numéro est un compteur global d'appels. Les constantes (`K EQU`) suivent
+l'expansion. Le numéro est un compteur **par nom** de macro (ou de mot-clé), voir la section « Amendement ». Les constantes (`K EQU`) suivent
 la même règle : c'était l'exception volontaire de `pp.cpp` (« une constante
 réutilisée entre expansions est une collision »), et elle est **remplacée** : une
 expansion qui est un espace de noms mais dont les constantes fuiraient serait
@@ -87,4 +87,19 @@ quels.
   ce que la macro nomme elle-même est son affaire.
 - **Écartée** : un `{}` vide dans le nom pour marquer un label global. Peu
   élégant, et il change de sens si un paramètre passé est vide.
-- **Hors périmètre** : le scope des macros elles-mêmes par module (ADR 0037).
+- **Hors périmètre** : le scope des macros elles-mêmes par module (ADR 0039).
+
+## Amendement (ADR 0039)
+
+- **Le compteur est par nom.** `toto__1`, `toto__2`, `titi__1`, `titi__2` : chaque
+  macro, et chaque mot-clé de boucle, a son compteur. Le compteur est indexé par le
+  nom **qualifié** (`a.m` et `b.m` ont chacun le leur), unique sur tout le programme,
+  remis à zéro à chaque compilation. Il remplace le « compteur global d'appels ».
+- **Les locaux `.x` appartiennent à l'expansion.** Dans `toto`, `.loop` devient
+  `main.toto__1.loop`, comme un `loop:` écrit en dur : le dernier label global de
+  l'appelant n'entre pas dans le nom, et les locaux de l'appelant qui suivent l'appel
+  restent rattachés à son dernier label. Deux appels ne collisionnent plus (c'était un
+  `duplicate symbol: 'main.start.loop'`). Un `loop:` et un `.loop` dans la même macro
+  restent une collision ordinaire.
+- **`@` à l'usage et dans un module** : voir l'ADR 0039. À la définition, `@x:` ancre à
+  la racine, même quand la macro est appelée dans un module.

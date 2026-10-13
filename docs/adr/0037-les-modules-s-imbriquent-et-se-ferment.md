@@ -67,10 +67,8 @@ avec les deux côtés — la forme (« local label '.x' of 'gfx.plot' », « a l
 (ou un label) qui partagent un nom restent permis tant qu'aucun membre ne porte
 le même nom.
 
-**Les macros restent globales.** Elles ne sont pas scopées par module : un appel
-qualifié (`enum.poke(0,0)`) n'est pas supporté. Le besoin des bibliothèques
-(labels, constantes, structures) est couvert sans cela, et scoper les macros est
-un chantier à part, à rouvrir sur un cas d'usage réel.
+**Les macros** étaient globales dans cette décision ; l'ADR 0039 les range dans le
+module où elles sont définies (`m.a()`).
 
 ## La règle du header
 

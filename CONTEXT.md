@@ -131,7 +131,8 @@ pris un à un.
 **Espace de noms d'expansion** :
 Une expansion (macro, `repeat`, `while`, `for`) est un espace de noms. Un label, une
 constante ou une instance **écrits en dur** dans son corps sont locaux à chaque
-expansion (`poke__1.retry`, `poke__2.retry`). Un nom qui **contient une substitution
+expansion (`poke__1.retry`, `poke__2.retry`) ; le numéro est un compteur **par nom** de
+macro ou de mot-clé. Les locaux `.x` appartiennent aussi à l'expansion. Un nom qui **contient une substitution
 `{…}`** reste global : c'est l'appelant qui l'a construit. `@x` marque un nom global,
 sans `@` dans le nom, et la macro ne peut alors être développée qu'une fois. Le motif
 `__<chiffres>` est réservé aux noms ainsi générés.
@@ -142,7 +143,9 @@ Espace de noms des symboles : un module actif préfixe les labels, les constante
 les structures et les instances de structure qui y sont définis (`gfx.plot`,
 `gfx.S_COLORS`). Les champs d'une structure ne sont jamais préfixés par le module :
 ils sont qualifiés par leur structure (`gfx.S_COLORS.HUD`). Hors du module, un nom
-s'écrit qualifié, sans recherche de repli.
+s'écrit qualifié, sans recherche de repli. Les macros sont qualifiées comme les labels
+(`m.a()`), et le corps d'une macro se lit côté appelant. `@nom`, à l'usage comme à la
+définition, ancre le nom à la **racine** (`@toto.CONST`).
 `MODULE nom` ouvre un module, `ENDMODULE` (ou `end`) le ferme ; les modules s'imbriquent (`toto.chose.ADDR`). `MODULE OFF` n'existe plus.
 _Éviter_ : namespace, portée (qui désigne l'espace de noms d'expansion)
 
