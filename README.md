@@ -496,7 +496,8 @@ the artifact.
 - [`docs/spec-chaine-outils.md`](docs/spec-chaine-outils.md) — the toolchain spec:
   memory model, profiles, link scripts, and the stages that build them
 - [`docs/syntax/`](docs/syntax) — one worked example per point of the syntax
-  reference, checked by `tests/accept_syntax_examples.sh`
+  reference (`reject/` holds those that must be refused), checked by
+  `tests/accept_syntax_examples.sh`
 - [`docs/archive/`](docs/archive) — the specs and step-by-step tracking of the
   finished stages (A, B, C1, E): what each delivered, and what it deliberately
   did not

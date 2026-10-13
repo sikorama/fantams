@@ -2,6 +2,7 @@
 # accept_syntax_examples.sh — les exemples de docs/syntax/ disent vrai.
 #
 # Un fichier par point de docs/syntax.md, nommé NN-MM-sujet.asm (NN : chapitre).
+# Ceux qui doivent échouer (expect-error) vivent dans docs/syntax/reject/.
 # Ses premières lignes de commentaire portent le contrat, que ce script vérifie :
 #
 #   ; args: <options>            options ajoutées à la ligne de commande
@@ -31,7 +32,7 @@ fail() { echo "ECHEC $1 : $2" >&2; failed=$((failed + 1)); }
 # Les lignes d'en-tête « ; clé: valeur » d'un exemple, pour une clé.
 header() { sed -n "s/^; $2: //p" "$1"; }
 
-for src in "$DIR"/*.asm; do
+for src in "$DIR"/*.asm "$DIR"/reject/*.asm; do
     [ -e "$src" ] || continue
     count=$((count + 1))
     name=$(basename "$src" .asm)

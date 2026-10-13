@@ -599,12 +599,12 @@ and refuse a write into read-only memory.
 
 ```asm
         section tables_data, "ro"
-mon_tableau:
+my_table:
         db 1, 2, 3, 4
 
         section execution, "ro"
         ld a, 5
-        ld (mon_tableau), a     ; refused: writes into a "ro" section
+        ld (my_table), a        ; refused: writes into a "ro" section
 ```
 
 A section can also say **where it goes**, in the vocabulary of the target
@@ -771,7 +771,7 @@ write whose destination is a **literal address**:
 ```
 
 The check applies to `ld (nn),a` and `ld (nn),hl/bc/de/sp/ix/iy`, and follows an
-expression: `ld (mon_tableau+1),hl` is caught too. Reads are untouched — a `"ro"`
+expression: `ld (my_table+1),hl` is caught too. Reads are untouched — a `"ro"`
 section exists to be read — and so is a hard-coded address, which owns no symbol.
 
 **The limit is written rather than discovered**: a `ld (hl),a` whose `HL` is
@@ -952,16 +952,16 @@ substitution is global, wherever the braces are:
 
 ```
 macro fn(name)
-mon_{name}:  nop        ; -> mon_a, mon_b
-{name}_fin:  nop        ; -> a_fin, b_fin
+my_{name}:  nop        ; -> my_a, my_b
+{name}_end:  nop        ; -> a_end, b_end
 endmacro
         fn(a)
         fn(b)
-        jp mon_a        ; reachable from outside: the caller chose the name
+        jp my_a        ; reachable from outside: the caller chose the name
 ```
 
 Two calls that build the same name (`fn(a)` twice) are a real collision:
-`duplicate symbol: 'mon_a'`.
+`duplicate symbol: 'my_a'`.
 
 **`@` marks a global label.** `@entry:` in a macro body defines the label `entry`
 (the `@` is not part of the name), reachable from outside — and the macro can then be
