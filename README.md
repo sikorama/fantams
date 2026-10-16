@@ -49,7 +49,8 @@ the same program written in one file — `examples/separate_*.asm` is that proof
 and `tests/accept_separate.sh` checks it.
 
 The `.fo` is **text**: a wrong object is read by eye, and writing it, reading it
-back and writing it again gives the same file.
+back and writing it again gives the same file. Its format is described in
+[`docs/fo-format.md`](docs/fo-format.md).
 
 **Banked programs the linker places, and switches for you.** A **target profile**
 describes what a machine can do — its windows, its banks, the map states it can
