@@ -1684,11 +1684,16 @@ Image build(const std::vector<asmb::Object> &objects,
     // fabrique parce que c'est ici que les fragments sont placés : un label vaut
     // l'adresse de son fragment plus son offset, et l'assembleur ne connaît que
     // le second terme. Le format, lui, ne bouge pas (amendement à l'ADR 0019).
+    // Une ligne par NOM (syntax.md, `--sym`) : une constante incluse par deux
+    // objets (un en-tete garde par `ifndef`) figure dans les deux tables, et
+    // n'a qu'une seule ligne. Le premier objet gagne.
+    std::set<std::string> emitted;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const asmb::Object &obj = objects[oi];
         lk.relocBase_ = lk.bases_[oi];
         lk.relocStore_ = lk.stores_[oi];
         for (const asmb::Symbol &s : obj.symbolTable) {
+            if (!emitted.insert(s.name).second) continue;
             Symbol out;
             out.name = s.name;
             out.isConst = s.isConst;

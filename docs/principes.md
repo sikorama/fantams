@@ -55,6 +55,10 @@ Un argument nu vaut sa valeur, `{arg}` vaut son texte.
 
 Les accolades ne sont jamais un préfixe de format.
 
+### Noms dans une macro
+
+Ce que la macro nomme est local, ce que l'appelant nomme est à lui.
+
 ### Boucles
 
 Les index commencent à 0.
