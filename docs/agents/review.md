@@ -6,6 +6,9 @@ Règles pour l'agent qui relit un diff de ce dépôt (standards ou spec).
   erreur » ou « X n'est pas refusé », construire `ppdump` (`make ppdump`), lancer
   un source minimal et citer la commande avec sa sortie. Un constat sans cette
   trace est une hypothèse : le dire.
+- **Un constat d'absence se prouve aussi.** Avant d'écrire « X n'est pas
+  testé » ou « la doc ne dit pas Y », citer la recherche (`grep`) qui ne trouve
+  rien.
 - **Un comportement décidé par un ADR n'est pas un défaut.** Avant de relever un
   comportement, chercher son ADR (`grep` du mot-clé dans `docs/adr/`). Ne le relever
   que s'il contredit l'ADR, ou si l'ADR est lui-même à rouvrir : le dire alors.

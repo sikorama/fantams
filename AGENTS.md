@@ -6,8 +6,9 @@ Conventions à l'usage des agents qui travaillent dans ce dépôt.
 
 ### Issue tracker
 
-Les issues et les specs vivent en markdown sous `.scratch/<chantier>/`.
-Voir `docs/agents/issue-tracker.md`.
+Les issues et les specs vivent en markdown sous
+`docs/specs-to-implement/<chantier>/`, puis `docs/specs/<chantier>/` une fois
+implémentées. Voir `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

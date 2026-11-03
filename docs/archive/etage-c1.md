@@ -672,7 +672,7 @@ surveille rien sur l'autre.**
 ## C1.V — les sources de vérification sur machine réelle *(autonome)*
 
 > **Archivé ouvert.** Cette étape continue dans
-> `.scratch/verification-machine/issues/01-valeurs-litigieuses-gate-array.md`.
+> `docs/specs/verification-machine/issues/01-valeurs-litigieuses-gate-array.md`.
 
 **Ce qu'il livre.** Ce que le §12.3 reconnaît ne pas avoir : « vérifiée une fois,
 sur machine ou sur émulateur » est son argument central, et **rien ne l'incarne**.

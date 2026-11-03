@@ -7,13 +7,13 @@
 - **Nom AMSDOS 8.3 en double** (`pack.cpp:86-87`, `186-187`, `233-234`) : le remplissage du nom sur 8 et de l'extension sur 3 est copié trois fois, et le couple `(name, ext)` voyage ensemble dans `amsdos`, `erase` et `write`. Un petit type « nom AMSDOS » porterait les deux.
 - **Lecture de la disquette existante** (`asm_main.cpp:747-756`) : troisième copie du bloc de lecture des branches cpr/cro, alors que `readFile` existe (`asm_main.cpp:93`). Le retrait chemin + extension de `pack.cpp:59-62` double aussi `asm_main.cpp:725-727`.
 - **`Result::artifacts`** (`pack.h`, `asm_main.cpp:762`) : l'appelant prend `.front()` sans vérifier que la liste n'est pas vide.
+- **Ajouter un fichier quelconque au DSK** (`pack.cpp`, `asm_main.cpp`) : `-o out.dsk` n'y met que le programme lié. Un projet qui livre aussi un fichier tel quel (BASIC ASCII sans en-tête, données) passe par un script à côté : `amspirit-core/tools/fdc-judge/dsk_putfile.py` pour `COPIE.BAS`. Une option du type `--dsk-file chemin[:NOM.EXT]` (sans en-tête AMSDOS) le remplacerait.
 
 ## Questions à trancher
 
 - **Nom du module `pack`** : `CONTEXT.md` classe « packer » parmi les termes à éviter, et « builder » n'y a pas d'entrée. `amsdos()` (`pack.cpp`) nomme le format plutôt que l'**Encapsulation**.
-- **Messages de `pack.cpp` avec données variables** (`pack.cpp`, messages pistes, taille, `run`) : `docs/principes.md` veut des messages sans donnée variable. Les garder (une seule émission par invocation) ou les réécrire ? Un message est aussi sans accents (« entree », « a 0 »).
+- **Accents dans les messages** (`pack.cpp`) : un message est sans accents (« entree », « a 0 ») quand les autres du fichier en ont ; le dépôt mélange les deux sans convention écrite.
 - **Disquette de 41 ou 42 pistes** (`pack.cpp`, chargement d'une disquette existante) : elle est refusée, conformément à la lettre de la spec. Faut-il tolérer les pistes en trop d'une disquette DATA ?
-- **Emplacement des specs** : `AGENTS.md` dit `.scratch/<chantier>/`, le CLAUDE.md global dit `docs/specs-to-implement/`. Contradiction à trancher.
 
 ## Bugs à vérifier
 

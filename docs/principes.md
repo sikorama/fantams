@@ -98,12 +98,14 @@ déclencheront à tort : s'il n'est pas vide, le diagnostic désigne un style, p
 une faute.
 _Substitution nue d'un argument de macro ; « préfère `{}` »._
 
-**Un message de diagnostic ne porte pas de donnée variable.** La déduplication
+**Un diagnostic émis dans un déroulage ne porte pas de donnée variable.** La déduplication
 se fait sur `(fichier, ligne, message)` ; un message qui embarque une valeur
 change à chaque itération et contourne son propre garde-fou. La clé doit être
 proportionnelle au nombre de problèmes **distincts**, jamais au nombre de
 déroulages. Quand un avertissement concerne deux lieux — un corps de macro et
 son site d'appel — les nommer tous les deux règle la déduplication au bon grain.
+Un diagnostic émis une fois par invocation (linker, builder) peut nommer sa
+valeur.
 _`readAtPP` : quatorze avertissements pour une ligne (`readAtPP`, `pp.cpp`)._
 
 **Un fait, un étage.** Deux diagnostics pour la même faute, dont le plus faible

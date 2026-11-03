@@ -1,14 +1,17 @@
 # Issue tracker : markdown local
 
-Les issues et les specs de ce dépôt sont des fichiers markdown sous `.scratch/`.
-Il n'y a pas de tracker externe : les issues GitHub ne sont pas utilisées.
+Les issues et les specs de ce dépôt sont des fichiers markdown sous
+`docs/specs-to-implement/`. Il n'y a pas de tracker externe : les issues GitHub
+ne sont pas utilisées.
 
 ## Conventions
 
-- **Un chantier, un répertoire** : `.scratch/<chantier>/`
-- La spec est `.scratch/<chantier>/spec.md`
+- **Un chantier, un répertoire** : `docs/specs-to-implement/<chantier>/`
+- **Un chantier implémenté** se range, répertoire entier, sous
+  `docs/specs/<chantier>/`
+- La spec est `docs/specs-to-implement/<chantier>/spec.md`
 - Les tickets d'implémentation sont **un fichier par ticket**, à
-  `.scratch/<chantier>/issues/NN-<slug>.md`, numérotés depuis `01` — jamais un
+  `docs/specs-to-implement/<chantier>/issues/NN-<slug>.md`, numérotés depuis `01` — jamais un
   fichier unique regroupant tous les tickets
 - L'état de triage est une ligne `Status:` en tête du fichier (les chaînes de
   rôle sont dans `triage-labels.md`)
@@ -20,14 +23,14 @@ Il n'y a pas de tracker externe : les issues GitHub ne sont pas utilisées.
 ## « Retrouver la spec d'un diff »
 
 Pour relire un diff contre sa spec : le chantier est le répertoire de
-`.scratch/` dont le nom reprend celui de la fonctionnalité (ou cité par les
+`docs/specs-to-implement/` (ou de `docs/specs/` s'il est déjà rangé) dont le nom reprend celui de la fonctionnalité (ou cité par les
 commits), la spec est son `spec.md`, les tickets sont sous `issues/`. Un diff
 non commité se relit contre `HEAD` (`git diff HEAD`, fichiers non suivis
 compris).
 
 ## « Publier sur le tracker »
 
-Créer un fichier sous `.scratch/<chantier>/`, en créant le répertoire au besoin.
+Créer un fichier sous `docs/specs-to-implement/<chantier>/`, en créant le répertoire au besoin.
 
 ## « Récupérer le ticket concerné »
 
@@ -39,14 +42,14 @@ normalement fourni directement.
 Employées par `/wayfinder`. La **carte** est un fichier, avec un fichier
 **enfant** par ticket.
 
-- **Carte** : `.scratch/<chantier>/map.md` (le corps Notes / Décisions acquises
+- **Carte** : `docs/specs-to-implement/<chantier>/map.md` (le corps Notes / Décisions acquises
   / Brouillard)
-- **Ticket enfant** : `.scratch/<chantier>/issues/NN-<slug>.md`, numéroté depuis
+- **Ticket enfant** : `docs/specs-to-implement/<chantier>/issues/NN-<slug>.md`, numéroté depuis
   `01`, la question dans le corps. Une ligne `Type:` porte le type de ticket
   (`research` / `prototype` / `grilling` / `task`) ; une ligne `Status:` porte
   `claimed` ou `resolved`
 - **Blocage** : la ligne `Blocked by: NN, NN` en tête
-- **Frontière** : parcourir `.scratch/<chantier>/issues/` et retenir les
+- **Frontière** : parcourir `docs/specs-to-implement/<chantier>/issues/` et retenir les
   fichiers ouverts, débloqués et non réservés ; le plus petit numéro l'emporte
 - **Réserver** : mettre `Status: claimed` et enregistrer **avant** tout travail
 - **Résoudre** : ajouter la réponse sous un titre `## Réponse`, mettre
