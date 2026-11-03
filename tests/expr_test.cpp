@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 // Le resolveur de test rend des sections FACTICES : deux entiers opaques, qui
 // suffisent a tout ce que l'evaluateur sait d'une section — « la meme » ou
@@ -290,6 +290,5 @@ int main() {
         else ++g_pass;
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

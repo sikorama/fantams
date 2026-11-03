@@ -8,12 +8,7 @@
 #include <cstdio>
 #include <string>
 
-static int g_pass = 0, g_fail = 0;
-
-static void ok(const char *desc, bool cond) {
-    if (cond) ++g_pass;
-    else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
-}
+#include "check.h"
 
 // Ecrire, relire, reecrire : les deux textes doivent etre identiques. C'est le
 // seul controle qui attrape a la fois un champ qu'on n'ecrit pas et un champ
@@ -241,6 +236,5 @@ int main() {
         ok("ecrire, relire, reecrire rend le meme texte", fo::write(back) == text);
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

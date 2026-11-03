@@ -6,11 +6,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
-static void ok(const char *desc, bool cond) {
-    if (cond) ++g_pass; else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
-}
-
+#include "check.h"
 int main() {
     printf("Tests export SNA\n");
 
@@ -138,6 +134,5 @@ int main() {
         ok("base : le vecteur d'indirection survit", s2[256 + 0xBD00] == 0x55);
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

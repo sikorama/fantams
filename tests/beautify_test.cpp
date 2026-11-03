@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 // Assembler PUIS linker : ces tests comparent des OCTETS a des ADRESSES, et
 // l'adresse est desormais une decision du linker. Meme helper que dans
@@ -67,10 +67,6 @@ static void keep(const char *desc, const std::string &src,
     chk(desc, src, src, ph);
 }
 
-static void okc(const char *desc, bool cond) {
-    if (cond) ++g_pass; else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
-}
-
 static size_t countLines(const std::string &s) {
     size_t n = 1;
     for (char c : s) if (c == '\n') ++n;
@@ -82,15 +78,15 @@ static void sameBytes(const char *desc, const std::string &src) {
     Built a = buildAsm(src, "t.asm");
     std::string b = beautify::apply(src, kw::Phase::Assembly);
     Built o = buildAsm(b, "t.asm");
-    okc(desc, a.ok && o.ok && a.bin == o.bin && a.loadAddress == o.loadAddress);
+    ok(desc, a.ok && o.ok && a.bin == o.bin && a.loadAddress == o.loadAddress);
     if (a.ok && o.ok && a.bin != o.bin)
         printf("    (%zu octets contre %zu)\n", a.bin.size(), o.bin.size());
     // La bijection sur les lignes ne vaut plus que SANS détachement (ADR 0017) :
     // la règle 3 la rompt délibérément, et rien dans la chaîne n'en dépend —
     // l'assembleur consomme la provenance de `pp::Result::lines`, pas des numéros
     // de ligne de texte mis en forme.
-    okc("bijection sur les lignes sans détachement",
-        countLines(src) == countLines(beautify::apply(src, kw::Phase::Assembly, /*detach=*/false)));
+    ok("bijection sur les lignes sans détachement",
+       countLines(src) == countLines(beautify::apply(src, kw::Phase::Assembly, /*detach=*/false)));
 }
 
 // Invariant n°2 : idempotence.
@@ -105,13 +101,13 @@ static void normKeepsBytes(const char *desc, const std::string &src) {
     };
     Built before = build(src);
     Built after = build(pp::normalize(src));
-    okc(desc, before.ok && after.ok && before.bin == after.bin &&
-              before.loadAddress == after.loadAddress);
+    ok(desc, before.ok && after.ok && before.bin == after.bin &&
+                 before.loadAddress == after.loadAddress);
 }
 
 static void idem(const char *desc, const std::string &src, kw::Phase ph = kw::Phase::Assembly) {
     std::string once = beautify::apply(src, ph);
-    okc(desc, beautify::apply(once, ph) == once);
+    ok(desc, beautify::apply(once, ph) == once);
 }
 
 // Invariant n°3 : les deux avertissements visés s'éteignent.
@@ -126,7 +122,7 @@ static void noWarn(const char *desc, const std::string &src) {
     for (auto &w : after.warnings)
         if (w.message.find("label without ':'") != std::string::npos ||
             w.message.find("in column 1") != std::string::npos) still = true;
-    okc(desc, had && !still);
+    ok(desc, had && !still);
 }
 
 int main() {
@@ -204,8 +200,8 @@ int main() {
     chk("détachement avec commentaire : il suit le CODE",
         "start: ld a,1  ; init\n", "start:\n    ld a,1 ; init\n");
     chk("label local détaché aussi", ".loop: djnz .loop\n", ".loop:\n    djnz .loop\n");
-    okc("opt-out : la ligne reste entière",
-        beautify::apply("start: ld a,1\n", kw::Phase::Assembly, /*detach=*/false) == "start: ld a,1\n");
+    ok("opt-out : la ligne reste entière",
+       beautify::apply("start: ld a,1\n", kw::Phase::Assembly, /*detach=*/false) == "start: ld a,1\n");
     chk("sans ':' ni mot réservé, rien n'est détaché", "sprite 4,12\n", "    sprite 4,12\n");
 
     // --- appel parenthésé (ADR 0018) ---------------------------------------
@@ -232,11 +228,10 @@ int main() {
     chk("nom inconnu : pas de parenthèses inventées", "sprite 4,12\n", "    sprite 4,12\n");
     // La table fournie par l'appelant (préprocesseur, includes lus) complète le
     // prescan textuel.
-    okc("macros connues de l'appelant : traitées comme le prescan",
-        beautify::apply("depuis_include\n", kw::Phase::Preprocess, true, true, {"DEPUIS_INCLUDE"})
-            == "    depuis_include()\n");
-    okc("sans cette table, le même texte reste un label",
-        beautify::apply("depuis_include\n", kw::Phase::Preprocess) == "depuis_include:\n");
+    ok("macros connues de l'appelant : traitées comme le prescan",
+       beautify::apply("depuis_include\n", kw::Phase::Preprocess, true, true, {"DEPUIS_INCLUDE"}) == "    depuis_include()\n");
+    ok("sans cette table, le même texte reste un label",
+       beautify::apply("depuis_include\n", kw::Phase::Preprocess) == "depuis_include:\n");
 
     // --- règle 4 : colonne 1 pour les labels, un cran par bloc --------------
     chk("label indenté ramené en colonne 1", "  start:\n  nop\n", "start:\n    nop\n");
@@ -270,9 +265,8 @@ int main() {
         "STRUCT S c\nnop\n", "    STRUCT S c\n    nop\n", kw::Phase::Preprocess);
     chk("une constante `X: EQU v` n'est pas détachée : EQU a besoin de son nom",
         "INIT_MSG: EQU 0\nnop\n", "INIT_MSG: EQU 0\n    nop\n", kw::Phase::Preprocess);
-    okc("opt-out : sans indentation de bloc, un seul cran",
-        beautify::apply("repeat 2\nnop\nrend\n", kw::Phase::Preprocess, true, /*indentBlocks=*/false)
-            == "    repeat 2\n    nop\n    rend\n");
+    ok("opt-out : sans indentation de bloc, un seul cran",
+       beautify::apply("repeat 2\nnop\nrend\n", kw::Phase::Preprocess, true, /*indentBlocks=*/false) == "    repeat 2\n    nop\n    rend\n");
     chk("commentaire seul : son alignement appartient à l'auteur",
         "repeat 2\n  ; a la main\nrend\n",
         "    repeat 2\n  ; a la main\n    rend\n", kw::Phase::Preprocess);
@@ -397,11 +391,11 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
 
     {
         std::string src = "start\nnop\n\tld a,1\n";
-        okc("nombre de lignes préservé quand aucun label n'est collé",
-            countLines(src) == countLines(beautify::apply(src, kw::Phase::Assembly)));
+        ok("nombre de lignes préservé quand aucun label n'est collé",
+           countLines(src) == countLines(beautify::apply(src, kw::Phase::Assembly)));
         std::string glued = "start: ld a,1\n";
-        okc("détachement : une ligne de plus, et une seule",
-            countLines(beautify::apply(glued, kw::Phase::Assembly)) == countLines(glued) + 1);
+        ok("détachement : une ligne de plus, et une seule",
+           countLines(beautify::apply(glued, kw::Phase::Assembly)) == countLines(glued) + 1);
     }
 
     // --- invariants --------------------------------------------------------
@@ -443,7 +437,7 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
         bool still = false;
         for (auto &w : o.warnings)
             if (w.message.find("label without ':'") != std::string::npos) still = true;
-        okc("l'avertissement survit sur un appel de macro possible", still);
+        ok("l'avertissement survit sur un appel de macro possible", still);
     }
 
     // ADR 0017 : normaliser ne change pas le programme.
@@ -479,6 +473,5 @@ chk("espaces de fin retirés", "    nop   \n", "    nop\n");
     // vrai, et `link_test` le tient. Ce que cette suite doit garantir est le
     // TEXTE, et `keep` le compare a l'octet pres.
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

@@ -11,7 +11,7 @@
 #include <cstdio>
 #include <string>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 static timing::Cost costOf(const std::string &line) {
     parser::Result r = parser::parseLine(line);
@@ -107,6 +107,5 @@ int main() {
     chkRefused(" otir", "counter");
     chkRefused(" halt", "interrupt");
 
-    printf("%d passes, %d echecs\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

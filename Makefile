@@ -28,6 +28,8 @@ TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
         $(T)/profile_test $(T)/beautify_test $(T)/sna_test $(T)/cpr_test \
         $(T)/cro_test $(T)/pack_test $(T)/fold_test $(T)/timing_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
+# Le harnais commun (ok, bilan) : le changer reconstruit tous les tests.
+$(TESTS): $(T)/check.h
 
 all: $(TESTS) ppdump fantams
 

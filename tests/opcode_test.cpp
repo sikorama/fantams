@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 static void chk(const char *desc, const std::string &instr, int index, int len,
                  int64_t expected) {
@@ -78,6 +78,5 @@ int main() {
     chkErr("index hors bornes", "nop", 1, 1);
     chkErr("index negatif", "nop", -1, 1);
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

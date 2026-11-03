@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 // Fournisseur de fichiers en mémoire (pour INCLUDE).
 static std::map<std::string, std::string> g_files;
@@ -764,6 +764,5 @@ int main() {
     chkErr("incbin longueur hors fichier", "  incbin \"data.bin\", 2, 3\n");
     chkErr("incbin offset négatif", "  incbin \"data.bin\", -1\n");
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

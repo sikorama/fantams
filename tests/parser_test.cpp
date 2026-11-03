@@ -60,7 +60,7 @@ struct TestCtx : z80::IAsmContext {
     }
 };
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 static std::string hex(const std::vector<uint8_t> &v) {
     std::string s; char b[8];
     for (size_t i = 0; i < v.size(); ++i) { snprintf(b, sizeof b, "%02X", v[i]); if (i) s += ' '; s += b; }
@@ -184,6 +184,5 @@ int main() {
     chkLabel("org 0x4000", "", false);     // directive -> non-instruction
     chkLabel("count: db 1,2,3", "count", false);
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

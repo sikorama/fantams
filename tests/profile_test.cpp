@@ -13,12 +13,7 @@
 #include <cstdio>
 #include <string>
 
-static int g_pass = 0, g_fail = 0;
-
-static void ok(const char *desc, bool cond) {
-    if (cond) ++g_pass;
-    else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
-}
+#include "check.h"
 
 static profile::Profile parse(const std::string &text) {
     return profile::parse(text, "machine.prof");
@@ -459,6 +454,5 @@ int main() {
         ok("et le refus le dit", says(p, "PAGE") && says(p, "reserved"));
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

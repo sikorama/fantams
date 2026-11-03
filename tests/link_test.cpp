@@ -15,12 +15,7 @@
 #include <utility>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
-
-static void ok(const char *desc, bool cond) {
-    if (cond) ++g_pass;
-    else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
-}
+#include "check.h"
 
 static std::string hex(const std::vector<uint8_t> &v) {
     std::string s; char b[8];
@@ -1871,6 +1866,5 @@ int main() {
                 img2.blocks.empty() ? std::vector<uint8_t>() : img2.blocks[0].bytes, {0xAB, 0x00});
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

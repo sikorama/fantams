@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 struct Both {
     std::vector<pp::SrcLine> unrolled, folded;
@@ -182,6 +182,5 @@ int main() {
          "    fill 3\n"
          "    fill 2\n");
 
-    printf("fold_test: %d passed, %d failed\n", g_pass, g_fail);
-    return g_fail == 0 ? 0 : 1;
+    return summary();
 }

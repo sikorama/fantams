@@ -28,7 +28,7 @@ struct TestCtx : IAsmContext {
     }
 };
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 static std::string hex(const std::vector<uint8_t> &v) {
     std::string s;
@@ -231,6 +231,5 @@ int main() {
     if (mnemoFromString("LD") != Mnemo::LD) { ++g_fail; printf("  \033[31mFAIL\033[0m mnemoFromString LD\n"); } else ++g_pass;
     if (mnemoFromString("ZZZ") != Mnemo::Invalid) { ++g_fail; printf("  \033[31mFAIL\033[0m mnemoFromString ZZZ\n"); } else ++g_pass;
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }

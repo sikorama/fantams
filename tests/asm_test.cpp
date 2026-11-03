@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-static int g_pass = 0, g_fail = 0;
+#include "check.h"
 
 // --- Le harnais : assembler PUIS linker -------------------------------------
 // L'assembleur ne rend plus d'adresses : il rend un OBJET, et c'est le linker
@@ -72,10 +72,6 @@ static void chk(const char *desc, const std::string &src,
                desc, load, hex(exp).c_str(), o.loadAddress, hex(o.bin).c_str());
         for (auto &e : o.errors) printf("    err %s:%d %s\n", e.file.c_str(), e.line, e.message.c_str());
     } else ++g_pass;
-}
-
-static void okc(const char *desc, bool cond) {
-    if (cond) ++g_pass; else { ++g_fail; printf("  \033[31mFAIL\033[0m %s\n", desc); }
 }
 
 static void chkSym(const char *desc, const std::string &src, const char *sym, int64_t val) {
@@ -276,10 +272,10 @@ int main() {
         Built o = build("  org #8000\n  db 0,0\n", "t.asm");
         int n = 0;
         for (auto c : o.coverage) if (c) ++n;
-        okc("coverage : deux zeros ecrits sont couverts", o.ok && n == 2 &&
-            o.coverage[0x8000] && o.coverage[0x8001]);
-        okc("coverage : le reste ne l'est pas", !o.coverage[0x7FFF] && !o.coverage[0x8002]);
-        okc("coverage : pas d'avertissement sans chevauchement", o.warnings.empty());
+        ok("coverage : deux zeros ecrits sont couverts", o.ok && n == 2 &&
+                                                             o.coverage[0x8000] && o.coverage[0x8001]);
+        ok("coverage : le reste ne l'est pas", !o.coverage[0x7FFF] && !o.coverage[0x8002]);
+        ok("coverage : pas d'avertissement sans chevauchement", o.warnings.empty());
     }
     {
         // deux ORG qui se recouvrent : un seul avertissement pour la plage, avec
@@ -288,16 +284,16 @@ int main() {
             "  org #8000\n  db 1,2,3,4\n  org #8001\n  db 9,9\n", "t.asm");
         bool one = o.warnings.size() == 1;
         std::string m = one ? o.warnings[0].message : std::string();
-        okc("chevauchement : un seul avertissement pour la plage", one);
-        okc("chevauchement : plage coalescee &8001-&8002",
-            m.find("&8001-&8002") != std::string::npos);
-        okc("chevauchement : nomme le site ecrase", m.find("t.asm:2") != std::string::npos);
-        okc("chevauchement : rapporte sur le site ecrasant",
-            one && o.warnings[0].line == 4);
+        ok("chevauchement : un seul avertissement pour la plage", one);
+        ok("chevauchement : plage coalescee &8001-&8002",
+           m.find("&8001-&8002") != std::string::npos);
+        ok("chevauchement : nomme le site ecrase", m.find("t.asm:2") != std::string::npos);
+        ok("chevauchement : rapporte sur le site ecrasant",
+           one && o.warnings[0].line == 4);
     }
     {
         Built o = build("  org #8000\n  db 1\n  org #9000\n  db 1\n", "t.asm");
-        okc("chevauchement : deux ORG disjoints n'en produisent pas", o.warnings.empty());
+        ok("chevauchement : deux ORG disjoints n'en produisent pas", o.warnings.empty());
     }
 
     // --- Chaines : les deux delimiteurs, et la chaine decalee (ADR 0010) -----
@@ -380,7 +376,7 @@ int main() {
         Built o = build("  org #8000\n  charset '0123',0\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message.find("asset encoding") != std::string::npos;
-        okc("refus : CHARSET nomme son remplacant", named);
+        ok("refus : CHARSET nomme son remplacant", named);
     }
 
     // ADR 0015 : aucun identifiant utilisateur ne porte un nom du langage ni de la
@@ -434,10 +430,10 @@ int main() {
         // L'image porte les banques 0..7 a plat : (banque, offset) -> b*0x4000+o.
         {
             Built o = build("  org b5:#4000\n  db #AB\n", "t.asm");
-            okc("image : 128K", o.image.size() == 131072);
-            okc("image : l'octet est en banque 5, offset 0", o.image[5 * 0x4000] == 0xAB);
-            okc("image : la coverage suit", o.coverage[5 * 0x4000] != 0);
-            okc("image : rien ailleurs", o.coverage[0x4000] == 0);
+            ok("image : 128K", o.image.size() == 131072);
+            ok("image : l'octet est en banque 5, offset 0", o.image[5 * 0x4000] == 0xAB);
+            ok("image : la coverage suit", o.coverage[5 * 0x4000] != 0);
+            ok("image : rien ailleurs", o.coverage[0x4000] == 0);
         }
 
         // La banque est REMANENTE, et un ORG nu qui en herite une haute avertit :
@@ -468,11 +464,11 @@ int main() {
     {
         const char *src = "  org #2000,#3000\nstart:\n  ld hl,start\n";
         Built o = build(src, "t.asm");
-        okc("deplace : le label vaut l'adresse LOGIQUE", o.symbols["start"] == 0x2000);
-        okc("deplace : l'octet est range a l'adresse de RANGEMENT",
-            o.image[0x3000] == 0x21 && o.image[0x3001] == 0x00 && o.image[0x3002] == 0x20);
-        okc("deplace : rien a l'adresse logique", o.coverage[0x2000] == 0);
-        okc("deplace : loadAddress est le rangement", o.loadAddress == 0x3000);
+        ok("deplace : le label vaut l'adresse LOGIQUE", o.symbols["start"] == 0x2000);
+        ok("deplace : l'octet est range a l'adresse de RANGEMENT",
+           o.image[0x3000] == 0x21 && o.image[0x3001] == 0x00 && o.image[0x3002] == 0x20);
+        ok("deplace : rien a l'adresse logique", o.coverage[0x2000] == 0);
+        ok("deplace : loadAddress est le rangement", o.loadAddress == 0x3000);
     }
     // ALIGN aligne le LOGIQUE : c'est l'adresse ou le code tournera
     // apres recopie. Le rangement suit du meme ecart, donc n'est pas aligne.
@@ -481,8 +477,8 @@ int main() {
     // Le deplacement N'EST PAS REMANENT : un ORG nu le remet a zero.
     {
         Built o = build("  org #2000,#3000\n  nop\n  org #5000\n  db #42\n", "t.asm");
-        okc("deplace : un ORG nu remet le deplacement a zero", o.image[0x5000] == 0x42);
-        okc("deplace : et n'ecrit pas a l'ancien ecart", o.coverage[0x6000] == 0);
+        ok("deplace : un ORG nu remet le deplacement a zero", o.image[0x5000] == 0x42);
+        ok("deplace : et n'ecrit pas a l'ancien ecart", o.coverage[0x6000] == 0);
     }
     // Le chevauchement se produit AU RANGEMENT : c'est la que les octets s'ecrasent.
     chkWarn("deplace : le chevauchement est detecte au rangement",
@@ -499,7 +495,7 @@ int main() {
     // serait decrit de part et d'autre de l'adresse logique.
     {
         Built o = build("  org #4000,b4:#100\n  db #AB\n", "t.asm");
-        okc("deplace : prefixe sur le rangement", o.ok && o.image[4 * 0x4000 + 0x100] == 0xAB);
+        ok("deplace : prefixe sur le rangement", o.ok && o.image[4 * 0x4000 + 0x100] == 0xAB);
     }
     chkErr("deplace : prefixe sur le premier parametre", "  org b4:#4000,#100\n  db 1\n");
     chkErr("deplace : deux prefixes", "  org b4:#4000,b5:#100\n  db 1\n");
@@ -524,33 +520,33 @@ int main() {
         const std::string t = sym::format(o.img);
 
         // L'en-tete est une VRAIE ligne CSV : les noms de colonnes SONT la version.
-        okc("sym : en-tete exacte", t.rfind("name,type,section,value,bank,store,file,line\n", 0) == 0);
+        ok("sym : en-tete exacte", t.rfind("name,type,section,value,bank,store,file,line\n", 0) == 0);
         // 5 symboles : 2 labels + 3 constantes. La variable 'count' n'y est PAS.
-        okc("sym : une ligne par symbole, plus l'en-tete", csvLines(t) == 6);
-        okc("sym : la variable n'est pas exportee", symRow(t, "count").empty());
+        ok("sym : une ligne par symbole, plus l'en-tete", csvLines(t) == 6);
+        ok("sym : la variable n'est pas exportee", symRow(t, "count").empty());
 
-        okc("sym : un label porte son type, sa valeur et son rangement",
-            symRow(t, "main") == "main,label,-,0x8000,2,0x8000,t.asm,7");
+        ok("sym : un label porte son type, sa valeur et son rangement",
+           symRow(t, "main") == "main,label,-,0x8000,2,0x8000,t.asm,7");
         // Bloc deplace ET en banque : la valeur reste logique, le rangement suit.
-        okc("sym : un label deplace separe valeur et rangement",
-            symRow(t, "far") == "far,label,-,0x4000,4,0x100,t.asm,10");
+        ok("sym : un label deplace separe valeur et rangement",
+           symRow(t, "far") == "far,label,-,0x4000,4,0x100,t.asm,10");
         // Une constante n'habite nulle part : ni banque ni rangement.
-        okc("sym : une constante n'a ni banque ni rangement",
-            symRow(t, "SCREEN") == "SCREEN,const,-,0xC000,-,-,t.asm,1");
+        ok("sym : une constante n'a ni banque ni rangement",
+           symRow(t, "SCREEN") == "SCREEN,const,-,0xC000,-,-,t.asm,1");
         // Non masquee, et signee : c'est la valeur que l'assembleur a utilisee.
-        okc("sym : une constante n'est pas masquee en 16 bits",
-            symRow(t, "BIG") == "BIG,const,-,0x100000,-,-,t.asm,2");
-        okc("sym : une constante negative garde son signe",
-            symRow(t, "MINUS") == "MINUS,const,-,-0x1,-,-,t.asm,3");
+        ok("sym : une constante n'est pas masquee en 16 bits",
+           symRow(t, "BIG") == "BIG,const,-,0x100000,-,-,t.asm,2");
+        ok("sym : une constante negative garde son signe",
+           symRow(t, "MINUS") == "MINUS,const,-,-0x1,-,-,t.asm,3");
 
         // Tri : banque, puis rangement, puis nom ; les constantes en QUEUE. Un
         // consommateur qui lit jusqu'a la premiere banque « - » a tous les
         // symboles adressables.
         const size_t pMain = t.find("\nmain,"), pFar = t.find("\nfar,"),
                      pBig = t.find("\nBIG,"), pMinus = t.find("\nMINUS,");
-        okc("sym : tri par banque puis rangement", pMain < pFar);
-        okc("sym : les constantes forment la queue", pFar < pBig);
-        okc("sym : les constantes sont triees par nom", pBig < pMinus);
+        ok("sym : tri par banque puis rangement", pMain < pFar);
+        ok("sym : les constantes forment la queue", pFar < pBig);
+        ok("sym : les constantes sont triees par nom", pBig < pMinus);
     }
     {
         // Les noms sont ceux que l'assembleur connait, sans retouche. Ici le cas
@@ -560,15 +556,15 @@ int main() {
         Built o = build(
             "  org #8000\n@loop:\n  nop\ntop:\n.inner:\n  nop\n", "t.asm");
         const std::string t = sym::format(o.img);
-        okc("sym : un label local sort qualifie", !symRow(t, "top.inner").empty());
+        ok("sym : un label local sort qualifie", !symRow(t, "top.inner").empty());
     }
     {
         // Le champ fichier est guillemete SEULEMENT s'il en a besoin : sans ca, un
         // chemin a virgule produirait une ligne a huit champs dans un fichier a sept.
         Built o = build("  org #8000\nmain:\n  nop\n", "mon,brouillon.asm");
         const std::string t = sym::format(o.img);
-        okc("sym : un chemin a virgule est guillemete",
-            t.find(",\"mon,brouillon.asm\",2\n") != std::string::npos);
+        ok("sym : un chemin a virgule est guillemete",
+           t.find(",\"mon,brouillon.asm\",2\n") != std::string::npos);
     }
 
     // --- SECTION : la section dans la table des symboles (§4.1, §4.6) --------
@@ -581,8 +577,8 @@ int main() {
             "my_table:\n"
             "  nop\n", "t.asm");
         const std::string t = sym::format(o.img);
-        okc("sym : un label porte sa section",
-            symRow(t, "my_table") == "my_table,label,tables_data,0x8000,2,0x8000,t.asm,3");
+        ok("sym : un label porte sa section",
+           symRow(t, "my_table") == "my_table,label,tables_data,0x8000,2,0x8000,t.asm,3");
     }
     {
         // Une constante n'habite nulle part — c'est deja ce que disent `bank` et
@@ -594,8 +590,8 @@ int main() {
             "WIDTH equ 80\n"
             "  nop\n", "t.asm");
         const std::string t = sym::format(o.img);
-        okc("sym : une constante n'herite pas de la section",
-            symRow(t, "WIDTH") == "WIDTH,const,-,0x50,-,-,t.asm,3");
+        ok("sym : une constante n'herite pas de la section",
+           symRow(t, "WIDTH") == "WIDTH,const,-,0x50,-,-,t.asm,3");
     }
 
     // Les trois types du §4.1 sont la SEULE semantique materielle que
@@ -650,7 +646,7 @@ int main() {
             "  ld (mon_tableau + 1), hl\n", "t.asm");
         bool named = !o.errors.empty() &&
                      o.errors[0].message == "\"ld (nn), hl\" writes into read-only section 'tables_data'";
-        okc("ro : le diagnostic cite l'instruction et nomme la section", named);
+        ok("ro : le diagnostic cite l'instruction et nomme la section", named);
     }
 
     // --- Le plafond de taille declare (§4.1) ---------------------------------
@@ -664,7 +660,7 @@ int main() {
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
                          "Section 'audio' exceeds maximum declared size (0x5 > 0x4 bytes)";
-        okc("section : le depassement du plafond est refuse, avec ses deux tailles", named);
+        ok("section : le depassement du plafond est refuse, avec ses deux tailles", named);
     }
     // Le refus ne mord pas A `max` exactement : un plafond est une taille
     // permise, pas la premiere taille refusee.
@@ -730,7 +726,7 @@ int main() {
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
                          "Section 'vars' exceeds maximum declared size (0x10 > 0x8 bytes)";
-        okc("uninit : la place reservee compte dans le plafond", named);
+        ok("uninit : la place reservee compte dans le plafond", named);
     }
     // Le refus nomme le TYPE de la section, qui est la raison ; la ligne citee
     // dit deja laquelle des directives corriger.
@@ -741,7 +737,7 @@ int main() {
                      o.errors[0].message ==
                          "section 'vars' is \"uninit\": it reserves space and emits no bytes "
                          "(use `ds` to reserve, or declare the section \"rw\")";
-        okc("uninit : db y est refuse, en nommant le type de la section", named);
+        ok("uninit : db y est refuse, en nommant le type de la section", named);
     }
     chkErr("uninit : dw y est refuse",
            "  section vars, \"uninit\"\n  org #8000\n  dw #1234\n");
@@ -751,8 +747,8 @@ int main() {
     {
         Built o = build(
             "  section vars, \"uninit\"\n  org #8000\n  db \"bonjour\"\n", "t.asm");
-        okc("uninit : le refus est dit une fois par ligne, pas une fois par octet",
-            o.errors.size() == 1);
+        ok("uninit : le refus est dit une fois par ligne, pas une fois par octet",
+           o.errors.size() == 1);
     }
     // « ds 16,#FF » laisserait croire a une zone initialisee : la refuser plutot
     // que l'ignorer.
@@ -774,7 +770,7 @@ int main() {
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
                          "Block 'table' exceeds its asserted size (0x3 > 0x2 bytes)";
-        okc("assert_size : le depassement est refuse, et le bloc est nomme", named);
+        ok("assert_size : le depassement est refuse, et le bloc est nomme", named);
     }
     // Sans label, la zone est designee par son adresse : il faut bien pouvoir la
     // retrouver.
@@ -784,7 +780,7 @@ int main() {
         bool named = !o.errors.empty() &&
                      o.errors[0].message ==
                          "Block at &8000 exceeds its asserted size (0x3 > 0x2 bytes)";
-        okc("assert_size : une zone sans label est designee par son adresse", named);
+        ok("assert_size : une zone sans label est designee par son adresse", named);
     }
     // La taille exactement egale passe, et la zone s'assemble comme si de rien
     // n'etait : ASSERT_SIZE mesure, il ne deplace pas.
@@ -807,8 +803,8 @@ int main() {
         Built o = build(
             "  org #8000\n  boundary 256\n  assert_size 1\n  db 1, 2\n"
             "  end_assert_size\n  end_boundary\n", "t.asm");
-        okc("assert_size : dans un BOUNDARY, le controle n'est fait qu'une fois",
-            o.errors.size() == 1);
+        ok("assert_size : dans un BOUNDARY, le controle n'est fait qu'une fois",
+           o.errors.size() == 1);
     }
     chkErr("assert_size : une zone jamais fermee est refusee",
            "  org #8000\n  assert_size 4\n  db 1\n");
@@ -896,7 +892,7 @@ int main() {
                      o.errors[0].message.find("300 bytes") != std::string::npos &&
                      o.errors[0].message.find("256 bytes") != std::string::npos &&
                      o.errors[0].line == 2;
-        okc("BOUNDARY : le depassement nomme le bloc et sa ligne", named);
+        ok("BOUNDARY : le depassement nomme le bloc et sa ligne", named);
     }
 
     // Le saut n'EMET rien : il avance l'adresse, comme ALIGN. Les octets sautes
@@ -941,11 +937,11 @@ int main() {
         // que seul le linker connait (ADR 0027, reserve a C1).
         Built o = build("  section main,\"ro\"\n  ld a,bankof(cible)\n"
                         "  section s2,\"ro\"\ncible: ret\n", "t.asm");
-        okc("bankof() s'assemble", o.ok);
+        ok("bankof() s'assemble", o.ok);
         bool found = false;
         for (const auto &r : o.obj.relocs)
             if (r.kind == asmb::Reloc::BankOf) found = true;
-        okc("et demande une relocalisation BankOf", found);
+        ok("et demande une relocalisation BankOf", found);
     }
     {
         // Les noms prefixes de `__` appartiennent au linker (§12.3) : les DEFINIR
@@ -959,7 +955,7 @@ int main() {
         for (const auto &e : o.errors)
             if (e.message.find("belongs to the linker") != std::string::npos &&
                 e.message.find("declare it with EXTERN") != std::string::npos) says = true;
-        okc("et le refus dit a qui ils appartiennent, et par quoi les declarer", says);
+        ok("et le refus dit a qui ils appartiennent, et par quoi les declarer", says);
     }
     {
         // Les DECLARER, en revanche, est la seule facon de s'en servir :
@@ -974,11 +970,11 @@ int main() {
         bool refused = false;
         for (const auto &e : o.errors)
             if (e.message.find("belongs to the linker") != std::string::npos) refused = true;
-        okc("declarer un nom __ n'est pas refuse", !refused);
+        ok("declarer un nom __ n'est pas refuse", !refused);
         bool asked = false;
         for (const auto &r : o.obj.relocs)
             if (r.symbol == "__val_ram_audio") asked = true;
-        okc("et il demande sa relocalisation", asked);
+        ok("et il demande sa relocalisation", asked);
     }
 
     {
@@ -991,12 +987,12 @@ int main() {
         asmb::Object o = asmb::assembleText(
             "  org #8000\n  ld bc,__port_ram_audio | __val_ram_audio\n"
             "  ld c,__val_ram_audio\n", "t.asm", given);
-        okc("une constante du linker se compose avec une autre", o.ok);
+        ok("une constante du linker se compose avec une autre", o.ok);
         std::vector<uint8_t> got;
         for (const auto &f : o.fragments) for (uint8_t b : f.bytes) got.push_back(b);
-        okc("et la composition est calculee a l'assemblage",
-            got == std::vector<uint8_t>{0x01, 0xC5, 0x7F, 0x0E, 0xC5});
-        okc("aucune relocalisation n'est demandee", o.relocs.empty());
+        ok("et la composition est calculee a l'assemblage",
+           got == std::vector<uint8_t>{0x01, 0xC5, 0x7F, 0x0E, 0xC5});
+        ok("aucune relocalisation n'est demandee", o.relocs.empty());
     }
     {
         // LES DEUX GRAPHIES DU §12.3, et elles doivent rendre le meme port.
@@ -1008,8 +1004,8 @@ int main() {
             "  ld c,low(__val_ram_audio)\n  out (c),c\n", "t.asm", given);
         std::vector<uint8_t> got;
         for (const auto &f : o.fragments) for (uint8_t b : f.bytes) got.push_back(b);
-        okc("high()/low() rendent le meme port et la meme valeur",
-            o.ok && got == std::vector<uint8_t>{0x06, 0x7F, 0x0E, 0xC5, 0xED, 0x49});
+        ok("high()/low() rendent le meme port et la meme valeur",
+           o.ok && got == std::vector<uint8_t>{0x06, 0x7F, 0x0E, 0xC5, 0xED, 0x49});
     }
     {
         // LE PIEGE QUE LE §12.3 COMBATTAIT DANS LE LINKER, ET QUI VIVAIT DANS
@@ -1022,8 +1018,8 @@ int main() {
         bool named = !o.errors.empty() &&
                      o.errors[0].message.find("does not fit in one byte") != std::string::npos &&
                      o.errors[0].message.find("high()") != std::string::npos;
-        okc("un port de seize bits ne tient pas dans B, et le refus le dit",
-            !o.ok && named);
+        ok("un port de seize bits ne tient pas dans B, et le refus le dit",
+           !o.ok && named);
     }
     {
         // ET c'est `high()` qui traverse la couture : dans une unite compilee
@@ -1034,14 +1030,18 @@ int main() {
         asmb::Object o = asmb::assembleText(
             "  extern __port_ram_audio\n  org #8000\n"
             "  ld b,high(__port_ram_audio)\n", "t.asm");
-        okc("high() sur un EXTERN passe, et demande sa relocalisation",
-            o.ok && o.relocs.size() == 1);
-        okc("la ou '>> 8' est refuse sur la meme valeur",
-            !asmb::assembleText("  extern __port_ram_audio\n  org #8000\n"
-                                "  ld b,__port_ram_audio >> 8\n", "t.asm").ok);
-        okc("et '|' aussi",
-            !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
-                                "  ld bc,__a | __b\n", "t.asm").ok);
+        ok("high() sur un EXTERN passe, et demande sa relocalisation",
+           o.ok && o.relocs.size() == 1);
+        ok("la ou '>> 8' est refuse sur la meme valeur",
+           !asmb::assembleText("  extern __port_ram_audio\n  org #8000\n"
+                               "  ld b,__port_ram_audio >> 8\n",
+                               "t.asm")
+                .ok);
+        ok("et '|' aussi",
+           !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
+                               "  ld bc,__a | __b\n",
+                               "t.asm")
+                .ok);
     }
     {
         // Sans elles, le meme source les declare par EXTERN et c'est le linker
@@ -1049,10 +1049,12 @@ int main() {
         // arithmetique dans cette unite-la.
         asmb::Object o = asmb::assembleText(
             "  extern __val_ram_audio\n  org #8000\n  ld hl,__val_ram_audio\n", "t.asm");
-        okc("sans constantes, l'EXTERN prend le relais", o.ok && o.relocs.size() == 1);
-        okc("et la source ne peut plus en composer deux",
-            !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
-                                "  ld hl,__a + __b\n", "t.asm").ok);
+        ok("sans constantes, l'EXTERN prend le relais", o.ok && o.relocs.size() == 1);
+        ok("et la source ne peut plus en composer deux",
+           !asmb::assembleText("  extern __a\n  extern __b\n  org #8000\n"
+                               "  ld hl,__a + __b\n",
+                               "t.asm")
+                .ok);
     }
 
     // --- PUBLIC / EXTERN : la portee entre objets (§4.4) ---------------------
@@ -1065,19 +1067,19 @@ int main() {
             if (s.name == "start") pub = s.isPublic;
             if (s.name == "other" && s.isPublic) loc = false;
         }
-        okc("PUBLIC exporte le nom", o.ok && pub);
-        okc("et le defaut reste local", loc);
+        ok("PUBLIC exporte le nom", o.ok && pub);
+        ok("et le defaut reste local", loc);
     }
     // `EXTERN` declare defini ailleurs : l'assemblage passe, c'est le LINKAGE qui
     // reclame une definition — et un seul objet n'en a aucune a offrir.
     {
         Built o = build("  extern helper\n  section code,\"ro\"\n  call helper\n", "t.asm");
-        okc("un EXTERN assemble sans erreur d'assemblage", o.obj.ok);
+        ok("un EXTERN assemble sans erreur d'assemblage", o.obj.ok);
         bool named = !o.errors.empty() &&
                      o.errors[0].message.find("helper") != std::string::npos &&
                      o.errors[0].message.find("EXTERN") != std::string::npos;
-        okc("mais le linkage refuse en nommant le symbole", !o.ok && named);
-        okc("et il ne le dit qu'une fois", o.errors.size() == 1);
+        ok("mais le linkage refuse en nommant le symbole", !o.ok && named);
+        ok("et il ne le dit qu'une fois", o.errors.size() == 1);
     }
     // Le point de D10 : un nom ni defini ni EXTERN reste une erreur
     // d'ASSEMBLAGE, a sa ligne — et non une relocalisation non resolue signalee
@@ -1086,7 +1088,7 @@ int main() {
         Built o = build("  section code,\"ro\"\n  call typo\n", "t.asm");
         bool here = !o.errors.empty() && o.errors[0].line == 2 &&
                     o.errors[0].message.find("typo") != std::string::npos;
-        okc("un nom inconnu est refuse a SA ligne", !o.ok && here);
+        ok("un nom inconnu est refuse a SA ligne", !o.ok && here);
     }
     chkErr("PUBLIC d'un nom inconnu", "  public nowhere\n  nop\n");
     chkErr("PUBLIC d'un nom EXTERN", "  extern foo\n  public foo\n  nop\n");
@@ -1102,8 +1104,8 @@ int main() {
         // Deux EXTERN sur une ligne, et un `high()` sur l'un d'eux : le
         // mecanisme existe, meme si rien ne l'exerce encore (c'est B8).
         Built o = build("  extern alpha, beta\n  section c,\"ro\"\n  ld hl,alpha\n  ld d,high(beta)\n", "t.asm");
-        okc("deux EXTERN se declarent d'une ligne", o.obj.ok);
-        okc("chacun reclame sa definition", o.errors.size() == 2);
+        ok("deux EXTERN se declarent d'une ligne", o.obj.ok);
+        ok("chacun reclame sa definition", o.errors.size() == 2);
     }
 
     // --- P2 : le placement porte par la declaration de section --------------
@@ -1118,52 +1120,52 @@ int main() {
     {
         Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1,2,3\n", "t.asm");
         const asmb::Section *s = sectionOf(b.obj, "gfx1");
-        okc("la forme courte est analysee", b.obj.ok && s && s->place == "ext_w1<1>");
-        okc("et elle ne nomme aucune fenetre", s && s->placeWindow.empty());
-        okc("une section ainsi declaree est RELOCALISABLE", s && s->relocatable);
+        ok("la forme courte est analysee", b.obj.ok && s && s->place == "ext_w1<1>");
+        ok("et elle ne nomme aucune fenetre", s && s->placeWindow.empty());
+        ok("une section ainsi declaree est RELOCALISABLE", s && s->relocatable);
     }
     {
         Built b = build("  section gfx1, \"ro\" IN w1 OF ext_w1<1>\n  db 1\n", "t.asm");
         const asmb::Section *s = sectionOf(b.obj, "gfx1");
-        okc("la forme verbeuse nomme la fenetre et la configuration",
-            b.obj.ok && s && s->placeWindow == "w1" && s->place == "ext_w1<1>");
+        ok("la forme verbeuse nomme la fenetre et la configuration",
+           b.obj.ok && s && s->placeWindow == "w1" && s->place == "ext_w1<1>");
     }
     {
         Built b = build("  section gfx1, \"ro\", 0x2000 IN ext_w1<1>\n  db 1\n", "t.asm");
         const asmb::Section *s = sectionOf(b.obj, "gfx1");
-        okc("le plafond de taille cohabite avec le placement",
-            b.obj.ok && s && s->hasMax && s->max == 0x2000 && s->place == "ext_w1<1>");
+        ok("le plafond de taille cohabite avec le placement",
+           b.obj.ok && s && s->hasMax && s->max == 0x2000 && s->place == "ext_w1<1>");
     }
     {
         // Ce qui ne change pas : une section SANS `IN` est exactement ce qu'elle
         // etait. C'est l'invariant D12, a l'echelle de cette etape.
         Built b = build("  section code, \"ro\"\n  db 1\n", "t.asm");
         const asmb::Section *s = sectionOf(b.obj, "code");
-        okc("sans IN, une section ne porte aucun placement",
-            b.obj.ok && s && s->place.empty() && s->placeWindow.empty());
+        ok("sans IN, une section ne porte aucun placement",
+           b.obj.ok && s && s->place.empty() && s->placeWindow.empty());
     }
     {
         // `org` DANS une section placee est un DECALAGE, et ne place pas : la
         // section reste relocalisable, et le linker garde la main.
         Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  org 0x100\nhere:\n  db 0xAA\n", "t.asm");
         const asmb::Section *s = sectionOf(b.obj, "gfx1");
-        okc("un org dans une section placee ne la rend pas absolue",
-            b.obj.ok && s && s->relocatable);
+        ok("un org dans une section placee ne la rend pas absolue",
+           b.obj.ok && s && s->relocatable);
         // Le decalage se lit sur les OFFSETS : le label qui suit l'`org` est a
         // 0x100 de la base que le linker donnera, et non a l'adresse 0x100.
         int64_t off = -1;
         for (const asmb::Symbol &sy : b.obj.symbolTable)
             if (sy.name == "here") off = sy.value;
-        okc("et il vaut un DECALAGE : ce qui suit est a l'offset 0x100 de la base", off == 0x100);
+        ok("et il vaut un DECALAGE : ce qui suit est a l'offset 0x100 de la base", off == 0x100);
     }
     {
         // Mais un PREFIXE DE BANQUE y est un second placement, et deux porteurs
         // pour une decision est la faute que ce chantier existe pour eviter.
         Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  org b5:0x4000\n  db 1\n", "t.asm");
-        okc("un org prefixe dans une section placee est refuse", !b.obj.ok);
+        ok("un org prefixe dans une section placee est refuse", !b.obj.ok);
         const std::string m = b.errors.empty() ? std::string() : b.errors[0].message;
-        okc("et le refus nomme les deux placements",
-            m.find("gfx1") != std::string::npos && m.find("IN") != std::string::npos);
+        ok("et le refus nomme les deux placements",
+           m.find("gfx1") != std::string::npos && m.find("IN") != std::string::npos);
     }
     {
         // Le placement suit la regle du type et du plafond : FIGE a la premiere
@@ -1171,20 +1173,20 @@ int main() {
         // section en silence, depuis un fichier inclus par exemple.
         Built b = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1\n"
                         "  section gfx1, \"ro\" IN ext_w1<2>\n  db 2\n", "t.asm");
-        okc("une reouverture qui deplace la section est refusee", !b.obj.ok);
+        ok("une reouverture qui deplace la section est refusee", !b.obj.ok);
         Built c = build("  section gfx1, \"ro\" IN ext_w1<1>\n  db 1\n"
                         "  section gfx1, \"ro\"\n  db 2\n", "t.asm");
         const asmb::Section *s = sectionOf(c.obj, "gfx1");
-        okc("une reouverture muette garde le placement de la premiere",
-            c.obj.ok && s && s->place == "ext_w1<1>");
+        ok("une reouverture muette garde le placement de la premiere",
+           c.obj.ok && s && s->place == "ext_w1<1>");
     }
     {
         Built b = build("  section gfx1, \"ro\" IN\n  db 1\n", "t.asm");
-        okc("un IN sans configuration est refuse", !b.obj.ok);
+        ok("un IN sans configuration est refuse", !b.obj.ok);
         Built c = build("  section gfx1, \"ro\" IN w1 OF\n  db 1\n", "t.asm");
-        okc("un OF sans configuration est refuse", !c.obj.ok);
+        ok("un OF sans configuration est refuse", !c.obj.ok);
         Built d = build("  section gfx1, \"ro\" IN a OF b OF c\n  db 1\n", "t.asm");
-        okc("une configuration qui n'en est pas une syntaxiquement est refusee", !d.obj.ok);
+        ok("une configuration qui n'en est pas une syntaxiquement est refusee", !d.obj.ok);
     }
 
     {
@@ -1193,10 +1195,10 @@ int main() {
         // placement que la vraie analyse a refuse — et le linker s'en plaindrait
         // une SECONDE fois, sans ligne a citer.
         Built b = build("  section s, \"ro\" IN a+b\n  db 1\n", "t.asm");
-        okc("une forme fautive est refusee", !b.obj.ok);
-        okc("et une seule fois", b.errors.size() == 1);
+        ok("une forme fautive est refusee", !b.obj.ok);
+        ok("et une seule fois", b.errors.size() == 1);
         const asmb::Section *s = sectionOf(b.obj, "s");
-        okc("la section ne porte alors aucun placement", s && s->place.empty());
+        ok("la section ne porte alors aucun placement", s && s->place.empty());
     }
     {
         // Un `IN` apparu a une REOUVERTURE vaudrait retroactivement pour les
@@ -1204,12 +1206,12 @@ int main() {
         // existe pour empecher, et il se produisait dans l'autre sens.
         Built b = build("  section s, \"ro\"\n  db 1\n"
                         "  section s, \"ro\" IN w1 OF ext_w1<2>\n  db 2\n", "t.asm");
-        okc("un placement introduit a une reouverture est refuse", !b.obj.ok);
+        ok("un placement introduit a une reouverture est refuse", !b.obj.ok);
         const std::string m = b.errors.empty() ? std::string() : b.errors[0].message;
-        okc("et le refus dit pourquoi : les octets deja poses bougeraient",
-            m.find("first declaration") != std::string::npos);
+        ok("et le refus dit pourquoi : les octets deja poses bougeraient",
+           m.find("first declaration") != std::string::npos);
         const asmb::Section *s = sectionOf(b.obj, "s");
-        okc("la section n'est pas placee pour autant", s && s->place.empty());
+        ok("la section n'est pas placee pour autant", s && s->place.empty());
     }
 
     // --- La duree entre deux labels (ADR 0035) --------------------------------
@@ -1233,72 +1235,72 @@ int main() {
         // 12, et `ld hl,(nn)` dure 5 NOPs bien que 16 T-states en fassent 4.
         const char *body = "  org 0x8000\ndeb: ld a,5\n ld (0x4000),a\n ld hl,(0x4000)\n inc (hl)\nfin: nop\n";
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), cpc, v);
-        okc("tstates_between additionne les T-states", v == 47);
+        ok("tstates_between additionne les T-states", v == 47);
         measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), cpc, v);
-        okc("nops_between lit la table des NOPs, instruction par instruction", v == 14);
+        ok("nops_between lit la table des NOPs, instruction par instruction", v == 14);
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), asmb::Constants(), v);
-        okc("tstates_between marche sans profil", v == 47);
+        ok("tstates_between marche sans profil", v == 47);
 
         // Les bornes sont [a, b[ : la mesure est additive.
         measure("  org 0x8000\nxa: nop\nxb: ld a,1\nxc: nop\n"
                 "DUREE equ nops_between(xa,xb) + nops_between(xb,xc) - nops_between(xa,xc)\n", cpc, v);
-        okc("nops_between(a,b) + nops_between(b,c) == nops_between(a,c)", v == 0);
+        ok("nops_between(a,b) + nops_between(b,c) == nops_between(a,c)", v == 0);
         measure("  org 0x8000\nxa: nop\nxb: nop\nDUREE equ nops_between(xa,xa)\n", cpc, v);
-        okc("un intervalle vide dure zero", v == 0);
+        ok("un intervalle vide dure zero", v == 0);
 
         // Un label defini PLUS BAS, dans un EQU, un `assert` et une variable.
         measure("  org 0x8000\nxa: nop\n nop\nDUREE equ nops_between(xa,xb)\n"
                 " assert nops_between(xa,xb)==2\n assert tstates_between(xa,xb)==8\nxb: nop\n", cpc, v);
-        okc("un label defini plus bas se mesure (equ et assert)", v == 2);
+        ok("un label defini plus bas se mesure (equ et assert)", v == 2);
         measure("  org 0x8000\nxa: nop\nxb: nop\nvar = nops_between(xa,xb)\nDUREE equ var\n", cpc, v);
-        okc("une variable '=' recoit la mesure", v == 1);
+        ok("une variable '=' recoit la mesure", v == 1);
 
         // Les labels locaux et ceux d'une expansion de macro.
         measure("  org 0x8000\nfoo:\n.a: ld a,1\n.b: inc a\n.c: nop\n"
                 "DUREE equ nops_between(.a,.c)\n", cpc, v);
-        okc("un label local .nom se mesure", v == 3);
+        ok("un label local .nom se mesure", v == 3);
 
         // La mesure est EXACTE ou REFUSEE : chaque refus nomme sa raison.
         asmb::Object o = measure("  org 0x8000\nxa: nop\n jr nz,xa\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un saut dans l'intervalle est refuse", !o.ok && errorSays(o, "has no fixed duration"));
-        okc("et le refus cite la ligne fautive", errorSays(o, "t.asm:3"));
+        ok("un saut dans l'intervalle est refuse", !o.ok && errorSays(o, "has no fixed duration"));
+        ok("et le refus cite la ligne fautive", errorSays(o, "t.asm:3"));
         o = measure("  org 0x8000\nxa: nop\n djnz xa\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("djnz est refuse", !o.ok);
+        ok("djnz est refuse", !o.ok);
         o = measure("  org 0x8000\nxa: ldir\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("ldir est refuse (sa duree depend d'un compteur)", !o.ok && errorSays(o, "counter"));
+        ok("ldir est refuse (sa duree depend d'un compteur)", !o.ok && errorSays(o, "counter"));
         o = measure("  org 0x8000\nxa: nop\n halt\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("halt est refuse", !o.ok && errorSays(o, "interrupt"));
+        ok("halt est refuse", !o.ok && errorSays(o, "interrupt"));
         o = measure("  org 0x8000\nxa: nop\n ret\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("ret est refuse", !o.ok);
+        ok("ret est refuse", !o.ok);
         o = measure("  org 0x8000\nxa: nop\n db 1,2\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un db dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
+        ok("un db dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
         o = measure("  org 0x8000\nxa: nop\n ds 3\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un ds dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
+        ok("un ds dans l'intervalle est refuse", !o.ok && errorSays(o, "data"));
         o = measure("  org 0x8000\nxa: nop\n align 16\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un align dans l'intervalle est refuse", !o.ok && errorSays(o, "padding"));
+        ok("un align dans l'intervalle est refuse", !o.ok && errorSays(o, "padding"));
         o = measure("  org 0x8000\nxa: nop\n org 0x9000\nxb: nop\nDUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un org entre les deux labels est refuse", !o.ok && errorSays(o, "contiguous"));
+        ok("un org entre les deux labels est refuse", !o.ok && errorSays(o, "contiguous"));
         o = measure("  org 0x8000\nxa: nop\nxb: nop\nDUREE equ nops_between(xb,xa)\n", cpc, v);
-        okc("b avant a est refuse", !o.ok && errorSays(o, "comes before"));
+        ok("b avant a est refuse", !o.ok && errorSays(o, "comes before"));
         o = measure("  org 0x8000\nxa: nop\nDUREE equ nops_between(xa,zzz)\n", cpc, v);
-        okc("un label inconnu est refuse", !o.ok && errorSays(o, "not defined"));
+        ok("un label inconnu est refuse", !o.ok && errorSays(o, "not defined"));
         o = measure("  org 0x8000\nK equ 5\nxa: nop\nDUREE equ nops_between(xa,K)\n", cpc, v);
-        okc("une constante n'est pas un label", !o.ok && errorSays(o, "not a label"));
+        ok("une constante n'est pas un label", !o.ok && errorSays(o, "not a label"));
 
         // Le NOP vient du profil : sans lui, `nops_between` refuse en le disant.
         o = measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), asmb::Constants(), v);
-        okc("nops_between sans profil est refuse", !o.ok && errorSays(o, "NOP_TABLE"));
-        okc("et le refus renvoie vers tstates_between", errorSays(o, "tstates_between"));
+        ok("nops_between sans profil est refuse", !o.ok && errorSays(o, "NOP_TABLE"));
+        ok("et le refus renvoie vers tstates_between", errorSays(o, "tstates_between"));
 
         // Un mot reserve : un label nomme `nops_between` rendrait la fonction illisible.
         o = measure("  org 0x8000\nnops_between: nop\n", cpc, v);
-        okc("nops_between est un mot reserve", !o.ok);
+        ok("nops_between est un mot reserve", !o.ok);
 
         // Un bloc BOUNDARY est lu deux fois (mesure, puis assemblage) : ses
         // instructions ne se comptent qu'une.
         measure("  org 0x8000\nxa: nop\n boundary 16\n nop\n nop\n end_boundary\nxb: nop\n"
                 "DUREE equ nops_between(xa,xb)\n", cpc, v);
-        okc("un bloc BOUNDARY n'est compte qu'une fois", v == 3);
+        ok("un bloc BOUNDARY n'est compte qu'une fois", v == 3);
     }
 
     // --- La table des durees (--timing, ADR 0035) -------------------------------
@@ -1320,45 +1322,44 @@ int main() {
             return nullptr;
         };
         const asmb::TimingRow *d = row("label", "deb");
-        okc("un label porte la duree jusqu'au suivant", d && d->tstates == 18 && d->nops == 5);
+        ok("un label porte la duree jusqu'au suivant", d && d->tstates == 18 && d->nops == 5);
         const asmb::TimingRow *m = row("label", "mid");
-        okc("un intervalle refuse n'a pas de duree", m && m->tstates < 0 && m->nops < 0);
-        okc("et sa note dit pourquoi, ligne comprise",
-            m && m->note.find("t.asm:5") != std::string::npos &&
-            m->note.find("jr nz,deb") != std::string::npos);
+        ok("un intervalle refuse n'a pas de duree", m && m->tstates < 0 && m->nops < 0);
+        ok("et sa note dit pourquoi, ligne comprise",
+           m && m->note.find("t.asm:5") != std::string::npos &&
+               m->note.find("jr nz,deb") != std::string::npos);
         const asmb::TimingRow *t = row("label", "tail");
-        okc("un `db` dans l'intervalle le refuse", t && t->tstates < 0 && t->note.find("data") != std::string::npos);
+        ok("un `db` dans l'intervalle le refuse", t && t->tstates < 0 && t->note.find("data") != std::string::npos);
         const asmb::TimingRow *e = row("label", "fin");
-        okc("le dernier label n'a pas de suivant : muet, sans note", e && e->tstates < 0 && e->note.empty());
-        okc("les labels precedent les assert",
-            !o.timing.empty() && o.timing.front().kind == "label" && o.timing.back().kind == "assert");
+        ok("le dernier label n'a pas de suivant : muet, sans note", e && e->tstates < 0 && e->note.empty());
+        ok("les labels precedent les assert",
+           !o.timing.empty() && o.timing.front().kind == "label" && o.timing.back().kind == "assert");
         const asmb::TimingRow *a1 = row("assert", "deb..mid");
-        okc("un assert de duree figure, avec ses deux unites",
-            a1 && a1->tstates == 18 && a1->nops == 5 && a1->note.find("ok") != std::string::npos);
+        ok("un assert de duree figure, avec ses deux unites",
+           a1 && a1->tstates == 18 && a1->nops == 5 && a1->note.find("ok") != std::string::npos);
         const asmb::TimingRow *a2 = row("assert", "mid..mid");
-        okc("un assert rate y figure aussi, marque FAILED", a2 && a2->note.find("FAILED") != std::string::npos);
-        okc("et l'assemblage, lui, echoue", !o.ok);
+        ok("un assert rate y figure aussi, marque FAILED", a2 && a2->note.find("FAILED") != std::string::npos);
+        ok("et l'assemblage, lui, echoue", !o.ok);
 
         // Le CSV : une vraie ligne d'en-tete, des champs vides, les virgules guillemetees.
         const std::string csv = sym::formatTiming(o.timing);
-        okc("le CSV a son en-tete", csv.rfind("kind,name,file,line,tstates,nops,note\n", 0) == 0);
-        okc("une duree absente est un champ VIDE, pas un zero",
-            csv.find("label,mid,t.asm,4,,,") != std::string::npos);
-        okc("une note qui porte une virgule est guillemetee",
-            csv.find("\"t.asm:5 'jr nz,deb'") != std::string::npos);
+        ok("le CSV a son en-tete", csv.rfind("kind,name,file,line,tstates,nops,note\n", 0) == 0);
+        ok("une duree absente est un champ VIDE, pas un zero",
+           csv.find("label,mid,t.asm,4,,,") != std::string::npos);
+        ok("une note qui porte une virgule est guillemetee",
+           csv.find("\"t.asm:5 'jr nz,deb'") != std::string::npos);
 
         // Sans NOP declare : les T-states restent, les NOPs deviennent vides.
         asmb::Object p = asmb::assembleText("  org 0x8000\nxa: nop\nxb: nop\n", "t.asm");
-        okc("sans profil, les T-states sont rendus et les NOPs vides",
-            p.timing.size() == 2 && p.timing[0].tstates == 4 && p.timing[0].nops < 0);
+        ok("sans profil, les T-states sont rendus et les NOPs vides",
+           p.timing.size() == 2 && p.timing[0].tstates == 4 && p.timing[0].nops < 0);
 
         // TICKER reste refuse, et nomme son remplacant.
         asmb::Object k = asmb::assembleText("  org 0x8000\n ticker\n", "t.asm");
         bool names = false;
         for (const auto &er : k.errors) if (er.message.find("nops_between") != std::string::npos) names = true;
-        okc("TICKER est refuse et nomme nops_between", !k.ok && names);
+        ok("TICKER est refuse et nomme nops_between", !k.ok && names);
     }
 
-    printf("\n%d réussis, %d échoués\n", g_pass, g_fail);
-    return g_fail ? 1 : 0;
+    return summary();
 }
