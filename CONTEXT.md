@@ -221,7 +221,7 @@ Ne pas confondre avec « Export » (§Export ci-dessous), qui désigne la
 construction d'un artefact **livrable** : les deux emploient le mot au sens
 courant de « rendre disponible », mais à des étages différents et pour des
 objets sans rapport — l'un une donnée de profil que le source lit, l'autre un
-morceau que le builder écrit sur disque.
+morceau que le builder livre en artefact.
 _Éviter_ : export, constante exportée (collision avec le sens builder)
 
 **Section** :
@@ -317,18 +317,20 @@ _Éviter_ : banque (précisément la confusion à ne pas faire)
 ### Export
 
 **Découpage** :
-La règle qui partitionne l'image en morceaux : un par bloc `ORG`, un seul
-englobant tout, ou un par banque de 16 K ou par groupe de 64 K.
+La règle qui partitionne l'image en morceaux : un par emplacement d'un seul
+tenant, les blocs contigus d'une même banque d'extension, ou des 64 K de base,
+réunis (ADR 0007).
 _Éviter_ : split, segmentation
 
 **Morceau** :
 Une portion de l'image destinée à devenir un artefact, portant sa banque, son
-adresse logique, son point d'entrée et ses octets. Son nom est dérivé de son
-emplacement, jamais déclaré dans le source.
+adresse logique, son point d'entrée et ses octets. Son nom est dérivé, jamais
+déclaré dans le source : du nom du source principal quand il est le seul
+morceau, de son emplacement sinon.
 _Éviter_ : bloc, segment, chunk
 
 **Encapsulation** :
-Ce qu'on ajoute à un morceau pour le rendre chargeable — aujourd'hui l'en-tête
+Ce qu'on ajoute à un morceau pour le rendre chargeable — l'en-tête
 AMSDOS de 128 octets, ou rien.
 _Éviter_ : header, wrapping
 
@@ -445,7 +447,7 @@ _Éviter_ : éditeur de liens, loader, packer
 
 **Backend** :
 Producteur d'un format de sortie à partir de l'image mémoire assemblée (`sna`,
-plus tard `dsk`). Sélectionné à la compilation, jamais chargé dynamiquement.
+`cpr`, `cro`, `dsk`). Sélectionné à la compilation, jamais chargé dynamiquement.
 _Éviter_ : plugin, exporter, writer
 
 ### Mesure

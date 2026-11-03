@@ -1,8 +1,8 @@
 # Les coutures de la chaîne : assembleur, linker, builder
 
 > **Document de conception, écrit avant l'étage A.** L'assembleur (`assemble()`,
-> `asm.h`) et le linker (`build()`, `link.h`) existent depuis les étages B et C1 ;
-> le §1 décrit le code d'avant, et le builder (§2.3) reste à écrire. Le §10 de
+> `asm.h`) et le linker (`build()`, `link.h`) existent depuis les étages B et C1,
+> et le builder (§2.3) avec l'export DSK ; le §1 décrit le code d'avant. Le §10 de
 > [spec-chaine-outils.md](spec-chaine-outils.md) dit *quoi* découper et par quels
 > étages. Celui-ci dit *où passent les interfaces* et *ce qui doit rester
 > derrière* — la question qui décide si le découpage donne trois modules profonds
@@ -174,18 +174,25 @@ C1 livré seul figerait cette obligation dans tous les appelants.
 ```cpp
 namespace pack {
 struct Artifact { std::string path; std::vector<uint8_t> bytes; };
-std::vector<Artifact> package(const Image &img, const Container &c);
+struct Result { bool ok; std::vector<Artifact> artifacts; /* erreurs, avertissements */ };
+Result package(const link::Image &img, const Dsk &c);   // un par conteneur
 }
 ```
 
-Une liste, parce que le binaire brut, le binaire AMSDOS et le DSK produisent
-plusieurs fichiers (ADR 0007) ; un `path` et non un `name`, parce que le CRO
+Ce qu'un conteneur doit savoir de l'existant — la disquette sur laquelle on
+ajoute — entre comme donnée du conteneur : `package` ne touche pas au disque.
+Le DSK est le seul conteneur écrit ; un conteneur de plus est une surcharge de
+plus, pas un `Container` à variantes inventé d'avance.
+
+Une liste, parce que le binaire brut et le binaire AMSDOS produisent plusieurs
+fichiers (ADR 0007) — le DSK, lui, n'en rend qu'un, la disquette ; un `path` et non un `name`, parce que le CRO
 porte une arborescence. Le SNA reste l'asymétrie assumée de l'ADR 0007 : il ne
 reçoit pas des morceaux mais l'image entière — ce que cette signature lui donne
 déjà, sans cas particulier dans l'interface.
 
 Les `sna::Options` actuelles — `pc`, `sp`, `cpcType` — ne sont pas des options
-d'appel : ce sont des faits de conteneur, ils partent dans `Container`. `pc` vient
+d'appel : ce sont des faits de conteneur, qui iront dans le sien le jour où le
+SNA passera par `pack`. `pc` vient
 de `img.entry` et disparaît. `dumpKo` se dérive des `blocks` à l'intérieur.
 
 ---

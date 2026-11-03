@@ -5,6 +5,7 @@
 //     -o : output binary file (default: <source>.bin)
 //          Le TYPE de sortie se deduit de l'extension, comme pour .sna :
 //          « -o x.fo » assemble SEUL et ecrit l'objet, sans linker.
+//          « -o x.dsk » pose le programme lie sur une disquette AMSDOS (pack.h).
 //          Et une entree « .fo » est un objet DEJA assemble : on le relit au
 //          lieu de l'assembler. C'est ce que la compilation separee demande.
 //     -s : print the symbol table
@@ -77,6 +78,7 @@
 #include "script.h"
 #include "link.h"
 #include "pp.h"
+#include "pack.h"
 #include "sna.h"
 #include "sym.h"
 #include "version.h"
@@ -296,22 +298,27 @@ int main(int argc, char **argv) {
     auto isFo = [](const std::string &p) {
         return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
     };
-    if (path.empty()) { fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]]\n"
-                                     "  --version  : la date de version et la date de compilation, a lire\n"
-                                     "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
-                                     "  file.fo... : des objets deja assembles, a linker\n"
-                                     "  --target N : profil de cible livre (au choix : %s)\n"
-                                     "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
-                                     "  -T f.ld    : le script de linkage — quelle section va ou\n"
-                                     "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n"
-                                     "  -o out.cpr --cpr-bank <n> : ajoute (ou remplace) la banque physique n\n"
-                                     "                              dans le conteneur CPR out.cpr\n"
-                                     "  -o out.cro [--cro-rom <n>] [--cro-group <g>] [--cro-label <texte>]\n"
-                                     "             [--cro-mask <m>] : ajoute (ou remplace) la ROM liee dans\n"
-                                     "                              le groupe g du conteneur de ROMs out.cro\n"
-                                     "  --list-files : la Fermeture (le principal + chaque INCLUDE touche,\n"
-                                     "                 recursivement), un chemin par ligne sur stdout\n",
-                                     namesList().c_str()); return 2; }
+    if (path.empty()) {
+        fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]]\n"
+                        "  --version  : la date de version et la date de compilation, a lire\n"
+                        "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
+                        "  file.fo... : des objets deja assembles, a linker\n"
+                        "  --target N : profil de cible livre (au choix : %s)\n"
+                        "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
+                        "  -T f.ld    : le script de linkage — quelle section va ou\n"
+                        "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n"
+                        "  -o out.cpr --cpr-bank <n> : ajoute (ou remplace) la banque physique n\n"
+                        "                              dans le conteneur CPR out.cpr\n"
+                        "  -o out.cro [--cro-rom <n>] [--cro-group <g>] [--cro-label <texte>]\n"
+                        "             [--cro-mask <m>] : ajoute (ou remplace) la ROM liee dans\n"
+                        "                              le groupe g du conteneur de ROMs out.cro\n"
+                        "  -o out.dsk : ajoute (ou remplace par nom) le programme lie sur la\n"
+                        "               disquette AMSDOS out.dsk, un fichier par morceau\n"
+                        "  --list-files : la Fermeture (le principal + chaque INCLUDE touche,\n"
+                        "                 recursivement), un chemin par ligne sur stdout\n",
+                namesList().c_str());
+        return 2;
+    }
 
     // --list-files : s'arrete a la Fermeture, avant tout le reste (sortie,
     // profil, script) — aucun n'y participe. Un `.fo` n'a plus l'information
@@ -419,6 +426,12 @@ int main(int argc, char **argv) {
     if (wantCro && (dumpOnly || sourceOut || wantFo)) {
         fprintf(stderr, "error: un .cro est linke ; %s ne passe pas par le linker\n",
                 dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : (normalizeOnly ? "--normalize" : "-o *.fo")));
+        return 2;
+    }
+    const bool wantDsk = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".dsk";
+    if (wantDsk && (dumpOnly || sourceOut)) {
+        fprintf(stderr, "error: un .dsk est linke ; %s ecrirait du texte a la place de la disquette\n",
+                dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : "--normalize"));
         return 2;
     }
     if (!croNumbersOk) {
@@ -722,6 +735,40 @@ int main(int argc, char **argv) {
         f.write((const char *)merged.data(), (std::streamsize)merged.size());
         fprintf(stderr, "%s: ROM %s (slot %u, physique %u) dans le groupe %u\n", outPath.c_str(),
                 rom.id.c_str(), rom.slot, rom.physical, croGroup.group);
+        return 0;
+    }
+
+    // 4quater) .dsk : une disquette AMSDOS, par le builder (pack, ADR 0007).
+    // Un fichier par morceau, AJOUTE (ou remplace par nom) sur la disquette
+    // qui peut deja exister. Rien n'est ecrit si l'export echoue : la
+    // disquette d'avant reste intacte.
+    if (wantDsk) {
+        pack::Dsk dsk;
+        dsk.program = inputs.front();
+        {
+            std::ifstream f(outPath, std::ios::binary);
+            if (f) {
+                std::ostringstream ss;
+                ss << f.rdbuf();
+                const std::string s = ss.str();
+                dsk.existing.assign(s.begin(), s.end());
+            }
+        }
+        const pack::Result res = pack::package(img, dsk);
+        for (const asmb::Diagnostic &w : res.warnings) fprintf(stderr, "warning: %s\n", w.message.c_str());
+        if (!res.ok) {
+            for (const asmb::Diagnostic &e : res.errors)
+                fprintf(stderr, "error: %s: %s\n", outPath.c_str(), e.message.c_str());
+            return 1;
+        }
+        const std::vector<uint8_t> &disk = res.artifacts.front().bytes;
+        std::ofstream f(outPath, std::ios::binary);
+        if (!f) {
+            fprintf(stderr, "error: cannot write: %s\n", outPath.c_str());
+            return 2;
+        }
+        f.write((const char *)disk.data(), (std::streamsize)disk.size());
+        fprintf(stderr, "%s: disquette DATA (%zu octets)\n", outPath.c_str(), disk.size());
         return 0;
     }
 

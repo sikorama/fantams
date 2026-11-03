@@ -123,12 +123,23 @@ start:
 
 ```bash
 ./fantams hello.asm -o hello.sna     # snapshot
+./fantams hello.asm -o hello.dsk     # AMSDOS disk: HELLO.BIN, RUN"HELLO"
 ./fantams hello.asm -o hello.bin     # raw binary
 ./fantams hello.asm -o hello.bin -s  # ... and print the symbol table
 ```
 
 The output format is chosen by the extension of `-o`: `.sna` gives a snapshot,
-anything else a raw binary.
+`.dsk` an AMSDOS disk, `.cpr` and `.cro` ROM containers, anything else a raw
+binary.
+
+A `.dsk` gets one AMSDOS file per contiguous run of the image. A program with a
+single run is named after the source (`HELLO.BIN`); a banked program gets one
+file per run, named after its bank and load address (`B05_4000.BIN`: bank 5,
+loaded at `&4000`) — paging the bank in before loading it is up to your own
+loader, which fantams does not generate. The AMSDOS header carries the load
+address and, for the file that contains it, the `run` address. If the disk
+already exists, files are added or replaced by name and the others are kept; a
+file from an older build whose name no longer comes out stays on the disk.
 
 ---
 
@@ -355,7 +366,7 @@ fantams --version
 
 | Option | Effect |
 |---|---|
-| `-o file` | output; `.sna` selects the snapshot backend, `.cpr` and `.cro` the ROM containers, anything else a raw binary |
+| `-o file` | output; `.sna` selects the snapshot backend, `.dsk` an AMSDOS disk, `.cpr` and `.cro` the ROM containers, anything else a raw binary |
 | `-s` | print the symbol table |
 | `-E` | write the unrolled source instead of assembling |
 | `--beautify` | format only — no preprocessing, no assembling |
@@ -371,6 +382,7 @@ fantams --version
 | `--target name` | a built-in target profile (`cpc6128`, …) |
 | `-P file.prof` | a target profile of your own, read by the same code path |
 | `-T file.ld` | the link script — which section goes where |
+| `-o x.dsk` | add (or replace by name) the linked program on the AMSDOS disk `x.dsk` (DATA format, written as EXTENDED), one file per contiguous run |
 | `-o x.cpr --cpr-bank n` | add (or replace) cartridge bank `n` (0..31) in the CPR `x.cpr`, one invocation per bank |
 | `-o x.cro --cro-rom n` | add (or replace) the linked ROM in the CRO `x.cro`, one invocation per ROM. Type, slot and physical number follow from the bank the ROM fills — `rom_hi<n>`, `crom<n>`; `rom_lo` takes no `n` (ADR 0033) |
 | `--cro-group g` | the ROM group to add to (default 0) |
@@ -398,18 +410,19 @@ flowchart LR
 
   IMG --> SNA["Backend sna<br/>(sna::build)"]
   IMG --> RAW["écriture directe<br/>img.bin"]
-  IMG -.->|"planifié — ADR 0007 / spec-chaine-outils<br/>non implémenté"| DEC["Découpage<br/>un par ORG, un englobant tout,<br/>ou un par banque 16K/64K"]
+  IMG --> CPR["Backend cpr<br/>(cpr::merge)"]
+  IMG --> CRO["Backend cro<br/>(cro::merge)"]
+  IMG -->|"pack::package — ADR 0007"| DEC["Découpage<br/>un morceau par emplacement<br/>d'un seul tenant"]
 
-  DEC -.-> MOR["Morceaux<br/>banque + adresse + point d'entrée"]
-  MOR -.->|"sans Encapsulation"| PKG_RAW["agrégés ou livrés seuls"]
-  MOR -.->|"+ en-tête AMSDOS 128o<br/>(Encapsulation)"| MORENC["Morceaux encapsulés AMSDOS"]
+  DEC --> MOR["Morceaux<br/>banque + adresse + point d'entrée"]
+  MOR --> MORENC["Morceaux encapsulés AMSDOS<br/>(en-tête 128 o)"]
 
   SNA --> OUT_SNA[(".sna — Base<br/>état machine entier,<br/>PAS un conteneur")]
   RAW --> OUT_BIN[(".bin / .rom — morceau nu<br/>intervalle contigu,<br/>ni encapsulé ni conteneur")]
-  PKG_RAW -.->|"un fichier par morceau,<br/>pas d'agrégation"| OUT_AMSDOS_ALONE[(".bin AMSDOS seul —<br/>morceau encapsulé,<br/>PAS un conteneur")]
-  PKG_RAW -.->|"agrégés (chunks bruts)"| OUT_CPR[(".cpr — Conteneur<br/>chunks RIFF bruts,<br/>un par banque ROM")]
-  MORENC -.->|"agrégés"| OUT_DSK[(".dsk — Conteneur<br/>fichiers AMSDOS agrégés,<br/>un par morceau/banque")]
-  PKG_RAW -.->|"rangés en groupes de ROMs<br/>(format externe Logon System)"| OUT_CRO[(".cro — Conteneur<br/>chunks RIFF : groupes de ROMs,<br/>type, slot, numéro physique")]
+  MORENC -.->|"planifié : un fichier par morceau,<br/>pas d'agrégation"| OUT_AMSDOS_ALONE[(".bin AMSDOS seul —<br/>morceau encapsulé,<br/>PAS un conteneur")]
+  CPR --> OUT_CPR[(".cpr — Conteneur<br/>chunks RIFF bruts,<br/>un par banque ROM")]
+  MORENC -->|"agrégés"| OUT_DSK[(".dsk — Conteneur<br/>fichiers AMSDOS agrégés,<br/>un par morceau")]
+  CRO --> OUT_CRO[(".cro — Conteneur<br/>chunks RIFF : groupes de ROMs,<br/>type, slot, numéro physique")]
 
   classDef container fill:#cfe8cf,stroke:#2f7a2f;
   classDef base fill:#f7d9a0,stroke:#a5680a;
@@ -420,8 +433,9 @@ flowchart LR
   class OUT_BIN,OUT_AMSDOS_ALONE piece;
 ```
 
-Solid arrows are implemented today; dashed arrows are the target pipeline
-from `docs/spec-chaine-outils.md` and ADR 0007, not yet written. A **format
+Solid arrows are implemented; the dashed one is not. Only the DSK goes through
+the `pack` layer of ADR 0007 (splitting, AMSDOS encapsulation, container);
+`sna`, `cpr` and `cro` each keep their own path. A **format
 de sortie** (output format) is whatever a backend can produce at the end of
 this chain; only some of them are **conteneurs** (formats that aggregate
 several named, encapsulated morceaux — DSK, CPR, CRO). SNA is a format de
@@ -435,8 +449,9 @@ chunks); CRO (external format, Logon System) arranges ROMs into **groups of
 ROMs** and gives each a type, a slot and a physical number — all derived from
 the bank the ROM fills, never declared (ADR 0033) — so it carries ROMs of the
 older CPCs as well as Plus cartridge banks. Backends also differ in shape:
-`sna`/`cpr`/`cro` return one `vector<uint8_t>`, while raw/AMSDOS/DSK return a
-set of named artefacts (per ADR 0007).
+`sna`/`cpr`/`cro` return one `vector<uint8_t>`, while `pack::package` returns a
+set of named artefacts with its diagnostics (ADR 0007) — for a DSK, the one disk
+image.
 
 ---
 

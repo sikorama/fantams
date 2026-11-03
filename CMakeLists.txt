@@ -23,7 +23,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${FANTAMS_MANIFES
 # bibliotheques : la configuration reussit et l'edition de liens meurt sur
 # symboles indefinis. C'est la faute meme que le manifeste supprime, remontee
 # d'un cran. On la refuse a la configuration, en nommant le coupable.
-set(FANTAMS_KNOWN_GROUPS z80 keywords pp parser beautify sna asmlib cpr cro)
+set(FANTAMS_KNOWN_GROUPS z80 keywords pp parser beautify sna asmlib cpr cro pack)
 
 file(STRINGS ${FANTAMS_MANIFEST} _manifest_lines ENCODING UTF-8)
 foreach(_line IN LISTS _manifest_lines)
@@ -100,13 +100,19 @@ add_library(cro STATIC ${FANTAMS_SRC_cro})
 target_include_directories(cro PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cro PUBLIC asmlib)
 
+# Le builder (ADR 0007) : d'une `link::Image` aux artefacts livres. Le DSK est
+# son seul conteneur.
+add_library(pack STATIC ${FANTAMS_SRC_pack})
+target_include_directories(pack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(pack PUBLIC asmlib)
+
 # Outil -E : export de la source préprocessée
 add_executable(ppdump pp_main.cpp)
 target_link_libraries(ppdump PRIVATE pp)
 
 # CLI bout-en-bout : .asm -> .bin
 add_executable(fantams asm_main.cpp)
-target_link_libraries(fantams PRIVATE asmlib beautify cpr cro)
+target_link_libraries(fantams PRIVATE asmlib beautify cpr cro pack)
 
 # Tests. Les sources vivent dans tests/ ; les cibles gardent leur nom, et les
 # répertoires d'inclusion des bibliothèques suffisent à résoudre leurs en-têtes.
@@ -158,6 +164,9 @@ target_link_libraries(cpr_test PRIVATE cpr asmlib)
 
 add_executable(cro_test tests/cro_test.cpp)
 target_link_libraries(cro_test PRIVATE cro asmlib)
+
+add_executable(pack_test tests/pack_test.cpp)
+target_link_libraries(pack_test PRIVATE pack asmlib)
 
 # expr_test manquait ici alors que le Makefile le construit : deux listes de
 # tests, dont une seule complete, est le genre d'ecart qui se paie en CI.
@@ -215,6 +224,12 @@ add_test(NAME accept_cro
 set_tests_properties(accept_cro PROPERTIES
                      ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
 
+add_test(NAME accept_dsk
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_dsk.sh
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(accept_dsk PROPERTIES
+                     ENVIRONMENT "FANTAMS=$<TARGET_FILE:fantams>")
+
 # Une expansion est un espace de noms (ADR 0038) : l'exemple, --sym et les erreurs voulues.
 add_test(NAME accept_expansion
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/accept_expansion.sh
@@ -243,6 +258,7 @@ add_test(NAME beautify COMMAND beautify_test)
 add_test(NAME sna COMMAND sna_test)
 add_test(NAME cpr COMMAND cpr_test)
 add_test(NAME cro COMMAND cro_test)
+add_test(NAME pack COMMAND pack_test)
 
 # LE VERROU : le meme argv, a travers l'adaptateur natif et a travers
 # l'adaptateur WASM, rend les memes octets. C'est ce qu'un artefact perime

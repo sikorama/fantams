@@ -26,7 +26,7 @@ T     = tests
 TESTS = $(T)/z80_test $(T)/expr_test $(T)/pp_test $(T)/parser_test \
         $(T)/asm_test $(T)/opcode_test $(T)/link_test $(T)/fo_test $(T)/script_test \
         $(T)/profile_test $(T)/beautify_test $(T)/sna_test $(T)/cpr_test \
-        $(T)/cro_test $(T)/fold_test $(T)/timing_test
+        $(T)/cro_test $(T)/pack_test $(T)/fold_test $(T)/timing_test
 TCXX  = $(CXX) $(CXXFLAGS) -I.
 
 all: $(TESTS) ppdump fantams
@@ -100,6 +100,9 @@ $(T)/cpr_test: cpr.cpp link.cpp asm.cpp parser.cpp z80.cpp timing.cpp expr.cpp k
 $(T)/cro_test: cro.cpp riff.cpp link.cpp asm.cpp parser.cpp z80.cpp timing.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cro_test.cpp cro.h riff.h link.h profile.h
 	$(TCXX) cro.cpp riff.cpp link.cpp asm.cpp parser.cpp z80.cpp timing.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/cro_test.cpp -o $@
 
+$(T)/pack_test: pack.cpp link.cpp asm.cpp parser.cpp z80.cpp timing.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/pack_test.cpp pack.h link.h asm.h profile.h
+	$(TCXX) pack.cpp link.cpp asm.cpp parser.cpp z80.cpp timing.cpp expr.cpp keywords.cpp opcode.cpp lex.cpp script.cpp profile.cpp profiles.cpp $(T)/pack_test.cpp -o $@
+
 # Le pliage (ADR 0034) : la source deroulee et sa forme pliee s'assemblent aux
 # memes octets. Il faut donc les deux etages, preprocesseur et assembleur.
 $(T)/fold_test: pp.cpp asm.cpp link.cpp sym.cpp parser.cpp z80.cpp timing.cpp expr.cpp keywords.cpp opcode.cpp script.cpp lex.cpp $(T)/fold_test.cpp pp.h asm.h link.h
@@ -132,6 +135,7 @@ test: $(TESTS) fantams ppdump
 	@$(T)/accept_const.sh
 	@$(T)/accept_list_files.sh
 	@$(T)/accept_cro.sh
+	@$(T)/accept_dsk.sh
 	@$(T)/accept_expansion.sh
 	@$(T)/accept_syntax_examples.sh
 	@$(T)/no_machine_names.sh

@@ -68,3 +68,7 @@ cpr        cpr.cpp
 # groupe de ROMs.
 cro        riff.cpp
 cro        cro.cpp
+
+# Le builder (ADR 0007) : decoupage, en-tete AMSDOS et disquette DSK, d'une
+# Image liee aux artefacts livres.
+pack       pack.cpp

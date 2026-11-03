@@ -882,6 +882,17 @@ struct Linker {
         return (f.logical + baseOf(f.relocSection) + s.offset) & 0xFFFF;
     }
 
+    // La banque de rangement d'un label, -1 pour une constante. Le rangement
+    // décidé par le script l'emporte, comme dans `place`.
+    int symbolBank(const asmb::Object &obj, const asmb::Symbol &s) const {
+        if (s.isConst || s.frag < 0 || (size_t)s.frag >= obj.fragments.size()) return -1;
+        const asmb::Fragment &f = obj.fragments[(size_t)s.frag];
+        const int forced = storeOf(f.relocSection);
+        if (forced >= 0) return forced;
+        if (f.bank >= 0) return f.bank;
+        return (((f.addr + baseOf(f.relocSection) + s.offset) & 0xFFFF) >> 14) & 3;
+    }
+
     void place(const asmb::Object &obj, uint16_t siteBase) {
         for (const asmb::Fragment &f : obj.fragments) {
             const int fragAddr = f.addr + baseOf(f.relocSection);
@@ -1642,6 +1653,7 @@ Image build(const std::vector<asmb::Object> &objects,
     // nom qu'il n'a pas résolu a déjà produit son erreur, à sa ligne. En dire
     // une seconde ici ne ferait que doubler le diagnostic.
     lk.out.runAddress = lk.out.loadAddress;
+    lk.out.runBank = (lk.out.loadAddress >> 14) & 3;
     int entryFrom = -1;
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const asmb::Object &obj = objects[oi];
@@ -1658,10 +1670,16 @@ Image build(const std::vector<asmb::Object> &objects,
         // donc à la base zéro pour une source qui n'en a aucun. Le placement
         // calculé le rend certain.
         int run = (int)obj.entry.value;
+        int runBank = -1;
         if (!obj.entry.name.empty()) {
             bool found = false;
             for (const asmb::Symbol &s : obj.symbolTable)
-                if (s.name == obj.entry.name) { run = (int)lk.symbolAddress(obj, s); found = true; break; }
+                if (s.name == obj.entry.name) {
+                    run = (int)lk.symbolAddress(obj, s);
+                    runBank = lk.symbolBank(obj, s);
+                    found = true;
+                    break;
+                }
             if (!found) {
                 auto it = obj.symbols.find(obj.entry.name);
                 if (it != obj.symbols.end()) run = (int)it->second;
@@ -1677,6 +1695,7 @@ Image build(const std::vector<asmb::Object> &objects,
         }
         entryFrom = (int)oi;
         lk.out.runAddress = (uint16_t)run;
+        lk.out.runBank = runBank >= 0 ? runBank : (lk.out.runAddress >> 14) & 3;
         lk.warnRunDisplaced(obj, run);
     }
 
@@ -1706,9 +1725,7 @@ Image build(const std::vector<asmb::Object> &objects,
                 const asmb::Fragment &f = obj.fragments[(size_t)s.frag];
                 const int fragAddr = f.addr + lk.baseOf(f.relocSection);
                 out.store = (fragAddr + s.offset) & 0xFFFF;
-                const int forced = lk.storeOf(f.relocSection);
-                out.bank = forced >= 0 ? forced
-                                       : (f.bank < 0 ? ((out.store >> 14) & 3) : f.bank);
+                out.bank = lk.symbolBank(obj, s);
                 // Dans une section relocalisable, la VALEUR aussi n'etait
                 // connue que d'ici : c'est tout l'objet de l'amendement a
                 // l'ADR 0019.

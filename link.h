@@ -76,6 +76,10 @@ struct Image {
     std::vector<uint8_t> bin;
     uint16_t loadAddress = 0;      // adresse du premier octet de `bin`
     uint16_t runAddress = 0;       // point d'entrée résolu ; = loadAddress sans `run`
+    // La banque de rangement du point d'entrée : celle du label que `run` nomme,
+    // la banque des 64 K de base qui voit l'adresse sinon. Une adresse seule ne
+    // dit pas si `&4000` est `main` ou une banque d'extension vue en `w1`.
+    int runBank = 0;
     // La table exportable, avec des adresses définitives. Dans l'ordre des noms ;
     // le tri du fichier (banque, rangement, nom) appartient au format, pas ici.
     std::vector<Symbol> symbolTable;

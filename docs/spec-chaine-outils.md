@@ -4,7 +4,8 @@
 > doit faire, ce qu'il doit refuser de faire, et par quelles informations il passe
 > la main aux deux outils qui le suivent. Les étages A, B, C1 et E sont faits
 > (sections, fichier objet, linker qui place, profils et symboles de commutation —
-> leur suivi est dans `docs/archive/`) ; C2, D et le builder ne le sont pas. Le §10
+> leur suivi est dans `docs/archive/`) ; le builder ne porte que l'export DSK
+> (ADR 0007), et C2 et D ne sont pas faits. Le §10
 > décrit le code tel qu'il était avant l'étage A, et les encadrés « Correction »
 > font autorité sur le corps du texte.
 
