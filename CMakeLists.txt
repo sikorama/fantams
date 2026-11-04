@@ -100,11 +100,11 @@ add_library(cro STATIC ${FANTAMS_SRC_cro})
 target_include_directories(cro PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cro PUBLIC asmlib)
 
-# Le builder (ADR 0007) : d'une `link::Image` aux artefacts livres. Le DSK est
-# son seul conteneur.
+# Le builder (ADR 0007) : d'une `link::Image` aux artefacts livres, pour chaque
+# Destination.
 add_library(pack STATIC ${FANTAMS_SRC_pack})
 target_include_directories(pack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(pack PUBLIC asmlib)
+target_link_libraries(pack PUBLIC asmlib cpr cro sna)
 
 # Outil -E : export de la source préprocessée
 add_executable(ppdump pp_main.cpp)

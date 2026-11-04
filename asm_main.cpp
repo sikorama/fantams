@@ -71,7 +71,6 @@
 //          existant, seul ce qui est passe change.
 #include "asm.h"
 #include "beautify.h"
-#include "cpr.h"
 #include "cro.h"
 #include "fo.h"
 #include "profile.h"
@@ -79,7 +78,6 @@
 #include "link.h"
 #include "pp.h"
 #include "pack.h"
-#include "sna.h"
 #include "sym.h"
 #include "version.h"
 
@@ -96,6 +94,13 @@ static bool readFile(const std::string &path, std::string &out) {
     std::ostringstream ss; ss << f.rdbuf();
     out = ss.str();
     return true;
+}
+
+// Les octets d'un fichier qui existe deja sur disque ; vide s'il n'existe pas.
+static std::vector<uint8_t> readBytes(const std::string &path) {
+    std::string s;
+    if (!readFile(path, s)) return {};
+    return std::vector<uint8_t>(s.begin(), s.end());
 }
 
 int main(int argc, char **argv) {
@@ -408,15 +413,6 @@ int main(int argc, char **argv) {
                 dumpOnly ? "-E" : (beautifyOnly ? "--beautify" : (normalizeOnly ? "--normalize" : "-o *.fo")));
         return 2;
     }
-    if (wantCpr && !hasCprBank) {
-        fprintf(stderr, "error: -o *.cpr demande --cpr-bank <n> : la banque physique (0..31) que "
-                        "CE lien produit — le script -T choisit l'etat, rien d'autre ne le sait\n");
-        return 2;
-    }
-    if (wantCpr && (cprBank < 0 || cprBank > 31)) {
-        fprintf(stderr, "error: --cpr-bank %d hors de 0..31\n", cprBank);
-        return 2;
-    }
     const bool wantCro = outPath.size() >= 4 && outPath.substr(outPath.size() - 4) == ".cro";
     if (!croFlags.empty() && !wantCro) {
         fprintf(stderr, "error: %s ne s'applique qu'a une sortie .cro : %s\n",
@@ -441,21 +437,16 @@ int main(int argc, char **argv) {
 
     // Aucun repli silencieux sur une base : un repli sur des zeros produirait un
     // .sna qui demarre et plante au premier appel firmware (ADR 0012).
-    sna::Base base;
-    bool hasBase = false;
+    // La base est LUE ici (le builder ne touche pas au disque) ; c'est le
+    // builder qui la valide (ADR 0012).
+    std::vector<uint8_t> baseBytes;
     if (!basePath.empty()) {
         std::string raw;
         if (!readFile(basePath, raw)) {
             fprintf(stderr, "error: base introuvable : %s\n", basePath.c_str());
             return 2;
         }
-        std::vector<uint8_t> bytes(raw.begin(), raw.end());
-        std::string err;
-        if (!sna::parseBase(bytes, base, err)) {
-            fprintf(stderr, "error: %s : %s\n", basePath.c_str(), err.c_str());
-            return 2;
-        }
-        hasBase = true;
+        baseBytes.assign(raw.begin(), raw.end());
     }
 
     // Les entrees `.fo` sont des objets DEJA assembles : on les relit, on ne les
@@ -662,167 +653,61 @@ int main(int argc, char **argv) {
     }
     if (dumpOnly) return 0;   // -E --sym : les deux sorties demandees sont ecrites
 
-    // 4bis) .cpr : une banque de cartouche, AJOUTEE (ou remplacee) dans un
-    // conteneur RIFF/AMS! qui peut deja exister sur disque. Ni le dump plat
-    // ni le .sna ne s'appliquent ici — le controle des banques >= 8 qui suit
-    // ne le concerne pas non plus : une banque `crom<n>` (STORE 16) est
-    // justement CE que ce chemin sait porter, la ou le dump plat refuse.
-    if (wantCpr) {
-        std::vector<uint8_t> bankOut;
-        std::string cprErr;
-        if (!cpr::extractOne(img, prof, bankOut, cprErr)) {
-            if (!cprErr.empty()) {
-                fprintf(stderr, "error: %s\n", cprErr.c_str());
-                return 1;
-            }
-            fprintf(stderr, "error: rien n'a ete ecrit sur l'axe cart_rom : le script -T place-t-il "
-                            "bien une section sur cette banque ?\n");
-            return 1;
+    // 4) L'export, par le builder (pack, ADR 0007) : ce qui existe deja sur
+    // disque y entre comme donnee, et rien n'est ecrit si l'export echoue — le
+    // fichier d'avant reste intact. Sans extension connue, le binaire brut.
+    {
+        pack::Destination dest;
+        if (wantSna) {
+            pack::Sna sn;
+            sn.base = baseBytes;
+            sn.baseName = basePath;
+            dest = sn;
+        } else if (wantCpr) {
+            pack::Cpr c;
+            if (hasCprBank) c.bank = cprBank;
+            c.existing = readBytes(outPath);
+            c.profile = &prof;
+            dest = c;
+        } else if (wantCro) {
+            pack::Cro c;
+            if (croRom >= 0) c.rom = croRom;
+            c.group = croGroup;
+            // Le libelle d'un groupe cree : le nom du fichier, sans chemin ni
+            // extension — ce que font les .cro de CROMANAGER.
+            const size_t slash = outPath.find_last_of("/\\");
+            const std::string base = slash == std::string::npos ? outPath : outPath.substr(slash + 1);
+            c.defaultLabel = base.substr(0, base.size() - 4);
+            c.existing = readBytes(outPath);
+            c.profile = &prof;
+            dest = c;
+        } else if (wantDsk) {
+            pack::Dsk d;
+            d.program = inputs.front();
+            d.existing = readBytes(outPath);
+            dest = d;
+        } else {
+            dest = pack::Raw{};
         }
-        std::vector<uint8_t> existing;
-        {
-            std::ifstream f(outPath, std::ios::binary);
-            if (f) {
-                std::ostringstream ss; ss << f.rdbuf();
-                const std::string s = ss.str();
-                existing.assign(s.begin(), s.end());
-            }
-        }
-        std::vector<uint8_t> merged = cpr::merge(existing, cprBank, bankOut, prof, cprErr);
-        if (!cprErr.empty()) {
-            fprintf(stderr, "error: %s: %s\n", outPath.c_str(), cprErr.c_str());
-            return 1;
-        }
-        std::ofstream f(outPath, std::ios::binary);
-        if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
-        f.write((const char *)merged.data(), (std::streamsize)merged.size());
-        fprintf(stderr, "%s: banque physique %d (%zu octets), %zu banque(s) au total\n",
-                outPath.c_str(), cprBank, bankOut.size(), (merged.size() - 12) / (8 + 16384));
-        return 0;
-    }
-
-    // 4ter) .cro : une ROM, AJOUTEE (ou remplacee) dans un groupe de ROMs d'un
-    // conteneur RIFF/CRO qui peut deja exister sur disque (ADR 0033). Meme
-    // geste que le .cpr, et pour la meme raison : `n` n'est pas dans l'image.
-    if (wantCro) {
-        cro::Rom rom;
-        std::string croErr;
-        if (!cro::extractOne(img, prof, croRom, rom, croErr)) {
-            fprintf(stderr, "error: %s\n", croErr.c_str());
-            return 1;
-        }
-        std::vector<uint8_t> existing;
-        {
-            std::ifstream f(outPath, std::ios::binary);
-            if (f) {
-                std::ostringstream ss; ss << f.rdbuf();
-                const std::string s = ss.str();
-                existing.assign(s.begin(), s.end());
-            }
-        }
-        // Le libelle d'un groupe cree : le nom du fichier, sans chemin ni
-        // extension — ce que font les .cro de CROMANAGER.
-        const size_t slash = outPath.find_last_of("/\\");
-        const std::string base = slash == std::string::npos ? outPath : outPath.substr(slash + 1);
-        const std::string label = base.substr(0, base.size() - 4);
-        std::vector<uint8_t> merged = cro::merge(existing, rom, croGroup, label, croErr);
-        if (merged.empty()) {
-            fprintf(stderr, "error: %s: %s\n", outPath.c_str(), croErr.c_str());
-            return 1;
-        }
-        std::ofstream f(outPath, std::ios::binary);
-        if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
-        f.write((const char *)merged.data(), (std::streamsize)merged.size());
-        fprintf(stderr, "%s: ROM %s (slot %u, physique %u) dans le groupe %u\n", outPath.c_str(),
-                rom.id.c_str(), rom.slot, rom.physical, croGroup.group);
-        return 0;
-    }
-
-    // 4quater) .dsk : une disquette AMSDOS, par le builder (pack, ADR 0007).
-    // Un fichier par morceau, AJOUTE (ou remplace par nom) sur la disquette
-    // qui peut deja exister. Rien n'est ecrit si l'export echoue : la
-    // disquette d'avant reste intacte.
-    if (wantDsk) {
-        pack::Dsk dsk;
-        dsk.program = inputs.front();
-        {
-            std::ifstream f(outPath, std::ios::binary);
-            if (f) {
-                std::ostringstream ss;
-                ss << f.rdbuf();
-                const std::string s = ss.str();
-                dsk.existing.assign(s.begin(), s.end());
-            }
-        }
-        const pack::Result res = pack::package(img, dsk);
+        const pack::Result res = pack::package(img, dest);
         for (const asmb::Diagnostic &w : res.warnings) fprintf(stderr, "warning: %s\n", w.message.c_str());
-        if (!res.ok) {
+        if (!res.ok || res.artifacts.empty()) {
             for (const asmb::Diagnostic &e : res.errors)
                 fprintf(stderr, "error: %s: %s\n", outPath.c_str(), e.message.c_str());
             return 1;
         }
-        const std::vector<uint8_t> &disk = res.artifacts.front().bytes;
+        const std::vector<uint8_t> &bytes = res.artifacts.front().bytes;
         std::ofstream f(outPath, std::ios::binary);
         if (!f) {
             fprintf(stderr, "error: cannot write: %s\n", outPath.c_str());
             return 2;
         }
-        f.write((const char *)disk.data(), (std::streamsize)disk.size());
-        fprintf(stderr, "%s: disquette DATA (%zu octets)\n", outPath.c_str(), disk.size());
-        return 0;
+        f.write((const char *)bytes.data(), (std::streamsize)bytes.size());
+        for (const std::string &n : res.notes) fprintf(stderr, "%s: %s\n", outPath.c_str(), n.c_str());
     }
 
-    // Le dump est PLAT : 64 Ko s'il ne sort pas des banques 0..3, 128 Ko pour le
-    // 6128 complet. Au-dela de la banque 7, aucun dump plat ne peut porter les
-    // octets : il faudrait les chunks MEM du v3 (ADR 0006). On le dit en nommant
-    // les banques, plutot que d'ecrire un fichier ampute qui aurait l'air correct.
-    int dumpKo = 64;
-    std::string tooHigh;
-    for (int b : img.banksWritten) {
-        if (b >= 8) tooHigh += (tooHigh.empty() ? "" : ", ") + std::to_string(b);
-        else if (b >= 4) dumpKo = 128;
-    }
-    if (!tooHigh.empty()) {
-        fprintf(stderr, "error: bank(s) %s written, beyond bank 7: a flat dump stops at 128K. "
-                        "Assembling there works, exporting does not yet — it needs the chunked v3 "
-                        "snapshot.\n", tooHigh.c_str());
-        return 1;
-    }
-
-    // 4) write out : .sna -> snapshot ; otherwise raw binary
-    bool asSna = wantSna;
-    std::vector<uint8_t> data;
-    if (asSna) {
-        // Le backend de snapshot n'est pas touche a cet etage : il prend une
-        // image plate et une coverage separee, et c'est le linker qui les lui
-        // reconstitue. Sa signature est une dette reelle, mais c'est celle du
-        // builder.
-        const link::Flat flat = link::flatten(img);
-        sna::Options o; o.pc = img.runAddress;
-        data = sna::build(flat.bytes, o, hasBase ? &base : nullptr,
-                          hasBase ? &flat.covered : nullptr, dumpKo);
-    } else {
-        // Le binaire brut est un intervalle contigu d'adresses logiques : il n'a
-        // pas de place pour dire « et ces octets-la sont en banque 5 ».
-        if (dumpKo > 64)
-            fprintf(stderr, "warning: banks beyond the base 64K were written; a raw binary cannot "
-                            "carry them — export a .sna to keep them\n");
-        data = img.bin;
-    }
-    std::ofstream f(outPath, std::ios::binary);
-    if (!f) { fprintf(stderr, "error: cannot write: %s\n", outPath.c_str()); return 2; }
-    f.write((const char *)data.data(), (std::streamsize)data.size());
-    if (asSna) {
-        if (hasBase)
-            fprintf(stderr, "base: %s (CPCType %d)\n", basePath.c_str(), (int)base.cpcType);
-        else
-            fprintf(stderr, "base: aucune (hors du code assemble, la memoire vaut zero)\n");
-        fprintf(stderr, "%s: snapshot (%zu bytes), PC=0x%04X\n", outPath.c_str(), data.size(), img.runAddress);
-    }
-    else
-        fprintf(stderr, "%s: %zu bytes @ 0x%04X\n", outPath.c_str(), data.size(), img.loadAddress);
-
-    if (showSyms)
+    // -s : les symboles, apres un snapshot ou un binaire brut seulement.
+    if (showSyms && !wantCpr && !wantCro && !wantDsk)
         for (auto &s : out.symbols)
             fprintf(stderr, "  %-20s = 0x%04llX\n", s.first.c_str(), (unsigned long long)(s.second & 0xFFFF));
     return 0;

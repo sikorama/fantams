@@ -14,9 +14,12 @@ image → découpage → morceaux → encapsulation → conteneur → artefacts
 Un **morceau** porte `{ banque, adresse, point d'entrée, octets }`. Son nom
 n'est pas déclaré mais dérivé.
 
-La couche est `pack` (`pack.h`), et `package(image, conteneur)` son entrée. Le
-DSK est le seul conteneur qui y passe ; `sna`, `cpr` et `cro` ont chacun
-leur chemin, sans découpage ni encapsulation partagés.
+La couche est `pack` (`pack.h`), le **builder**, et `package(image,
+destination)` son entrée. Tous les formats de sortie y passent, avec le même
+contrat : une image et une destination qui entrent, des artefacts, des
+diagnostics et un bilan qui sortent, sans que rien ne touche au disque. La
+profondeur, elle, dépend du format : seul le DSK passe par le découpage et
+l'encapsulation.
 
 ## Contexte
 
@@ -51,17 +54,24 @@ Les autres découpages envisagés — un morceau englobant tout, un par banque d
 16 K, un par groupe de 64 K — et l'option qui choisirait entre eux attendent un
 besoin réel.
 
-## Le SNA reste à part
+## Ce qui ne passe pas par le découpage
 
 Le SNA n'est pas un conteneur de morceaux mais un état machine : il lui faut la
 mémoire entière plus des registres, une palette et un état CRTC, que `sna.cpp`
-fabrique. Il ne reçoit donc pas de morceaux nommés mais l'image entière.
+fabrique. Il prend donc l'image entière, posée sur une base s'il y en a une.
 Reconnaître cette asymétrie coûte moins cher que d'inventer un découpage « tout
 en un » pour le faire ressembler aux autres.
 
-Le jour où il transportera ses banques en chunks `MEM0`, `MEM1`… de la version 3
-(au-delà de 128 K, ADR 0006), leur compression RLE sera facultative — un lecteur
-accepte les deux. Un piège à ne pas manquer : l'encodage est
+Le CPR et le CRO prennent la banque de ROM entière que l'image remplit, complétée
+par des zéros : une ROM se livre d'un bloc, et la découper en morceaux pour les
+recoller aussitôt n'apporterait rien. Une image ne porte qu'une banque, le
+numéro physique n'y figurant pas (ADR 0033) : il entre par la destination.
+
+Le binaire brut prend l'intervalle contigu que le linker produit déjà.
+
+Le jour où le SNA transportera ses banques en chunks `MEM0`, `MEM1`… de la
+version 3 (au-delà de 128 K, ADR 0006), leur compression RLE sera facultative —
+un lecteur accepte les deux. Un piège à ne pas manquer : l'encodage est
 `0xE5 <compte> <valeur>`, et un octet `0xE5` littéral doit être échappé en
 `0xE5 0x00`, sur deux octets et sans troisième. Cette exception est vérifiée
 empiriquement par la fonction `decodeRLE` du harnais de comparaison de
@@ -97,9 +107,9 @@ l'exécution — où charger le bloc — plutôt qu'une étiquette arbitraire.
 ses diagnostics. Le fond de l'ADR 0002 — aucun chargement dynamique — n'est pas
 touché.
 
-**`package` ne touche pas au disque.** Ce que le conteneur doit savoir de
-l'existant — une disquette sur laquelle ajouter des fichiers — entre comme
-donnée, et c'est l'appelant qui écrit les artefacts.
+**`package` ne touche pas au disque.** Ce que la destination doit savoir de
+l'existant — une disquette, une cartouche ou un conteneur de ROMs à compléter,
+une base — entre comme donnée, et c'est l'appelant qui écrit les artefacts.
 
 Sur un DSK, les huit caractères d'un nom dérivé sont saturés : il ne reste aucune
 place pour un préfixe. Le seul degré de liberté restant est l'extension, sur trois

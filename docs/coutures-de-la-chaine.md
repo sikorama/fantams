@@ -169,31 +169,31 @@ par ses propres tests ; elles ne montent pas dans l'interface. Sans quoi
 l'appelant devrait savoir qu'après `place()` il faut appeler `check()`, et l'étage
 C1 livré seul figerait cette obligation dans tous les appelants.
 
-### 2.3 Builder : `std::vector<Artifact> package(image, container)`
+### 2.3 Builder : `Result package(image, destination)`
 
 ```cpp
 namespace pack {
 struct Artifact { std::string path; std::vector<uint8_t> bytes; };
-struct Result { bool ok; std::vector<Artifact> artifacts; /* erreurs, avertissements */ };
-Result package(const link::Image &img, const Dsk &c);   // un par conteneur
+using Destination = std::variant<Raw, Sna, Cpr, Cro, Dsk>;
+struct Result { bool ok; std::vector<Artifact> artifacts; /* erreurs, avertissements, notes */ };
+Result package(const link::Image &img, const Destination &dest);
 }
 ```
 
-Ce qu'un conteneur doit savoir de l'existant — la disquette sur laquelle on
-ajoute — entre comme donnée du conteneur : `package` ne touche pas au disque.
-Le DSK est le seul conteneur écrit ; un conteneur de plus est une surcharge de
-plus, pas un `Container` à variantes inventé d'avance.
+Une seule entrée pour tous les formats de sortie : l'appelant traduit ses
+options en une destination, appelle `package`, affiche diagnostics et bilan et
+écrit les artefacts. Ce qu'un format doit savoir de l'existant — la disquette, la
+cartouche ou le conteneur de ROMs à compléter, la base d'un snapshot — et ce que
+l'image ne porte pas — le numéro physique d'une banque de ROM — entrent comme
+données de la destination : `package` ne touche pas au disque, et les refus
+portant sur une valeur sont ses diagnostics.
 
 Une liste, parce que le binaire brut et le binaire AMSDOS produisent plusieurs
-fichiers (ADR 0007) — le DSK, lui, n'en rend qu'un, la disquette ; un `path` et non un `name`, parce que le CRO
-porte une arborescence. Le SNA reste l'asymétrie assumée de l'ADR 0007 : il ne
-reçoit pas des morceaux mais l'image entière — ce que cette signature lui donne
-déjà, sans cas particulier dans l'interface.
-
-Les `sna::Options` actuelles — `pc`, `sp`, `cpcType` — ne sont pas des options
-d'appel : ce sont des faits de conteneur, qui iront dans le sien le jour où le
-SNA passera par `pack`. `pc` vient
-de `img.entry` et disparaît. `dumpKo` se dérive des `blocks` à l'intérieur.
+fichiers (ADR 0007) — chaque format actuel n'en rend qu'un ; un `path` et non un
+`name`, parce que le CRO porte une arborescence. La profondeur dépend du format :
+seul le DSK passe par le découpage et l'encapsulation ; le CPR et le CRO prennent
+une banque entière, le SNA l'image entière (l'asymétrie de l'ADR 0007), sans cas
+particulier dans l'interface.
 
 ---
 

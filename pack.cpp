@@ -1,6 +1,10 @@
 // pack.cpp - Le builder : découpage, en-tête AMSDOS, disquette DSK (ADR 0007)
 #include "pack.h"
 
+#include "cpr.h"
+#include "cro.h"
+#include "sna.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -287,9 +291,114 @@ struct Volume {
     }
 };
 
-} // namespace
+// Le dump plat d'un snapshot : 64 Ko s'il ne sort pas des banques 0..3, 128 Ko
+// pour le 6128 complet. Au-delà de la banque 7, aucun dump plat ne peut porter
+// les octets : il faudrait les chunks MEM du v3 (ADR 0006). On le dit en nommant
+// les banques, plutôt que d'écrire un fichier amputé qui aurait l'air correct.
+// 0 et une erreur dans `r` dans ce cas.
+int dumpKo(const link::Image &img, Result &r) {
+    int ko = 64;
+    std::string tooHigh;
+    for (int b : img.banksWritten) {
+        if (b >= 8) tooHigh += (tooHigh.empty() ? "" : ", ") + std::to_string(b);
+        else if (b >= 4) ko = 128;
+    }
+    if (tooHigh.empty()) return ko;
+    r.ok = false;
+    r.errors.push_back({"", 0, "bank(s) " + tooHigh + " written, beyond bank 7: a flat dump stops at "
+                                                      "128K. Assembling there works, exporting does not yet — it needs the "
+                                                      "chunked v3 snapshot."});
+    return 0;
+}
 
-Result package(const link::Image &img, const Dsk &dsk) {
+Result packageRaw(const link::Image &img) {
+    Result r;
+    const int ko = dumpKo(img, r);
+    if (!ko) return r;
+    if (ko > 64)
+        r.warnings.push_back({"", 0, "banks beyond the base 64K were written; a raw binary cannot "
+                                     "carry them — export a .sna to keep them"});
+    char line[64];
+    std::snprintf(line, sizeof line, "%zu bytes @ 0x%04X", img.bin.size(), img.loadAddress);
+    r.notes.push_back(line);
+    r.artifacts.push_back({"", img.bin});
+    return r;
+}
+
+Result packageSna(const link::Image &img, const Sna &s) {
+    Result r;
+    sna::Base base;
+    const bool hasBase = !s.base.empty();
+    std::string error;
+    if (hasBase && !sna::parseBase(s.base, base, error)) {
+        r.ok = false;
+        r.errors.push_back({"", 0, s.baseName + " : " + error});
+        return r;
+    }
+    const int ko = dumpKo(img, r);
+    if (!ko) return r;
+    const link::Flat flat = link::flatten(img);
+    sna::Options o;
+    o.pc = img.runAddress;
+    std::vector<uint8_t> data = sna::build(flat.bytes, o, hasBase ? &base : nullptr,
+                                           hasBase ? &flat.covered : nullptr, ko);
+    r.notes.push_back(hasBase ? "base: " + s.baseName + " (CPCType " + std::to_string(base.cpcType) + ")"
+                              : "base: aucune (hors du code assemble, la memoire vaut zero)");
+    char line[80];
+    std::snprintf(line, sizeof line, "snapshot (%zu bytes), PC=0x%04X", data.size(), img.runAddress);
+    r.notes.push_back(line);
+    r.artifacts.push_back({"", std::move(data)});
+    return r;
+}
+
+Result packageCpr(const link::Image &img, const Cpr &c) {
+    Result r;
+    auto fail = [&](const std::string &msg) {
+        r.ok = false;
+        r.errors.push_back({"", 0, msg});
+        return r;
+    };
+    if (!c.bank)
+        return fail("-o *.cpr demande --cpr-bank <n> : la banque physique (0..31) que CE lien "
+                    "produit — le script -T choisit l'etat, rien d'autre ne le sait");
+    const int n = *c.bank;
+    if (n < 0 || n > 31) return fail("--cpr-bank " + std::to_string(n) + " hors de 0..31");
+    std::vector<uint8_t> bank;
+    std::string error;
+    if (!cpr::extractOne(img, *c.profile, bank, error)) {
+        if (!error.empty()) return fail(error);
+        return fail("rien n'a ete ecrit sur l'axe cart_rom : le script -T place-t-il "
+                    "bien une section sur cette banque ?");
+    }
+    const std::vector<uint8_t> merged = cpr::merge(c.existing, n, bank, *c.profile, error);
+    if (!error.empty()) return fail(error);
+    r.notes.push_back("banque physique " + std::to_string(n) + " (" +
+                      std::to_string(bank.size()) + " octets), " +
+                      std::to_string((merged.size() - 12) / (8 + 16384)) + " banque(s) au total");
+    r.artifacts.push_back({"", merged});
+    return r;
+}
+
+Result packageCro(const link::Image &img, const Cro &c) {
+    Result r;
+    auto fail = [&](const std::string &msg) {
+        r.ok = false;
+        r.errors.push_back({"", 0, msg});
+        return r;
+    };
+    cro::Rom rom;
+    std::string error;
+    if (!cro::extractOne(img, *c.profile, c.rom.value_or(-1), rom, error)) return fail(error);
+    std::vector<uint8_t> merged = cro::merge(c.existing, rom, c.group, c.defaultLabel, error);
+    if (merged.empty()) return fail(error);
+    r.notes.push_back("ROM " + rom.id + " (slot " + std::to_string(rom.slot) + ", physique " +
+                      std::to_string(rom.physical) + ") dans le groupe " +
+                      std::to_string(c.group.group));
+    r.artifacts.push_back({"", std::move(merged)});
+    return r;
+}
+
+Result packageDsk(const link::Image &img, const Dsk &dsk) {
     Result r;
     const std::vector<Piece> pieces = split(img);
     Volume vol;
@@ -329,8 +438,20 @@ Result package(const link::Image &img, const Dsk &dsk) {
                       img.runAddress);
         r.warnings.push_back({"", 0, msg});
     }
-    r.artifacts.push_back({"", vol.serialize()});
+    std::vector<uint8_t> disk = vol.serialize();
+    r.notes.push_back("disquette DATA (" + std::to_string(disk.size()) + " octets)");
+    r.artifacts.push_back({"", std::move(disk)});
     return r;
+}
+
+} // namespace
+
+Result package(const link::Image &img, const Destination &dest) {
+    if (std::holds_alternative<Raw>(dest)) return packageRaw(img);
+    if (const Sna *s = std::get_if<Sna>(&dest)) return packageSna(img, *s);
+    if (const Cpr *c = std::get_if<Cpr>(&dest)) return packageCpr(img, *c);
+    if (const Cro *c = std::get_if<Cro>(&dest)) return packageCro(img, *c);
+    return packageDsk(img, std::get<Dsk>(dest));
 }
 
 } // namespace pack

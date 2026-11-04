@@ -357,6 +357,19 @@ simple intervalle contigu). Chapeaute les trois sans les confondre — tous les
 formats de sortie ne sont pas des conteneurs.
 _Éviter_ : container (dans ce sens élargi), format d'export
 
+**Builder** :
+L'étage qui va de l'image liée aux artefacts livrés, pour tous les formats de
+sortie (le module `pack`, ADR 0007). Il ne touche pas au disque : l'existant
+entre par la destination, et c'est l'appelant qui écrit.
+_Éviter_ : packer, backend (qui désigne la part propre à un format)
+
+**Destination** :
+Ce que reçoit le builder avec l'image : un format de sortie, et ce qu'il faut
+savoir de l'existant pour le produire — la disquette, la cartouche ou le
+conteneur de ROMs à compléter, la base d'un snapshot, le numéro de banque ou de
+ROM que l'image ne porte pas.
+_Éviter_ : cible, sortie (trop larges)
+
 **Base** :
 L'image mémoire préexistante sur laquelle les octets du source sont écrits, avec
 l'état matériel qui va avec : un snapshot de référence pris après le boot d'une
@@ -446,8 +459,9 @@ de sorte qu'un placement faux fait rougir un test le jour où on l'écrit.
 _Éviter_ : éditeur de liens, loader, packer
 
 **Backend** :
-Producteur d'un format de sortie à partir de l'image mémoire assemblée (`sna`,
-`cpr`, `cro`, `dsk`). Sélectionné à la compilation, jamais chargé dynamiquement.
+La part propre à un format de sortie (`sna`, `cpr`, `cro`, et dans `pack` le DSK
+et le binaire brut), que le builder compose. Sélectionné à la compilation, jamais
+chargé dynamiquement.
 _Éviter_ : plugin, exporter, writer
 
 ### Mesure

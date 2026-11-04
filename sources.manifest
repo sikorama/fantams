@@ -60,8 +60,8 @@ asmlib     profile.cpp
 asmlib     profiles.cpp
 asmlib     sym.cpp
 
-# Le conteneur cartouche CPC Plus (.cpr) : agrège plusieurs Image déjà liées
-# séparément (asmlib), une par banque physique de ROM.
+# Le format cartouche CPC Plus (.cpr) : une banque par Image, fusionnee dans la
+# cartouche existante par le builder.
 cpr        cpr.cpp
 
 # Le conteneur de ROMs (.cro, ADR 0033) : une ROM par Image, rangee dans un
@@ -69,6 +69,6 @@ cpr        cpr.cpp
 cro        riff.cpp
 cro        cro.cpp
 
-# Le builder (ADR 0007) : decoupage, en-tete AMSDOS et disquette DSK, d'une
-# Image liee aux artefacts livres.
+# Le builder (ADR 0007) : d'une Image liee aux artefacts livres, pour chaque
+# Destination.
 pack       pack.cpp

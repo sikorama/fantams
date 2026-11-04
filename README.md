@@ -408,11 +408,12 @@ flowchart LR
   PRF["Profil de cible"] -.-> LNK
   LNK --> IMG["Image<br/>blocks, bin, coverage,<br/>loadAddress, runAddress"]
 
-  IMG --> SNA["Backend sna<br/>(sna::build)"]
-  IMG --> RAW["écriture directe<br/>img.bin"]
-  IMG --> CPR["Backend cpr<br/>(cpr::merge)"]
-  IMG --> CRO["Backend cro<br/>(cro::merge)"]
-  IMG -->|"pack::package — ADR 0007"| DEC["Découpage<br/>un morceau par emplacement<br/>d'un seul tenant"]
+  IMG --> PACK["Builder<br/>(pack::package)<br/>image + destination — ADR 0007"]
+  PACK --> SNA["Backend sna<br/>(sna::build)<br/>image entière"]
+  PACK --> RAW["img.bin<br/>intervalle contigu"]
+  PACK --> CPR["Backend cpr<br/>(cpr::merge)<br/>banque entière"]
+  PACK --> CRO["Backend cro<br/>(cro::merge)<br/>banque entière"]
+  PACK --> DEC["Découpage<br/>un morceau par emplacement<br/>d'un seul tenant"]
 
   DEC --> MOR["Morceaux<br/>banque + adresse + point d'entrée"]
   MOR --> MORENC["Morceaux encapsulés AMSDOS<br/>(en-tête 128 o)"]
@@ -433,9 +434,13 @@ flowchart LR
   class OUT_BIN,OUT_AMSDOS_ALONE piece;
 ```
 
-Solid arrows are implemented; the dashed one is not. Only the DSK goes through
-the `pack` layer of ADR 0007 (splitting, AMSDOS encapsulation, container);
-`sna`, `cpr` and `cro` each keep their own path. A **format
+Solid arrows are implemented; the dashed one is not. Every output format goes
+through the `pack` layer of ADR 0007, the **builder**: `pack::package(image,
+destination)` takes the linked image plus a **destination** (the output format,
+and what must be known of what already exists on disk) and returns named
+artefacts, diagnostics and summary notes, without touching the disk. Only the
+DSK goes through splitting and AMSDOS encapsulation; CPR and CRO take a whole ROM
+bank, SNA the whole image, raw binary the contiguous range. A **format
 de sortie** (output format) is whatever a backend can produce at the end of
 this chain; only some of them are **conteneurs** (formats that aggregate
 several named, encapsulated morceaux — DSK, CPR, CRO). SNA is a format de
@@ -444,14 +449,11 @@ sortie but not a conteneur: it writes onto a whole preexisting machine
 AMSDOS-prefixed binary are neither: each is a single morceau delivered on
 its own — encapsulated or not, it is never aggregated with siblings. DSK
 aggregates the *same* AMSDOS-encapsulated morceaux instead of delivering
-them loose; CPR aggregates morceaux without encapsulation (raw RIFF
+them loose; CPR aggregates whole ROM banks without encapsulation (raw RIFF
 chunks); CRO (external format, Logon System) arranges ROMs into **groups of
 ROMs** and gives each a type, a slot and a physical number — all derived from
 the bank the ROM fills, never declared (ADR 0033) — so it carries ROMs of the
-older CPCs as well as Plus cartridge banks. Backends also differ in shape:
-`sna`/`cpr`/`cro` return one `vector<uint8_t>`, while `pack::package` returns a
-set of named artefacts with its diagnostics (ADR 0007) — for a DSK, the one disk
-image.
+older CPCs as well as Plus cartridge banks.
 
 ---
 

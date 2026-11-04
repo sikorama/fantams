@@ -190,6 +190,86 @@ static link::Image linkText(const std::string &src, const char *file) {
     return link::build({asmb::assembleText(src, file)});
 }
 
+// --- Lecteur RIFF minimal, d'après le format ---------------------------------
+// « RIFF » <taille LE32> <forme sur 4> puis des chunks « id <taille LE32>
+// octets », chacun paddé à une taille paire.
+
+struct Chunk {
+    std::string id;
+    std::vector<uint8_t> data;
+};
+
+static uint32_t le32(const std::vector<uint8_t> &d, size_t at) {
+    return d[at] | d[at + 1] << 8 | d[at + 2] << 16 | (uint32_t)d[at + 3] << 24;
+}
+
+// La forme RIFF, vide si `d` n'est pas un RIFF bien formé.
+static std::string riffForm(const std::vector<uint8_t> &d) {
+    if (d.size() < 12 || std::string((const char *)d.data(), 4) != "RIFF") return "";
+    if (le32(d, 4) + 8 != d.size()) return "";
+    return std::string((const char *)d.data() + 8, 4);
+}
+
+// Les chunks qui se suivent dans `d` à partir de `at`.
+static std::vector<Chunk> chunksFrom(const std::vector<uint8_t> &d, size_t at) {
+    std::vector<Chunk> out;
+    while (at + 8 <= d.size()) {
+        const uint32_t n = le32(d, at + 4);
+        if (at + 8 + n > d.size()) break;
+        out.push_back({std::string((const char *)d.data() + at, 4),
+                       std::vector<uint8_t>(d.begin() + at + 8, d.begin() + at + 8 + n)});
+        at += 8 + n + (n & 1);
+    }
+    return out;
+}
+
+static std::vector<Chunk> riffChunks(const std::vector<uint8_t> &d) {
+    if (riffForm(d).empty()) return {};
+    return chunksFrom(d, 12);
+}
+
+// Le premier enfant `id` d'un chunk conteneur (GRRO, « ROM » du CRO : ses
+// enfants suivent directement son en-tête).
+static Chunk child(const Chunk &c, const char *id) {
+    for (const Chunk &k : chunksFrom(c.data, 0))
+        if (k.id == id) return k;
+    return {};
+}
+
+static std::vector<Chunk> children(const Chunk &c, const char *id) {
+    std::vector<Chunk> out;
+    for (const Chunk &k : chunksFrom(c.data, 0))
+        if (k.id == id) out.push_back(k);
+    return out;
+}
+
+static uint32_t u32(const Chunk &c) { return c.data.size() >= 4 ? le32(c.data, 0) : 0xDEADBEEF; }
+static std::string text(const Chunk &c) {
+    return std::string(c.data.begin(), std::find(c.data.begin(), c.data.end(), 0));
+}
+
+// Un source lié sur `pr` par le corps de MEMORY_MAP `map`.
+static link::Image linkMapped(const std::string &src, const std::string &map,
+                              const profile::Profile &pr) {
+    return link::build({asmb::assembleText(src, "rom.asm")},
+                       script::parse("MEMORY_MAP { " + map + " }", "rom.ld"), pr);
+}
+
+// Une banque de cartouche `n`, liée avec le profil `cpcplus` : deux octets,
+// 1 puis `n`, au début de la banque.
+static link::Image linkCart(int n, const profile::Profile &pr) {
+    return linkMapped("        section cart, \"ro\"\n        db 1, " + std::to_string(n) + "\n",
+                      "CONFIG cart_rom.w0<" + std::to_string(n) + "> { w0 { SECTION cart } }", pr);
+}
+
+// Une ROM `section rom` d'octets 1 puis `tag`, placée par `config` sur la
+// fenêtre `window` (« rom_upper.on<7> » en w3, « rom_lower.on » en w0…).
+static link::Image linkRom(const std::string &config, const char *window, int tag,
+                           const profile::Profile &pr) {
+    return linkMapped("        section rom, \"ro\"\n        db 1, " + std::to_string(tag) + "\n",
+                      "CONFIG " + config + " { " + window + " { SECTION rom } }", pr);
+}
+
 int main() {
     printf("Tests export DSK\n");
 
@@ -209,6 +289,10 @@ int main() {
         ok("un seul artefact", r.artifacts.size() == 1);
         const Disk k = readDisk(r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes);
         ok("une disquette EXTENDED", k.valid && k.extended);
+        ok("le bilan donne la taille de la disquette",
+           r.notes == std::vector<std::string>{"disquette DATA (" +
+                                               std::to_string(r.artifacts.empty() ? 0 : r.artifacts[0].bytes.size()) +
+                                               " octets)"});
         ok("40 pistes, une face", k.tracks == 40 && k.sides == 1);
         ok("un seul fichier, DEMO.BIN",
            fileNames(k) == std::vector<std::string>{"DEMO.BIN"});
@@ -585,6 +669,357 @@ int main() {
         const std::vector<uint8_t> f = readFile(k, "REV.BIN");
         ok("chargé en &8000, octets dans l'ordre des adresses",
            readHeader(f).load == 0x8000 && payload(f) == std::vector<uint8_t>({1, 2, 3}));
+    }
+
+    printf("Tests export CPR\n");
+    const profile::Profile plus = profile::parse(profile::builtin("cpcplus"), "cpcplus");
+
+    // --- une banque, une cartouche neuve : un chunk cbNN ------------------
+    {
+        const link::Image img = linkCart(3, plus);
+        ok("la banque se lie", img.ok);
+        pack::Cpr cpr;
+        cpr.bank = 3;
+        cpr.profile = &plus;
+        const pack::Result r = pack::package(img, cpr);
+
+        ok("pas d'erreur", r.ok && r.errors.empty());
+        ok("un seul artefact", r.artifacts.size() == 1);
+        const std::vector<uint8_t> out = r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes;
+        ok("un RIFF de forme AMS!", riffForm(out) == "AMS!");
+        const std::vector<Chunk> c = riffChunks(out);
+        ok("un seul chunk, cb03", c.size() == 1 && c[0].id == "cb03");
+        ok("16 Ko, les octets écrits puis des zéros",
+           c.size() == 1 && c[0].data.size() == 16384 && c[0].data[0] == 1 && c[0].data[1] == 3 &&
+               c[0].data[2] == 0 && c[0].data[16383] == 0);
+        ok("le bilan", r.notes == std::vector<std::string>{
+                                      "banque physique 3 (16384 octets), 1 banque(s) au total"});
+    }
+
+    // --- banque 19, écrite par la fenêtre haute (cart_rom_hi) : même banque
+    // crom<n> que cart_rom, donc un chunk cb13 ------------------------------
+    {
+        const link::Image img = link::build(
+            {asmb::assembleText("        section cart, \"ro\"\n        db 0x99\n", "b19.asm")},
+            script::parse("MEMORY_MAP { CONFIG cart_rom_hi.on<19> { w3 { SECTION cart } } }", "b19.ld"),
+            plus);
+        ok("la banque 19 se lie", img.ok);
+        pack::Cpr cpr;
+        cpr.bank = 19;
+        cpr.profile = &plus;
+        const pack::Result r = pack::package(img, cpr);
+        const std::vector<Chunk> c = riffChunks(r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes);
+        ok("un chunk cb13, l'octet en tête", c.size() == 1 && c[0].id == "cb13" && c[0].data[0] == 0x99);
+    }
+
+    // --- la banque physique, absente ou hors de 0..31 : refus, sans artefact
+    for (int bank : {-1, 32}) {
+        pack::Cpr cpr;
+        if (bank >= 0) cpr.bank = bank;
+        cpr.profile = &plus;
+        const pack::Result r = pack::package(linkCart(0, plus), cpr);
+        const std::string msg = r.errors.empty() ? "" : r.errors[0].message;
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok(bank < 0 ? "le refus demande --cpr-bank" : "le refus dit 32 hors de 0..31",
+           bank < 0 ? msg.find("demande --cpr-bank") != std::string::npos
+                    : msg == "--cpr-bank 32 hors de 0..31");
+    }
+
+    // --- une cartouche existante : une banque ajoutée, puis remplacée -----
+    {
+        auto put = [&](int n, std::vector<uint8_t> existing) {
+            pack::Cpr cpr;
+            cpr.bank = n;
+            cpr.profile = &plus;
+            cpr.existing = std::move(existing);
+            return pack::package(linkCart(n, plus), cpr);
+        };
+        const pack::Result a = put(0, {});
+        const pack::Result b = put(5, a.artifacts.empty() ? std::vector<uint8_t>() : a.artifacts[0].bytes);
+        const std::vector<uint8_t> two = b.artifacts.empty() ? std::vector<uint8_t>() : b.artifacts[0].bytes;
+        std::vector<Chunk> c = riffChunks(two);
+        ok("deux chunks, cb00 puis cb05", c.size() == 2 && c[0].id == "cb00" && c[1].id == "cb05");
+        ok("chacun ses octets", c.size() == 2 && c[0].data[1] == 0 && c[1].data[1] == 5);
+        ok("le bilan compte deux banques",
+           b.notes == std::vector<std::string>{"banque physique 5 (16384 octets), 2 banque(s) au total"});
+
+        // La banque 0 relinkée avec d'autres octets prend la place de l'ancienne.
+        pack::Cpr again;
+        again.bank = 0;
+        again.profile = &plus;
+        again.existing = two;
+        const pack::Result r = pack::package(linkCart(7, plus), again);
+        c = riffChunks(r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes);
+        ok("toujours deux chunks, cb00 remplacé sur place",
+           c.size() == 2 && c[0].id == "cb00" && c[0].data[1] == 7 && c[1].id == "cb05");
+    }
+
+    // --- une cartouche existante mal formée : refus, sans artefact --------
+    {
+        pack::Cpr cpr;
+        cpr.bank = 0;
+        cpr.profile = &plus;
+        cpr.existing = {'j', 'u', 'n', 'k'};
+        const pack::Result r = pack::package(linkCart(0, plus), cpr);
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok("le refus dit que ce n'est pas un CPR",
+           !r.errors.empty() && r.errors[0].message.find("pas un conteneur CPR") != std::string::npos);
+    }
+
+    // --- un profil sans axe cart_rom : refus nommant l'axe ----------------
+    {
+        const profile::Profile classic = profile::parse(profile::builtin("cpc6128"), "cpc6128");
+        pack::Cpr cpr;
+        cpr.bank = 0;
+        cpr.profile = &classic;
+        const pack::Result r = pack::package(linkText("        org 0x8000\n        db 1\n", "p.asm"), cpr);
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok("le refus nomme cart_rom",
+           !r.errors.empty() && r.errors[0].message.find("cart_rom") != std::string::npos);
+    }
+
+    // --- rien d'écrit sur la banque de cartouche : refus ------------------
+    {
+        pack::Cpr cpr;
+        cpr.bank = 0;
+        cpr.profile = &plus;
+        const pack::Result r = pack::package(linkText("        org 0x8000\n        db 1\n", "p.asm"), cpr);
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok("le refus dit que rien n'est écrit sur cart_rom",
+           !r.errors.empty() && r.errors[0].message.find("rien n'a ete ecrit sur l'axe cart_rom") !=
+                                    std::string::npos);
+    }
+
+    printf("Tests export CRO\n");
+    const profile::Profile cpc = profile::parse(profile::builtin("cpc6128"), "cpc6128");
+
+    // --- une ROM haute, un .cro neuf : un groupe 0 libellé d'après le nom --
+    {
+        const link::Image img = linkRom("rom_upper.on<7>", "w3", 7, cpc);
+        ok("la ROM se lie", img.ok);
+        pack::Cro cro;
+        cro.rom = 7;
+        cro.profile = &cpc;
+        cro.defaultLabel = "sys";
+        const pack::Result r = pack::package(img, cro);
+
+        ok("pas d'erreur", r.ok && r.errors.empty());
+        ok("un seul artefact", r.artifacts.size() == 1);
+        const std::vector<uint8_t> out = r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes;
+        ok("un RIFF de forme « CRO »", riffForm(out) == "CRO ");
+        const std::vector<Chunk> top = riffChunks(out);
+        ok("un seul groupe", top.size() == 1 && top[0].id == "GRRO");
+        const Chunk g = top.empty() ? Chunk() : top[0];
+        ok("groupe 0, libellé sys, sans masque",
+           u32(child(g, "GNUM")) == 0 && text(child(g, "GLBL")) == "sys" &&
+               u32(child(g, "GMSK")) == 0xFFFFFFFF);
+        const std::vector<Chunk> roms = children(g, "ROM ");
+        ok("une ROM", roms.size() == 1);
+        const Chunk rom = roms.empty() ? Chunk() : roms[0];
+        ok("hi07 : ROM haute, slot 7, physique 7",
+           text(child(rom, "RID ")) == "hi07" && u32(child(rom, "RTYP")) == 1 &&
+               u32(child(rom, "RLOG")) == 7 && u32(child(rom, "RPHY")) == 7);
+        const Chunk data = child(rom, "RDT ");
+        ok("16 Ko, les octets écrits puis des zéros",
+           data.data.size() == 16384 && data.data[0] == 1 && data.data[1] == 7 && data.data[2] == 0);
+        ok("le bilan", r.notes == std::vector<std::string>{"ROM hi07 (slot 7, physique 7) dans le groupe 0"});
+    }
+
+    // --- un .cro existant : une seconde ROM ajoutée au groupe, ses options
+    // gardées ; puis remplacée sur place ----------------------------------
+    {
+        auto put = [&](const link::Image &img, int n, std::vector<uint8_t> existing,
+                       cro::GroupOptions group) {
+            pack::Cro cro;
+            cro.rom = n;
+            cro.profile = &cpc;
+            cro.defaultLabel = "sys";
+            cro.group = group;
+            cro.existing = std::move(existing);
+            return pack::package(img, cro);
+        };
+        cro::GroupOptions labelled;
+        labelled.group = 2;
+        labelled.hasLabel = true;
+        labelled.label = "jeux";
+        cro::GroupOptions plain;
+        plain.group = 2;
+        const pack::Result a = put(linkRom("rom_upper.on<7>", "w3", 7, cpc), 7, {}, labelled);
+        const pack::Result b = put(linkRom("rom_upper.on<15>", "w3", 15, cpc), 15,
+                                   a.artifacts.empty() ? std::vector<uint8_t>() : a.artifacts[0].bytes, plain);
+        std::vector<Chunk> top = riffChunks(b.artifacts.empty() ? std::vector<uint8_t>() : b.artifacts[0].bytes);
+        ok("toujours un seul groupe", top.size() == 1);
+        Chunk g = top.empty() ? Chunk() : top[0];
+        ok("groupe 2, le libellé déclaré d'abord est gardé",
+           u32(child(g, "GNUM")) == 2 && text(child(g, "GLBL")) == "jeux");
+        std::vector<Chunk> roms = children(g, "ROM ");
+        ok("hi07 puis hi15", roms.size() == 2 && text(child(roms[0], "RID ")) == "hi07" &&
+                                 text(child(roms[1], "RID ")) == "hi15");
+        ok("le bilan nomme le groupe",
+           b.notes == std::vector<std::string>{"ROM hi15 (slot 15, physique 15) dans le groupe 2"});
+
+        const pack::Result c = put(linkRom("rom_upper.on<7>", "w3", 0x77, cpc), 7,
+                                   b.artifacts.empty() ? std::vector<uint8_t>() : b.artifacts[0].bytes, plain);
+        top = riffChunks(c.artifacts.empty() ? std::vector<uint8_t>() : c.artifacts[0].bytes);
+        g = top.empty() ? Chunk() : top[0];
+        roms = children(g, "ROM ");
+        ok("hi07 remplacée sur place, sans doublon",
+           roms.size() == 2 && text(child(roms[0], "RID ")) == "hi07" &&
+               child(roms[0], "RDT ").data.size() > 1 && child(roms[0], "RDT ").data[1] == 0x77);
+    }
+
+    // --- les refus : chacun sans artefact, nommant sa raison -------------
+    {
+        auto refused = [&](const char *what, const link::Image &img, std::optional<int> n,
+                           std::vector<uint8_t> existing, const profile::Profile &pr,
+                           const char *reason) {
+            pack::Cro cro;
+            cro.rom = n;
+            cro.profile = &pr;
+            cro.defaultLabel = "sys";
+            cro.existing = std::move(existing);
+            const pack::Result r = pack::package(img, cro);
+            const std::string msg = r.errors.empty() ? "" : r.errors[0].message;
+            ok(what, !r.ok && r.artifacts.empty() && msg.find(reason) != std::string::npos);
+        };
+        const link::Image hi = linkRom("rom_upper.on<7>", "w3", 7, cpc);
+        const link::Image lo = linkRom("rom_lower.on", "w0", 0, cpc);
+        refused("rom_hi sans numéro", hi, std::nullopt, {}, cpc, "--cro-rom");
+        refused("rom_lo avec un numéro", lo, 3, {}, cpc, "n'a pas de numero");
+        refused("aucune banque de ROM", linkText("        org 0x8000\n        db 1\n", "p.asm"), 7, {}, cpc,
+                "aucune banque de ROM");
+        refused("deux banques de ROM",
+                linkMapped("        section rom, \"ro\"\n        db 1\n"
+                           "        section rom2, \"ro\"\n        db 2\n",
+                           "CONFIG rom_lower.on { w0 { SECTION rom } } "
+                           "CONFIG rom_upper.on<7> { w3 { SECTION rom2 } }",
+                           cpc),
+                7, {}, cpc, "plusieurs banques de ROM");
+        refused("un .cro existant mal formé", hi, 7, {'j', 'u', 'n', 'k'}, cpc, "");
+
+        // Une ROM de cartouche dans un groupe de ROMs de l'ancienne gamme.
+        pack::Cro first;
+        first.rom = 7;
+        first.profile = &cpc;
+        first.defaultLabel = "sys";
+        const pack::Result classic = pack::package(hi, first);
+        refused("deux familles dans un groupe", linkCart(3, plus), 3,
+                classic.artifacts.empty() ? std::vector<uint8_t>() : classic.artifacts[0].bytes, plus,
+                "ne mele pas les deux familles");
+    }
+
+    printf("Tests export SNA\n");
+    const char *prog = "        org 0x8000\n"
+                       "        run start\n"
+                       "start:  ld a,1\n"
+                       "        ret\n";
+
+    // --- sans base : en-tête, 64 Ko, PC au run ----------------------------
+    {
+        const pack::Result r = pack::package(linkText(prog, "p.asm"), pack::Sna{});
+        ok("pas d'erreur", r.ok && r.errors.empty());
+        ok("un seul artefact", r.artifacts.size() == 1);
+        const std::vector<uint8_t> out = r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes;
+        ok("256 + 64 Ko", out.size() == 256 + 65536);
+        ok("signature MV - SNA", out.size() > 8 && std::string((const char *)out.data(), 8) == "MV - SNA");
+        ok("PC = &8000", out.size() > 0x24 && out[0x23] == 0x00 && out[0x24] == 0x80);
+        ok("le programme en &8000",
+           out.size() == 256 + 65536 && out[256 + 0x8000] == 0x3E && out[256 + 0x8001] == 0x01 &&
+               out[256 + 0x8002] == 0xC9);
+        ok("le bilan", r.notes == std::vector<std::string>{
+                                      "base: aucune (hors du code assemble, la memoire vaut zero)",
+                                      "snapshot (65792 bytes), PC=0x8000"});
+    }
+
+    // --- une banque étendue écrite : 128 Ko --------------------------------
+    {
+        const link::Image img = linkMapped("        section ext, \"rw\"\n        db 0x55\n",
+                                           "CONFIG ram.ext_w1<1> { w1 { SECTION ext } }", cpc);
+        const pack::Result r = pack::package(img, pack::Sna{});
+        const std::vector<uint8_t> out = r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes;
+        ok("256 + 128 Ko", out.size() == 256 + 131072);
+        ok("l'octet en banque 5 (ext1)", out.size() == 256 + 131072 && out[256 + 5 * 16384] == 0x55);
+    }
+
+    // --- au-delà de la banque 7 : refus nommant les banques, sans artefact --
+    {
+        const pack::Result r = pack::package(linkRom("rom_upper.on<7>", "w3", 7, cpc), pack::Sna{});
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok("le refus nomme la banque 9",
+           !r.errors.empty() && r.errors[0].message.find("bank(s) 9 written, beyond bank 7") == 0);
+    }
+
+    // --- une base v2 : posée sous le programme, son en-tête repris ---------
+    // Un en-tête minimal écrit d'après le format : signature, version 2,
+    // dump de 64 Ko, CPCType 2 ; la mémoire de la base vaut &AA partout.
+    auto baseV2 = [](uint8_t version) {
+        std::vector<uint8_t> b(256 + 65536, 0xAA);
+        std::fill(b.begin(), b.begin() + 256, 0);
+        std::memcpy(b.data(), "MV - SNA", 8);
+        b[0x10] = version;
+        b[0x6B] = 64;
+        b[0x6D] = 2;
+        return b;
+    };
+    {
+        pack::Sna sna;
+        sna.base = baseV2(2);
+        sna.baseName = "boot.sna";
+        const pack::Result r = pack::package(linkText(prog, "p.asm"), sna);
+        const std::vector<uint8_t> out = r.artifacts.empty() ? std::vector<uint8_t>() : r.artifacts[0].bytes;
+        ok("pas d'erreur", r.ok && r.errors.empty());
+        ok("256 + 64 Ko", out.size() == 256 + 65536);
+        ok("le programme posé sur la base",
+           out.size() == 256 + 65536 && out[256 + 0x8000] == 0x3E && out[256 + 0x7FFF] == 0xAA &&
+               out[256 + 0x8003] == 0xAA);
+        ok("le PC suit le run", out.size() > 0x24 && out[0x23] == 0x00 && out[0x24] == 0x80);
+        ok("le bilan nomme la base",
+           !r.notes.empty() && r.notes[0] == "base: boot.sna (CPCType 2)");
+    }
+
+    // --- une base refusée : sans artefact, la raison nommée -----------------
+    {
+        auto refused = [&](const char *what, std::vector<uint8_t> base, const char *reason) {
+            pack::Sna sna;
+            sna.base = std::move(base);
+            sna.baseName = "boot.sna";
+            const pack::Result r = pack::package(linkText(prog, "p.asm"), sna);
+            const std::string msg = r.errors.empty() ? "" : r.errors[0].message;
+            ok(what, !r.ok && r.artifacts.empty() && msg.find("boot.sna") != std::string::npos &&
+                         msg.find(reason) != std::string::npos);
+        };
+        refused("base sans signature", {'j', 'u', 'n', 'k'}, "signature");
+        refused("base en version 3", baseV2(3), "reenregistre-la en version 2");
+    }
+
+    printf("Tests export binaire brut\n");
+
+    // --- l'intervalle contigu, chargé à son adresse -------------------------
+    {
+        const pack::Result r = pack::package(linkText(prog, "p.asm"), pack::Raw{});
+        ok("pas d'erreur ni d'avertissement", r.ok && r.errors.empty() && r.warnings.empty());
+        ok("les trois octets du programme",
+           r.artifacts.size() == 1 && r.artifacts[0].bytes == std::vector<uint8_t>({0x3E, 0x01, 0xC9}));
+        ok("le bilan", r.notes == std::vector<std::string>{"3 bytes @ 0x8000"});
+    }
+
+    // --- une banque étendue écrite : l'avertissement, le binaire quand même --
+    {
+        const link::Image img = linkMapped("        section ext, \"rw\"\n        db 0x55\n",
+                                           "CONFIG ram.ext_w1<1> { w1 { SECTION ext } }", cpc);
+        const pack::Result r = pack::package(img, pack::Raw{});
+        ok("accepté", r.ok && r.artifacts.size() == 1);
+        ok("l'avertissement dit les banques perdues",
+           r.warnings.size() == 1 &&
+               r.warnings[0].message.find("banks beyond the base 64K were written") == 0);
+    }
+
+    // --- au-delà de la banque 7 : refus, comme le SNA ----------------------
+    {
+        const pack::Result r = pack::package(linkRom("rom_upper.on<7>", "w3", 7, cpc), pack::Raw{});
+        ok("refusé, sans artefact", !r.ok && r.artifacts.empty());
+        ok("le refus nomme la banque 9",
+           !r.errors.empty() && r.errors[0].message.find("bank(s) 9 written, beyond bank 7") == 0);
     }
 
     return summary();

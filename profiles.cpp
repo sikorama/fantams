@@ -261,7 +261,7 @@ SELECT cart_rom = OUT GA_PORT, %10100000 | CODE
 //
 // `crom<n>`, la MEME banque (STORE 16) que `cart_rom`, et non `rom_hi<n>` :
 // c'est ce qui fait qu'une section placee ici finit dans le meme chunk que
-// `cpr::build` (qui ne lit que STORE 16), quelle que soit la fenetre par
+// `cpr::extractOne` (qui ne lit que STORE 16), quelle que soit la fenetre par
 // laquelle son contenu a ete ecrit — bas via `cart_rom`, haut via cet axe.
 CONFIG SET cart_rom_hi OVER ram {
     off   [CODE 1]  { }

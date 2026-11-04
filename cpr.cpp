@@ -29,8 +29,7 @@ const profile::Bank *findCartRomBank(const profile::Profile &profile) {
 }
 
 // `false` (sans erreur) si l'axe n'existe pas : c'est `error` qui distingue
-// « pas d'axe » (les deux appelants le nomment differemment) de « rien
-// d'ecrit ». Les deux chemins publics le relisent APRES cet appel.
+// « pas d'axe » de « rien d'ecrit ».
 bool hasCartRomAxis(const profile::Profile &profile) {
     for (const profile::Axis &a : profile.axes)
         if (a.name == "cart_rom") return true;
@@ -38,8 +37,7 @@ bool hasCartRomAxis(const profile::Profile &profile) {
 }
 
 // Les 16 Ko d'UNE image sur la banque `crom<n>` du profil — sans dire quel
-// `n` : c'est le coeur commun a `build()` (plusieurs images, un `n` par
-// entree de `perBank`) et `extractOne()` (une image, `n` inconnu d'ici).
+// `n`, inconnu d'ici.
 std::pair<bool, std::vector<uint8_t>> bankBytes(const link::Image &img,
                                                  const profile::Profile &profile) {
     const profile::Bank *bank = findCartRomBank(profile);
@@ -124,22 +122,6 @@ bool parseContainer(const std::vector<uint8_t> &container,
 }
 
 } // namespace
-
-std::vector<uint8_t> build(const std::map<int, link::Image> &perBank,
-                            const profile::Profile &profile, std::string &error) {
-    if (!hasCartRomAxis(profile)) {
-        error = "le profil ne declare pas l'axe 'cart_rom' : rien a mettre en cartouche";
-        return {};
-    }
-    error.clear();
-
-    std::vector<std::pair<int, std::vector<uint8_t>>> chunks;  // (n, 16 Ko)
-    for (const auto &kv : perBank) {
-        auto [wrote, data] = bankBytes(kv.second, profile);
-        if (wrote) chunks.emplace_back(kv.first, std::move(data));
-    }
-    return serialize(chunks);
-}
 
 bool extractOne(const link::Image &img, const profile::Profile &profile,
                  std::vector<uint8_t> &bankOut, std::string &error) {
