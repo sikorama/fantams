@@ -64,8 +64,9 @@ par `/api/quit` avec vérification du code de sortie.
 ## 3. Charger un livrable — `POST /api/media`
 
 Un seul endpoint charge **tous** les conteneurs, corps = octets bruts du
-fichier, réponse `{ok}`. Le format est **autodétecté par octets magiques**, comme
-partout dans l'application :
+fichier, réponse `{"cmd_seq":N}` : un simple accusé de mise en file, le
+chargement a lieu ensuite dans la boucle d'émulation. Le format est
+**autodétecté par octets magiques**, comme partout dans l'application :
 
 | Conteneur | Détection | Effet |
 |-----------|-----------|-------|
@@ -75,6 +76,12 @@ partout dans l'application :
 | `.cro` | contenu (magie `RIFF…CRO `) | **déclenche un hard reset** |
 | `.bin` / `.amsdos` | **l'extension du paramètre `name`, pas le contenu** | un binaire à en-tête AMSDOS se charge directement ; un binaire brut sans en-tête exige une adresse explicite : `name=jeu@4000.bin`, l'entrée en option : `name=jeu@4000@4000.bin`. Quatre chiffres hexa, 16 bits à plat — **pas de préfixe `Bnn:`** (le `:` est illégal dans un nom de fichier Windows) |
 | `.cdt` | — | **limitation connue** : pas de signature de contenu et pas routé par extension non plus, tombe dans le chemin binaire brut et ne se charge pas comme cassette |
+
+**Confirmer le chargement** : sonder `GET /api/ping` jusqu'à
+`emu.applied_cmd_seq >= N`, puis chercher `N` dans `emu.failed_cmds`
+(`{cmd_seq, error}`). Absent = chargé ; présent = refusé, avec la raison. Une
+réponse HTTP 200 ne prouve donc rien. `tests/epreuve_snapshot.sh` fait ce
+sondage.
 
 **C'est le résultat le plus important de ce relevé** : les conteneurs
 qu'AMSpiriT sait charger — SNA, DSK, CPR, CRO, binaire à en-tête AMSDOS — sont

@@ -137,8 +137,26 @@ done
 # par les octets magiques, ici « MV - SNA ».
 rep=$(curl -sf -X POST --data-binary "@$SNA" "$BASE/api/media?name=marqueur.sna" 2>&1) \
     || fail "POST /api/media a echoue : $rep"
-echo "$rep" | grep -q '"ok"[[:space:]]*:[[:space:]]*true' \
-    || fail "l'emulateur a refuse l'artefact : $rep"
+
+# Le POST n'est qu'un accuse de mise en file : {"cmd_seq":N}. Le chargement se
+# fait plus tard, dans la boucle d'emulation. On attend que /api/ping annonce
+# applied_cmd_seq >= N, puis on cherche N dans failed_cmds : absent = charge.
+CMD=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["cmd_seq"])' "$rep" 2>/dev/null) \
+    || fail "reponse de /api/media sans cmd_seq : $rep"
+verdict=""
+for _ in $(seq 1 100); do
+    ping=$(curl -sf --max-time 2 "$BASE/api/ping") || ping=""
+    [ -n "$ping" ] && verdict=$(python3 -c '
+import json,sys
+j = json.loads(sys.argv[1]); n = int(sys.argv[2])
+if j["emu"]["applied_cmd_seq"] < n:
+    sys.exit(0)
+err = [f["error"] for f in j["emu"]["failed_cmds"] if f["cmd_seq"] == n]
+print("refuse : " + err[0] if err else "ok")' "$ping" "$CMD" 2>/dev/null)
+    [ -n "$verdict" ] && break
+    sleep 0.1
+done
+[ "$verdict" = "ok" ] || fail "l'emulateur n'a pas charge l'artefact (cmd_seq $CMD) : ${verdict:-jamais applique}"
 
 # --- 6. Laisser tourner --------------------------------------------------
 F3=$(frames_of "$(curl -sf "$BASE/api/ping")") || fail "/api/ping apres chargement"
