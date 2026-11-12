@@ -120,12 +120,7 @@ public:
         for (int iter = 0; iter < 32; ++iter) {
             bool changed = false;
             for (const auto &d : equDefs_) {
-                dollarOverride_ = &d.dollar;
-                const std::string savedGlobal = currentGlobal_;
-                currentGlobal_ = d.global;
-                const expr::Value v = evalExprValue(d.text);
-                currentGlobal_ = savedGlobal;
-                dollarOverride_ = nullptr;
+                const expr::Value v = evalEquDef(d);
                 auto it = symbols_.find(d.name);
                 if (it == symbols_.end() || !sameValue(it->second, v)) {
                     setSymbol(d.name, v);
@@ -765,13 +760,38 @@ private:
     // qui qualifie ses `.local` : la relecture à point fixe a lieu une fois la
     // passe finie, quand pc_ vaut la fin du programme et currentGlobal_ le dernier
     // label.
-    struct EquDef {
-        std::string name, text;
+    struct EquLine {
         expr::Value dollar;
         std::string global;
     };
+    struct EquDef {
+        std::string name, text;
+        EquLine line;
+    };
     std::vector<EquDef> equDefs_;
-    const expr::Value *dollarOverride_ = nullptr;
+    // Le contexte de la ligne d'EQU en cours de relecture ; nul partout ailleurs,
+    // où `$` et les `.local` se lisent dans l'état courant de la passe.
+    const EquLine *equLine_ = nullptr;
+
+    // La passe 1 retient le texte d'un EQU avec le contexte de sa ligne.
+    void recordEqu(const std::string &name, const std::string &text) {
+        equDefs_.push_back({qualify(name), text, {here(pc_), currentGlobal_}});
+    }
+
+    // Relit un EQU dans le contexte de sa ligne, puis rend l'état courant.
+    expr::Value evalEquDef(const EquDef &d) {
+        struct Restore {
+            Assembler &a;
+            std::string global;
+            ~Restore() {
+                a.currentGlobal_ = global;
+                a.equLine_ = nullptr;
+            }
+        } restore{*this, currentGlobal_};
+        equLine_ = &d.line;
+        currentGlobal_ = d.line.global;
+        return evalExprValue(d.text);
+    }
     std::set<std::string> badNames_;          // noms refusés déjà signalés (ADR 0015)
     std::vector<Diagnostic> errors_;
     std::vector<Diagnostic> warnings_;
@@ -1130,7 +1150,7 @@ private:
             // section relocalisable, il vaut sa base plus l'offset courant, et
             // tous les idiomes qui s'en servent traversent la relocalisation.
             if (n == "$") {
-                o = dollarOverride_ ? *dollarOverride_ : here(inInstruction_ ? instrStart_ : pc_);
+                o = equLine_ ? equLine_->dollar : here(inInstruction_ ? instrStart_ : pc_);
                 return true;
             }
             std::string qn = qualify(n);
@@ -1851,13 +1871,13 @@ private:
         if (W0 == "EQU") {
             if (label.empty()) { structErr("EQU without a name"); return; }
             defineSymbol(label, evalExprValue(after0));
-            if (pass_ == 1) equDefs_.push_back({qualify(label), after0, here(pc_), currentGlobal_});
+            if (pass_ == 1) recordEqu(label, after0);
             return;
         }
         if (W1 == "EQU") {
             std::string e = restAfterFirst(after0);
             defineSymbol(w0, evalExprValue(e));
-            if (pass_ == 1) equDefs_.push_back({qualify(w0), e, here(pc_), currentGlobal_});
+            if (pass_ == 1) recordEqu(w0, e);
             return;
         }
         size_t eq = kw::findAssign(rest);

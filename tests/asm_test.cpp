@@ -183,10 +183,10 @@ int main() {
         "  org #4000\n  ld b,LEN\nlab: db 1,2,3\nLEN equ $-lab\n  db 9,9,9,9,9\n",
         {0x06, 0x03, 1, 2, 3, 9, 9, 9, 9, 9}, 0x4000);
     chkSym("equ avec $, octets apres", "  org #4000\nlab: db 1,2,3\nLEN equ $-lab\n  ds 100\n", "LEN", 3);
-    chkSym("equ forward avec .local, label global suivant",
-           "  org #4000\n  ld b,LEN\nf1: nop\n.x: db 1,2,3\nLEN equ $-.x\nf2: nop\n.x: nop\n", "LEN", 3);
-    chk("equ forward avec .local, octets",
-        "  org #4000\n  ld b,LEN\nf1: nop\n.x: db 1,2,3\nLEN equ $-.x\nf2: nop\n.x: nop\n",
+    const std::string localEqu =
+        "  org #4000\n  ld b,LEN\nf1: nop\n.x: db 1,2,3\nLEN equ $-.x\nf2: nop\n.x: nop\n";
+    chkSym("equ forward avec .local, label global suivant", localEqu, "LEN", 3);
+    chk("equ forward avec .local, octets", localEqu,
         {0x06, 0x03, 0, 1, 2, 3, 0, 0}, 0x4000);
     chkSym("equ = $ pur, octets apres", "  org #4000\n  nop\nHERE equ $\n  ds 100\n", "HERE", 0x4001);
 
