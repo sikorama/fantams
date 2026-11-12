@@ -928,6 +928,16 @@ int main() {
         "nop\nhalt\n");
     chkErrMsg("instance d'une structure a une autre casse : erreur",
               "STRUCT S\nx db 0\nENDSTRUCT\nSTRUCT s v\n", "unknown struct to instantiate: 's'", "zzz");
+    chkErr("mot reserve refuse comme nom de macro, en toute casse", "macro Nop()\n nop\nend\n");
+    chkErr("mot reserve (minuscule) refuse comme nom de macro", "macro nop()\n nop\nend\n");
+    chk("mnemonique accepte en toute casse",
+        "  LD a,1\n  ld a,1\n  Ld a,1\n", "LD a,1\nld a,1\nLd a,1\n");
+    chkErrMsg("macro hors module appelee a une autre casse : erreur nommee",
+              "macro Foo()\n nop\nend\n foo()\n", "unknown macro 'foo'", "zzz");
+    chkErrMsg("macro de module : suggestion du nom qualifie",
+              "MODULE m\nmacro a()\n nop\nend\nENDMODULE\n a()\n", "did you mean 'm.a'", "zzz");
+    chk("compteurs de boucle par nom exact",
+        "REPEAT 2, k\n db {k}\nREND\nREPEAT 2, K\n db {K}\nREND\n", "db 0\ndb 1\ndb 0\ndb 1\n");
     chkErr("@nom ancre a la casse exacte",
            "macro Foo()\n nop\nend\nMODULE m\n @foo()\nENDMODULE\n");
 

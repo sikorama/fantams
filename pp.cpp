@@ -1878,6 +1878,7 @@ private:
                 m.body = inlineIncludes({lines.begin() + i + 1, lines.begin() + endm});
                 if (!m.name.empty() && m.name.back() == ':') m.name.pop_back();
                 if (m.name.empty()) error(raw, "MACRO without a name");
+                else if (isReservedWord(upper(m.name))) error(raw, "'" + m.name + "' is a reserved word and cannot name a macro: reserved words are reserved — rename it");
                 else {
                     // « nom MACRO p,q » : graphie tolérée. Elle est la seule
                     // raison d'une exception dans peelLabel — un nom en tête de ligne
@@ -2141,7 +2142,7 @@ bool writeFolded(double v, std::string &out) {
 }
 
 // Les noms qu'une ligne laissée telle quelle peut lire au temps d'assemblage, en
-// MAJUSCULES : l'assembleur se replie sur la casse, une lecture « W » touche donc
+// MAJUSCULES : on ne distingue pas les casses ici, une lecture « W » garde donc aussi
 // la variable « w ». Trop large (un nombre hexadécimal « &FF » y entre) plutôt que
 // trop étroit : un nom de trop ne fait que garder des affectations.
 void collectNames(const std::string &s, std::set<std::string> &into) {
