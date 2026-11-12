@@ -105,6 +105,68 @@ static std::vector<uint8_t> readBytes(const std::string &path) {
     return std::vector<uint8_t>(s.begin(), s.end());
 }
 
+// L'aide complete : une seule source pour `--help` (stdout, code 0) et pour
+// l'appel sans fichier (stderr, code 2). Chaque option y est expliquee.
+static void printHelp(FILE *out, const std::string &targets) {
+    fprintf(out,
+            "usage: fantams (file.asm | file.fo...) [options]\n"
+            "       fantams --dump-profile NAME\n"
+            "       fantams --help | --version\n"
+            "\n"
+            "Sortie (selon l'extension de -o ; sans -o : <source>.bin) :\n"
+            "  -o out.sna   snapshot (voir --base)\n"
+            "  -o out.dsk   ajoute (ou remplace par nom) le programme lie sur la disquette\n"
+            "               AMSDOS out.dsk, un fichier par morceau\n"
+            "  -o out.cpr   conteneur de cartouche ; exige --cpr-bank\n"
+            "  -o out.cro   conteneur de ROMs liees ; voir --cro-*\n"
+            "  -o out.fo    assembler SEUL et ecrire l'objet, sans linker\n"
+            "  -o autre     binaire brut\n"
+            "  file.fo...   des objets deja assembles, a linker\n"
+            "\n"
+            "Sources (preprocesseur) :\n"
+            "  -E           ecrire la source DEROULEE (macros, boucles, if resolus) au lieu\n"
+            "               d'assembler : ce que le preprocesseur a produit, relisible et\n"
+            "               reassemblable. Ecrit dans -o, sinon dans <source>.pp.asm\n"
+            "  --fold       avec -E : la source deroulee PLIEE, celle que l'assembleur recoit\n"
+            "               reellement (expressions resolues remplacees par leur valeur)\n"
+            "  --beautify   mettre en forme seulement : ni preprocesseur, ni assemblage\n"
+            "  --normalize  canoniser sans derouler les macros ni les boucles\n"
+            "  --no-detach-labels  garder `label: instruction` sur une seule ligne\n"
+            "  --no-indent-blocks  ne pas indenter le corps des blocs\n"
+            "  --strict     refuser tout ce qui n'est pas du Z80 canonique\n"
+            "  -I dir       dossier de recherche des include/incbin relatifs, apres celui du\n"
+            "               fichier courant ; repetable (aussi -Idir)\n"
+            "  --list-files la Fermeture (le principal + chaque INCLUDE touche,\n"
+            "               recursivement), un chemin par ligne sur stdout\n"
+            "\n"
+            "Assemblage et rapports :\n"
+            "  -s           afficher la table des symboles\n"
+            "  --sym[=f]    ecrire la table des symboles en CSV (defaut : derive de -o)\n"
+            "  --timing[=f] ecrire la table des durees en CSV (T-states et NOP jusqu'au\n"
+            "               label suivant) ; ecrite meme si l'assemblage echoue\n"
+            "  --base f.sna poser les octets assembles sur un etat machine capture\n"
+            "               (sortie .sna uniquement)\n"
+            "\n"
+            "Cible et linkage :\n"
+            "  --target N   profil de cible livre (au choix : %s)\n"
+            "  -P f.prof    un profil de cible a soi, par le meme chemin de code\n"
+            "               (--target et -P s'excluent)\n"
+            "  -T f.ld      le script de linkage : quelle section va ou\n"
+            "  --dump-profile N  ecrire le profil livre N sur la sortie standard\n"
+            "\n"
+            "Conteneurs :\n"
+            "  --cpr-bank n   avec -o out.cpr : ajoute (ou remplace) la banque physique n\n"
+            "  --cro-rom n    avec -o out.cro : numero de la ROM liee\n"
+            "  --cro-group g  groupe de ROMs cible (defaut 0)\n"
+            "  --cro-label t  libelle du groupe (defaut : nom du .cro, a la creation)\n"
+            "  --cro-mask m   masque d'adresse du groupe (defaut 0xFFFFFFFF)\n"
+            "\n"
+            "Divers :\n"
+            "  -h, --help     cette aide\n"
+            "  --version      la date de version et la date de compilation, a lire\n",
+            targets.c_str());
+}
+
 int main(int argc, char **argv) {
     std::string path, outPath, basePath;
     std::vector<std::string> inputs;
@@ -155,7 +217,19 @@ int main(int argc, char **argv) {
     // artefact a trois etages ». Etant sur la surface argv, elle est atteignable
     // par l'adaptateur WASM sans que celui-ci ajoute quoi que ce soit.
     for (int i = 1; i < argc; ++i) {
-        if (std::string(argv[i]) == "--version") {
+        const std::string v = argv[i];
+        if (v == "--help" || v == "-h") {
+            printHelp(stdout, [] {
+                std::string s;
+                for (const std::string &n : profile::builtinNames()) {
+                    if (!s.empty()) s += ", ";
+                    s += n;
+                }
+                return s;
+            }());
+            return 0;
+        }
+        if (v == "--version") {
             printf("%s\n", version::line().c_str());
             return 0;
         }
@@ -315,25 +389,7 @@ int main(int argc, char **argv) {
         return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
     };
     if (path.empty()) {
-        fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]] [-I dir]...\n"
-                        "  -I dir     : dossier de recherche des include/incbin relatifs (apres celui du fichier)\n"
-                        "  --version  : la date de version et la date de compilation, a lire\n"
-                        "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
-                        "  file.fo... : des objets deja assembles, a linker\n"
-                        "  --target N : profil de cible livre (au choix : %s)\n"
-                        "  -P f.prof  : un profil de cible a soi, par le meme chemin de code\n"
-                        "  -T f.ld    : le script de linkage — quelle section va ou\n"
-                        "  --dump-profile N : ecrire le profil livre N sur la sortie standard\n"
-                        "  -o out.cpr --cpr-bank <n> : ajoute (ou remplace) la banque physique n\n"
-                        "                              dans le conteneur CPR out.cpr\n"
-                        "  -o out.cro [--cro-rom <n>] [--cro-group <g>] [--cro-label <texte>]\n"
-                        "             [--cro-mask <m>] : ajoute (ou remplace) la ROM liee dans\n"
-                        "                              le groupe g du conteneur de ROMs out.cro\n"
-                        "  -o out.dsk : ajoute (ou remplace par nom) le programme lie sur la\n"
-                        "               disquette AMSDOS out.dsk, un fichier par morceau\n"
-                        "  --list-files : la Fermeture (le principal + chaque INCLUDE touche,\n"
-                        "                 recursivement), un chemin par ligne sur stdout\n",
-                namesList().c_str());
+        printHelp(stderr, namesList());
         return 2;
     }
 
@@ -541,6 +597,17 @@ int main(int argc, char **argv) {
     for (auto &w : pre.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     if (!pre.ok) {
         for (auto &e : pre.errors) fprintf(stderr, "%s:%d: error (preproc): %s\n", e.file.c_str(), e.line, e.message.c_str());
+        // -E sert justement a comprendre une erreur de macro : on ecrit ce que le
+        // preprocesseur a deroule jusque-la, sans le plier (le pli suppose une
+        // source valide). Le code de retour reste 1.
+        if (dumpOnly && !pre.lines.empty()) {
+            const std::string text = beautify::apply(pre.dump(), kw::Phase::Assembly, detachLabels, indentBlocks);
+            std::ofstream f(outPath, std::ios::binary);
+            if (f) {
+                f.write(text.data(), (std::streamsize)text.size());
+                fprintf(stderr, "%s: source deroulee PARTIELLE (le preprocesseur a echoue)\n", outPath.c_str());
+            }
+        }
         return 1;
     }
 
