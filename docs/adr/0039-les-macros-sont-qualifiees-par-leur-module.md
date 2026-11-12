@@ -34,7 +34,7 @@ de recherche des labels : le nom du module le plus interne d'abord, puis les mod
 englobants, puis le global. Depuis l'extérieur, il faut écrire `m.a()`. Une macro
 appelée sans qualification alors qu'elle n'existe que dans un module est refusée par
 une erreur nommée qui propose le nom qualifié : `unknown macro 'a' — did you mean
-'m.a'?`. Il n'y a pas de repli silencieux, comme pour les autres noms (ADR 0037).
+'m.a'?`. Il n'y a pas de repli silencieux, comme pour les autres noms (ADR 0037), casse comprise : le nom d'une macro est sensible à la casse.
 
 **Le corps d'une macro se lit côté appelant.** Un nom du corps — label, constante,
 structure, autre macro — est cherché depuis le module de l'appelant, avec le même

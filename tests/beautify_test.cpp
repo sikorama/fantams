@@ -229,7 +229,11 @@ int main() {
     // La table fournie par l'appelant (préprocesseur, includes lus) complète le
     // prescan textuel.
     ok("macros connues de l'appelant : traitées comme le prescan",
-       beautify::apply("depuis_include\n", kw::Phase::Preprocess, true, true, {"DEPUIS_INCLUDE"}) == "    depuis_include()\n");
+       beautify::apply("depuis_include\n", kw::Phase::Preprocess, true, true, {"depuis_include"}) == "    depuis_include()\n");
+    // La casse est exacte (ADR 0037) : `Cls` n'est pas la macro `cls`.
+    chk("macro appelée à une autre casse : aucune parenthèse inventée",
+        "    macro cls\n        nop\n    endm\n    Cls\n",
+        "    macro cls\n        nop\n    endm\n    Cls\n", kw::Phase::Preprocess);
     ok("sans cette table, le même texte reste un label",
        beautify::apply("depuis_include\n", kw::Phase::Preprocess) == "depuis_include:\n");
 

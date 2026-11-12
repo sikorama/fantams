@@ -58,6 +58,16 @@ qualifiés par leur structure (`toto.S_COLORS.HUD`), et on les coupe au dernier
 point. Hors du module, un nom s'écrit qualifié, sans recherche de repli entre
 modules.
 
+**Un symbole se résout à la lettre près, casse comprise, sans repli.** Label,
+constante, variable, macro, structure, module et paramètre sont sensibles à la
+casse : `Foo` et `foo` sont deux symboles, et `Mm` et `MM` deux macros. Un nom
+introuvable à la casse écrite est une erreur, jamais une résolution vers un nom
+voisin ; le message peut proposer la graphie existante (`unknown symbol 'foo' — did
+you mean 'Foo'?`), comme il propose le nom qualifié (ADR 0039). Seuls les mots du
+langage — mnémoniques, registres, directives, mots-clés du préprocesseur —
+ignorent la casse, et ils restent réservés quelle que soit la casse (ADR 0015) :
+`Nop` n'est pas un nom de label légal. Aucune source n'est ménagée (ADR 0025).
+
 **`.` est le seul séparateur.** `gfx.plot.x` est aussi bien le local `.x` du label
 `gfx.plot`, le label `x` d'un module `gfx.plot`, que le champ `x` d'une structure
 `gfx.plot`. On ne distingue pas ces origines par la syntaxe : le même chemin

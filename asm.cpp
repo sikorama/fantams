@@ -71,7 +71,6 @@ public:
     Object run(const std::vector<SourceLine> &lines) {
         sites_.clear();
         symbols_.clear();
-        ciIndex_.clear();
         symInfo_.clear();
 
         // Les constantes du linker entrent AVANT la passe 1, et par `setSymbol`
@@ -752,7 +751,6 @@ private:
     // un label vaut « la base de sa section, plus un offset » (D2). Le reel reste
     // exact — l'arrondi n'a lieu qu'a la sortie (ADR 0008).
     std::map<std::string, expr::Value> symbols_;
-    std::map<std::string, std::string> ciIndex_; // MAJUSCULES(nom) -> nom exact, pour le repli insensible à la casse
     std::map<std::string, Symbol> symInfo_;      // type, rangement et provenance, pour la table exportable
     std::set<std::string> definedP1_;
     std::map<std::string, std::string> defForm_;               // nom qualifié -> comment il a été défini, pour dire les deux côtés d'une collision
@@ -853,15 +851,24 @@ private:
         tl_.nops += c.nops;
         tl_.bytes += nbytes;
     }
+    // Un « unknown symbol 'x' » à qui il ne manque que la casse reçoit la graphie existante : une
+    // suggestion, jamais une résolution (ADR 0037).
+    std::string withCaseHint(const std::string &msg) const {
+        static const std::string head = "unknown symbol '";
+        if (msg.compare(0, head.size(), head) != 0) return msg;
+        const size_t q = msg.find('\'', head.size());
+        if (q == std::string::npos) return msg;
+        const std::string qn = qualify(msg.substr(head.size(), q - head.size()));
+        const std::string U = upper(qn);
+        for (const auto &kv : symbols_)
+            if (upper(kv.first) == U)
+                return msg + " — did you mean '" + kv.first + "'?";
+        return msg;
+    }
     const Timeline *tlFind(const std::string &name) const {
         const std::string qn = qualify(name);
         auto it = tlAt_.find(qn);
         if (it != tlAt_.end()) return &it->second;
-        auto cit = ciIndex_.find(upper(qn));
-        if (cit != ciIndex_.end()) {
-            auto jt = tlAt_.find(cit->second);
-            if (jt != tlAt_.end()) return &jt->second;
-        }
         return nullptr;
     }
     // Pourquoi l'intervalle [a, b[ n'a pas de duree exacte, ou vide s'il en a une.
@@ -1084,7 +1091,7 @@ private:
     static bool sameValue(const expr::Value &a, const expr::Value &b) {
         return a.real == b.real && a.section == b.section && a.coeff == b.coeff && a.byte == b.byte;
     }
-    void setSymbol(const std::string &n, const expr::Value &v) { symbols_[n] = v; ciIndex_[upper(n)] = n; }
+    void setSymbol(const std::string &n, const expr::Value &v) { symbols_[n] = v; }
     void setSymbol(const std::string &n, double v) { expr::Value w; w.real = v; setSymbol(n, w); }
 
     // Note ce que la table exportable a besoin de savoir et que `symbols_` ne
@@ -1156,15 +1163,7 @@ private:
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
             if (it != symbols_.end()) { o = it->second; return true; }
-            // repli insensible à la casse (les symboles ne distinguent pas la casse) : on
-            // avertit plutôt que d'échouer silencieusement sur une simple différence de casse.
-            auto cit = ciIndex_.find(upper(qn));
-            if (cit != ciIndex_.end()) {
-                warn("symbol '" + qn + "' not found exactly, using '" + cit->second +
-                     "' (case mismatch — best practice: match case exactly)");
-                o = symbols_[cit->second];
-                return true;
-            }
+            // Un symbole se résout à la lettre près, casse comprise (ADR 0037).
             return false;
         }, [](const std::string &instrText, int index, int len, int64_t &value, std::string &error) -> bool {
             // opcode() (ADR 0031) : le seul étage qui joigne parser+z80, donc le
@@ -1181,7 +1180,11 @@ private:
                int64_t &value, std::string &error) -> bool {
             return timeBetween(nops, from, to, value, error);
         });
-        if (!r.ok) { evalOk_ = false; if (pass_ == 2) push(r.error); return 0; }
+        if (!r.ok) {
+            evalOk_ = false;
+            if (pass_ == 2) push(withCaseHint(r.error));
+            return 0;
+        }
         lastValue_ = r;
         return r.value;
     }

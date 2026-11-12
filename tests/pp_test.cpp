@@ -906,5 +906,30 @@ int main() {
     chkErr("incbin longueur hors fichier", "  incbin \"data.bin\", 2, 3\n");
     chkErr("incbin offset négatif", "  incbin \"data.bin\", -1\n");
 
+    // --- casse des symboles : exacte, sans repli (ADR 0037) ---
+    chk("deux macros qui ne different que par la casse",
+        "macro Mm()\n db 1\nend\nmacro MM()\n db 2\nend\n Mm()\n MM()\n", "db 1\ndb 2\n");
+    chk("une variable et une macro qui ne different que par la casse",
+        "macro SCREEN_LINE()\n dw 0\nend\nscreen_line = 2\nif screen_line == 2\n db #22\nendif\n", "screen_line = 2\ndb #22\n");
+    chkErrMsg("macro appelee a une autre casse : erreur qui propose la graphie",
+              "macro Foo()\n nop\nend\n foo()\n", "did you mean 'Foo'", "unknown symbol");
+    chk("deux structures qui ne different que par la casse",
+        "STRUCT S\nx db 0\nENDSTRUCT\nSTRUCT s\ny dw 0\nENDSTRUCT\nA EQU sizeof(S)\nB EQU sizeof(s)\n",
+        "S.x EQU 0\nS EQU 1\ns.y EQU 0\ns EQU 2\nA EQU 1\nB EQU 2\n");
+    chkErrMsg("sizeof d'une structure a une autre casse : erreur",
+              "STRUCT s\nx db 0\nENDSTRUCT\nN EQU sizeof(S)\n", "unknown struct 'S'", "zzz");
+    chk("compteurs d'expansion par nom exact",
+        "macro Mm()\nl: nop\nend\nmacro MM()\nl: nop\nend\n Mm()\n MM()\n",
+        "Mm__1.l: nop\nMM__1.l: nop\n");
+    chk("parametres qui ne different que par la casse",
+        "macro m(x,X)\n db {x},{X}\nend\n m(1,2)\n", "db 1,2\n");
+    chk("deux modules qui ne different que par la casse",
+        "MODULE Gfx\nMACRO a\nnop\nENDM\nENDMODULE\nMODULE gfx\nMACRO a\nhalt\nENDM\nENDMODULE\nGfx.a()\ngfx.a()\n",
+        "nop\nhalt\n");
+    chkErrMsg("instance d'une structure a une autre casse : erreur",
+              "STRUCT S\nx db 0\nENDSTRUCT\nSTRUCT s v\n", "unknown struct to instantiate: 's'", "zzz");
+    chkErr("@nom ancre a la casse exacte",
+           "macro Foo()\n nop\nend\nMODULE m\n @foo()\nENDMODULE\n");
+
     return summary();
 }

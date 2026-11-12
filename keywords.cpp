@@ -423,8 +423,9 @@ void peelLabel(const std::string &code, std::string &label, std::string &rest, P
             if (sawColon) *sawColon = true;
             return;
         }
-        std::string tok = upper(code.substr(0, p));
-        if (!isReservedWord(tok, ph) && !(isMacro && isMacro(tok))) {
+        const std::string name = code.substr(0, p);
+        std::string tok = upper(name);
+        if (!isReservedWord(tok, ph) && !(isMacro && isMacro(name))) {
             // Exception « nom MACRO params » (forme alternative de déclaration) :
             // `nom` n'est pas un label, c'est la macro en cours de définition, dont
             // le nom n'est pas encore connu. La ligne est laissée intacte pour que

@@ -64,7 +64,7 @@ std::set<std::string> collectMacroNames(const std::string &src) {
         if (!name.empty() && name.back() == ':') name.pop_back();
         // « macro nom(p,q) » : la liste de paramètres n'appartient pas au nom.
         { std::string n, a; if (kw::parenCall(name, n, a)) name = n; }
-        if (!name.empty()) names.insert(upper(name));
+        if (!name.empty()) names.insert(name);
         if (nl == std::string::npos) break;
         i = nl + 1;
     }
@@ -95,7 +95,7 @@ std::set<std::string> collectMacroNames(const std::string &src) {
 // corriger à la main, détruire un appel de macro coûte un après-midi.
 bool looksLikeLabel(const std::string &label, const std::string &rest, size_t indent,
                     kw::Phase ph, const std::set<std::string> &macros) {
-    if (macros.count(upper(label))) return false;
+    if (macros.count(label)) return false;
     // `nom(...)` est un appel, quoi qu'on sache par ailleurs du nom (ADR 0018).
     // C'est la seule graphie qui se lit sans connaître les macros — donc la seule
     // qui vaille pour une macro pas encore écrite.
@@ -222,7 +222,7 @@ std::string line(const std::string &ln, kw::Phase ph, bool detachLabels,
             // sur la forme nue, et le beautify n'éteint que des avertissements qui
             // existent. Le nombre d'octets ne bouge pas : c'est la même expansion.
             std::string cn, ca;
-            if (macros.count(upper(label)) && !kw::parenCall(body, cn, ca)) {
+            if (macros.count(label) && !kw::parenCall(body, cn, ca)) {
                 const size_t cpc = kw::commentPos(ln);
                 const std::string tl = (cpc == std::string::npos) ? std::string() : trim(ln.substr(cpc));
                 return rstrip(indent + label + "(" + rest + ")" + (tl.empty() ? "" : " " + tl));

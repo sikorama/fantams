@@ -75,8 +75,11 @@ entrée, ligne pour ligne, et s'assemble aux mêmes octets.
 ### Noms et valeurs
 
 **Symbole** :
-Terme générique couvrant label, constante et variable. À n'employer que
-lorsque la distinction est réellement indifférente.
+Tout nom que l'auteur choisit : label, constante, variable, macro, structure,
+module, paramètre. Sensible à la casse, sans repli : `Foo` et `foo` sont deux
+symboles (ADR 0037). Les mots du langage, eux, ignorent la casse et restent
+réservés. À n'employer que lorsque la distinction entre ces espèces est
+réellement indifférente.
 
 **Label** :
 Nom lié à une adresse par sa position dans le code émis. Résolu au temps

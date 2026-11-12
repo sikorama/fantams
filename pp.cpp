@@ -493,8 +493,8 @@ private:
     std::set<std::string> asmDeferred;
     std::set<std::string> readAtPP;             // noms d'asmvars effectivement lus
     std::set<std::string> seenLabels;           // labels deja rencontres (pour IFDEF)
-    std::map<std::string, Macro> macros;         // clé = nom majuscule
-    std::map<std::string, StructDef> structs_;    // clé = nom majuscule
+    std::map<std::string, Macro> macros;        // clé = nom exact, préfixe de module compris
+    std::map<std::string, StructDef> structs_;  // clé = nom exact
     // Préfixe du module dont on déroule le corps ("" hors module) : sert aux seuls
     // diagnostics, qui citent le nom écrit dans la source et non le nom renommé.
     std::string modulePrefix_;
@@ -507,25 +507,32 @@ private:
     // Compteur d'expansions PAR NOM (ADR 0039) : `toto__1`, `toto__2`, `titi__1`. La clé est le
     // nom qualifié de la macro, ou le mot-clé de la boucle.
     std::map<std::string, long> expCounters_;
-    long nextExpansion(const std::string &key) { return ++expCounters_[upper(key)]; }
+    long nextExpansion(const std::string &key) { return ++expCounters_[key]; }
 
     // La macro que `name` désigne depuis le module courant (ADR 0039) : le module le plus
     // interne d'abord, puis les englobants, puis le global — la recherche des labels. `@nom`
     // ancre à la racine. Hors de cette règle, aucun repli : `a()` ne trouve pas `m.a`.
     std::map<std::string, Macro>::iterator findMacro(const std::string &name) {
-        if (!name.empty() && name[0] == '@') return macros.find(upper(name.substr(1)));
+        if (!name.empty() && name[0] == '@') return macros.find(name.substr(1));
         std::string p = modulePrefix_;
         for (;;) {
-            auto it = macros.find(upper(p + name));
+            auto it = macros.find(p + name);
             if (it != macros.end() || p.empty()) return it;
             p.pop_back();
             const size_t d = p.rfind('.');
             p = d == std::string::npos ? "" : p.substr(0, d + 1);
         }
     }
+    // La macro qui ne diffère de `name` que par la casse (ADR 0037) : de quoi proposer « Foo » à qui a écrit `foo()`.
+    std::string caseCandidate(const std::string &name) {
+        const std::string U = upper(name);
+        for (const auto &kv : macros)
+            if (upper(kv.first) == U) return kv.second.name;
+        return "";
+    }
     // Une macro qualifiée dont `name` est le dernier morceau : de quoi proposer « m.a » à qui a écrit `a()`.
     std::string qualifiedCandidate(const std::string &name) {
-        const std::string tail = "." + upper(name);
+        const std::string tail = "." + name;
         for (const auto &kv : macros)
             if (kv.first.size() > tail.size() &&
                 kv.first.compare(kv.first.size() - tail.size(), tail.size(), tail) == 0)
@@ -761,9 +768,9 @@ private:
         while (q < code.size() && isIdentChar(code[q])) ++q;
         if (q > 0) {
             size_t r = q; while (r < code.size() && std::isspace((unsigned char)code[r])) ++r;
-            std::string tok = upper(code.substr(0, q));
+            const std::string tok = code.substr(0, q);
             if (r < code.size() && code[r] == ':') p = r + 1;
-            else if (!isReservedWord(tok) && findMacro(tok) == macros.end()) p = q;
+            else if (!isReservedWord(upper(tok)) && findMacro(tok) == macros.end()) p = q;
         }
         while (p < code.size() && std::isspace((unsigned char)code[p])) ++p;
         while (p < code.size() && isIdentChar(code[p])) ++p; // mnémonique / directive
@@ -890,7 +897,7 @@ private:
                     size_t k = code.find(')', j);
                     if (k != std::string::npos) {
                         std::string arg = trim(code.substr(j + 1, k - j - 1));
-                        auto it = structs_.find(upper(arg));
+                        auto it = structs_.find(arg);
                         if (it == structs_.end())
                             error(src, "sizeof: unknown struct '" + shown(arg) + "'");
                         else {
@@ -1487,15 +1494,23 @@ private:
     StructField parseField(const std::string &code) {
         StructField f;
         std::string label, rest; peelLabel(code, label, rest);
+        // Une directive de donnée ignore la casse (mot du langage) ; le type d'une
+        // structure imbriquée est un symbole, il garde la casse écrite (ADR 0037).
+        auto dirOf = [&](const std::string &tok) { return isDataDir(upper(tok)) ? upper(tok) : tok; };
         if (!label.empty()) {
-            f.name = label; f.directive = upper(firstToken(rest)); f.operands = restAfterFirst(rest);
+            f.name = label;
+            f.directive = dirOf(firstToken(rest));
+            f.operands = restAfterFirst(rest);
         } else {
             std::string w0 = firstToken(rest);
-            std::string U1 = upper(firstToken(restAfterFirst(rest)));
-            if (isDataDir(U1) || structs_.count(U1)) {           // "nom directive ops" sans ':'
-                f.name = w0; f.directive = U1; f.operands = restAfterFirst(restAfterFirst(rest));
-            } else {                                              // champ anonyme "directive ops"
-                f.directive = upper(w0); f.operands = restAfterFirst(rest);
+            std::string T1 = firstToken(restAfterFirst(rest));
+            if (isDataDir(upper(T1)) || structs_.count(T1)) { // "nom directive ops" sans ':'
+                f.name = w0;
+                f.directive = dirOf(T1);
+                f.operands = restAfterFirst(restAfterFirst(rest));
+            } else { // champ anonyme "directive ops"
+                f.directive = dirOf(w0);
+                f.operands = restAfterFirst(rest);
             }
         }
         return f;
@@ -1503,7 +1518,10 @@ private:
 
     void defineStruct(const std::string &sname, const std::vector<SrcLine> &body,
                       const Env &env, const SrcLine &raw) {
-        if (structs_.count(upper(sname))) { error(raw, "struct redefined: '" + sname + "'"); return; }
+        if (structs_.count(sname)) {
+            error(raw, "struct redefined: '" + sname + "'");
+            return;
+        }
         StructDef def; def.name = sname; int off = 0;
         for (const auto &l : body) {
             std::string code = trim(substitute(stripComment(l.text), env, l));
@@ -1541,7 +1559,7 @@ private:
             def.fields.push_back(f);
         }
         def.size = off;
-        structs_[upper(sname)] = def;
+        structs_[sname] = def;
         // émission des symboles portables (offsets + sizeof)
         for (const auto &f : def.fields) {
             if (f.name.empty()) continue;
@@ -1562,7 +1580,7 @@ private:
         std::string aft2 = restAfterFirst(aft);         // "instance ov..."
         std::string instance = firstToken(aft2);
         std::string overText = restAfterFirst(aft2);
-        auto it = structs_.find(upper(type));
+        auto it = structs_.find(type);
         if (it == structs_.end()) { error(raw, "unknown struct to instantiate: '" + type + "'"); return; }
         if (instance.empty()) { error(raw, "struct instantiation without a name"); return; }
         const StructDef &d = it->second;
@@ -1865,13 +1883,13 @@ private:
                     // raison d'une exception dans peelLabel — un nom en tête de ligne
                     // qui n'est pas un label — et rien ne la distingue d'un appel de
                     // macro sans la connaître. Avertie une fois, comme l'appel nu.
-                    if (kw != "MACRO" && warnedNameFirst_.insert(upper(modulePrefix_ + m.name)).second)
+                    if (kw != "MACRO" && warnedNameFirst_.insert(modulePrefix_ + m.name).second)
                         warning(raw, "'" + m.name + " MACRO ...' is an inherited spelling; "
                                      "write 'macro " + m.name + " ...'");
                     const std::string shortName = m.name;
                     m.name = modulePrefix_ + m.name;
-                    macros[upper(m.name)] = m;
-                    result.macroNames.push_back(upper(shortName));
+                    macros[m.name] = m;
+                    result.macroNames.push_back(shortName);
                 }
                 i = endm + 1; continue;
             }
@@ -1977,7 +1995,8 @@ private:
                 // `foo()` d'une macro qui n'existe que dans un module : le nom qualifié est proposé.
                 std::string uName, uArgs;
                 if (kw::parenCall(code, uName, uArgs) && !uName.empty() && !isReservedWord(upper(uName))) {
-                    const std::string q = qualifiedCandidate(uName);
+                    std::string q = caseCandidate(modulePrefix_ + uName);
+                    if (q.empty()) q = qualifiedCandidate(uName);
                     if (!q.empty()) {
                         error(raw, "unknown macro '" + uName + "' — did you mean '" + q + "'?");
                         ++i;

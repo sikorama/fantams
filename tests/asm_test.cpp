@@ -235,8 +235,15 @@ int main() {
     // référence qualifiée explicite "global.local" depuis un autre contexte
     chkSym("label local référencé via global.local", "blockA:\n.loop:\n  nop\n  jp blockA.loop\n", "blockA.loop", 0);
 
-    // repli insensible à la casse (fantams ne distingue pas la casse) : résolu + avertissement
-    chkWarn("repli casse : résolu avec avertissement", "Foo: nop\n  jp foo\n", true);
+    // casse exacte, sans repli (ADR 0037) : une faute de casse est une erreur qui propose la graphie
+    chkErrHas("casse : pas de repli, la graphie existante est proposee", "Foo: nop\n  jp foo\n",
+              {"unknown symbol 'foo'", "did you mean 'Foo'"});
+    chkErrHas("casse : constante equ a la casse exacte", "Max equ 5\n  ld a,MAX\n",
+              {"unknown symbol 'MAX'", "did you mean 'Max'"});
+    chkWarn("casse : deux symboles qui ne different que par la casse, aucun avertissement",
+            "Foo: nop\nfoo: nop\n  jp Foo\n  jp foo\n", false);
+    chk("casse : chacun designe son propre label", "  org 0x100\nFoo: nop\nfoo: nop\n  jp Foo\n  jp foo\n",
+        {0x00, 0x00, 0xC3, 0x00, 0x01, 0xC3, 0x01, 0x01}, 0x100);
     chkErr("casse : rien à replier -> erreur si vraiment absent", "  jp doesNotExist\n");
 
     // align
@@ -1258,6 +1265,9 @@ int main() {
         const char *body = "  org 0x8000\ndeb: ld a,5\n ld (0x4000),a\n ld hl,(0x4000)\n inc (hl)\nfin: nop\n";
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), cpc, v);
         ok("tstates_between additionne les T-states", v == 47);
+        // La casse est exacte (ADR 0037) : `DEB` n'est pas le label `deb`.
+        ok("tstates_between : un label a une autre casse est refuse",
+           !measure((std::string(body) + "DUREE equ tstates_between(DEB,fin)\n").c_str(), cpc, v).ok);
         measure((std::string(body) + "DUREE equ nops_between(deb,fin)\n").c_str(), cpc, v);
         ok("nops_between lit la table des NOPs, instruction par instruction", v == 14);
         measure((std::string(body) + "DUREE equ tstates_between(deb,fin)\n").c_str(), asmb::Constants(), v);
