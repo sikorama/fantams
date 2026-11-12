@@ -52,7 +52,13 @@ std::string stripBlockComments(const std::string &s) {
             while (i < s.size() && s[i] != '\n') out += s[i++];
             continue;
         }
-        if (c == '"' || c == '\'') { inStr = true; q = c; out += c; ++i; continue; }
+        if (c == '"' || (c == '\'' && !kw::isShadowAf(out, out.size()))) {
+            inStr = true;
+            q = c;
+            out += c;
+            ++i;
+            continue;
+        }
         if (c == '/' && i + 1 < s.size() && s[i + 1] == '*') {
             size_t j = s.find("*/", i + 2);
             size_t end = (j == std::string::npos) ? s.size() : j + 2;
@@ -106,7 +112,12 @@ std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
     int depth = 0; bool inStr = false; char q = 0; std::string cur;
     for (char c : s) {
         if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; cur += c; continue; }
+        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
+            inStr = true;
+            q = c;
+            cur += c;
+            continue;
+        }
         if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
         if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
         if (c == delim && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
@@ -148,7 +159,12 @@ std::vector<std::string> splitStatements(const std::string &s, std::vector<std::
     auto flush = [&]() { std::string t = trim(cur); if (!t.empty()) out.push_back(t); cur.clear(); firstColon = true; };
     for (char c : s) {
         if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; cur += c; continue; }
+        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
+            inStr = true;
+            q = c;
+            cur += c;
+            continue;
+        }
         if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
         if (c == ')' || c == ']' || c == '}') { if (depth > 0) --depth; cur += c; continue; }
         if (c == ':' && depth == 0) {
@@ -310,7 +326,11 @@ inline size_t findRangeKeyword(const std::string &s, bool &inclusive) {
     for (size_t i = 0; i < s.size(); ++i) {
         const char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; continue; }
+        if (c == '"' || (c == '\'' && !kw::isShadowAf(s, i))) {
+            inStr = true;
+            q = c;
+            continue;
+        }
         if (c == '(' || c == '[') { ++depth; continue; }
         if (c == ')' || c == ']') { if (depth > 0) --depth; continue; }
         if (depth || !std::isalpha((unsigned char)c)) continue;
@@ -543,7 +563,7 @@ private:
                 if (c == q) inStr = false;
                 continue;
             }
-            if (c == '"' || c == '\'') {
+            if (c == '"' || (c == '\'' && !kw::isShadowAf(t, i))) {
                 inStr = true;
                 q = c;
                 out += c;
@@ -787,7 +807,7 @@ private:
         size_t i = 0;
         while (i < text.size()) {
             char c = text[i];
-            if (c == '"' || c == '\'') {
+            if (c == '"' || (c == '\'' && !kw::isShadowAf(text, i))) {
                 char q = c; out += text[i++];
                 while (i < text.size()) {
                     if (text[i] == '\\' && i + 1 < text.size()) { out += text[i]; out += text[i + 1]; i += 2; continue; }

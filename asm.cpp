@@ -49,7 +49,12 @@ std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
     int depth = 0; bool inStr = false; char q = 0; std::string cur;
     for (char c : s) {
         if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; cur += c; continue; }
+        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
+            inStr = true;
+            q = c;
+            cur += c;
+            continue;
+        }
         if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
         if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
         if (c == delim && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
@@ -353,7 +358,10 @@ public:
         for (size_t i = 0; i < rest.size(); ++i) {
             const char c = rest[i];
             if (quote) { if (c == quote) quote = 0; continue; }
-            if (c == '"' || c == '\'') { quote = c; continue; }
+            if (c == '"' || (c == '\'' && !kw::isShadowAf(rest, i))) {
+                quote = c;
+                continue;
+            }
             if ((c != 'i' && c != 'I') || i + 1 >= rest.size()) continue;
             if (rest[i + 1] != 'n' && rest[i + 1] != 'N') continue;
             const bool leftOk = i == 0 || isspace((unsigned char)rest[i - 1]) || rest[i - 1] == ',';

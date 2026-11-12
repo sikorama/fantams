@@ -240,7 +240,11 @@ bool parenCall(const std::string &s, std::string &name, std::string &args) {
     for (size_t i = p; i < t.size(); ++i) {
         const char c = t[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; continue; }
+        if (c == '"' || (c == '\'' && !isShadowAf(t, i))) {
+            inStr = true;
+            q = c;
+            continue;
+        }
         if (c == '(') ++d;
         else if (c == ')' && --d == 0 && i != t.size() - 1) return false;
     }
@@ -280,7 +284,11 @@ size_t findAssign(const std::string &s) {
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; continue; }
+        if (c == '"' || (c == '\'' && !isShadowAf(s, i))) {
+            inStr = true;
+            q = c;
+            continue;
+        }
         if (c == '=') {
             char prev = i > 0 ? s[i - 1] : 0, next = i + 1 < s.size() ? s[i + 1] : 0;
             if (prev == '<' || prev == '>' || prev == '!' || prev == '=') continue;
@@ -463,11 +471,22 @@ Literal readLiteral(const std::string &s, size_t pos) {
     return r;
 }
 
+bool isShadowAf(const std::string &s, size_t i) {
+    if (i < 2) return false;
+    const auto low = [](char c) { return (char)std::tolower((unsigned char)c); };
+    if (low(s[i - 2]) != 'a' || low(s[i - 1]) != 'f') return false;
+    if (i == 2) return true;
+    const unsigned char b = (unsigned char)s[i - 3];
+    return !(std::isalnum(b) || b == '_' || b == '.' || b == '$' || b == '@');
+}
+
 size_t commentPos(const std::string &s) {
     bool inStr = false; char q = 0;
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
+        // L'apostrophe de `af'` nomme le registre fantôme : elle n'ouvre pas de chaîne.
+        if (c == '\'' && isShadowAf(s, i)) continue;
         if (c == '"' || c == '\'') { inStr = true; q = c; }
         else if (c == ';') return i;
         // Commentaire de ligne C : '//' (le '/' isolé reste la division).

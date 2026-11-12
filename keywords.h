@@ -201,6 +201,12 @@ Literal readLiteral(const std::string &s, size_t pos);
 // réécrirait un commentaire comme s'il était une instruction.
 size_t commentPos(const std::string &s);
 
+// Vrai si une apostrophe placée à l'index `i` de `s` (qui peut être `s.size()` :
+// le caractère lui-même n'est pas lu) suit le mot entier `AF`, casse indifférente :
+// c'est le registre fantôme de `ex af,af'`, pas l'ouverture d'une chaîne. Tout
+// parcours de ligne qui suit les guillemets doit la consulter avant d'en ouvrir un.
+bool isShadowAf(const std::string &s, size_t i);
+
 inline std::string stripComment(const std::string &s) {
     size_t p = commentPos(s);
     return p == std::string::npos ? s : s.substr(0, p);

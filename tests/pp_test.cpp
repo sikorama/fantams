@@ -350,6 +350,14 @@ int main() {
     // l'avertissement, que les autres orthographes n'ont pas.
     chkWarn("ex af,af avertit", " ex af,af\n", "ex af,af'\n", true);
     chkWarn("ex af,af' ne dit rien", " ex af,af'\n", "ex af,af'\n", false);
+    chk("ex af,af' ; commentaire retire", " ex af,af' ; commentaire\n", "ex af,af'\n");
+    chk("ex af,af' // commentaire retire", " ex af,af' // commentaire\n", "ex af,af'\n");
+    chk("ex af,af' avec etiquette et commentaire", "swap: ex af,af' ; c\n", "swap: ex af,af'\n");
+    chkWarn("ex af,af ; commentaire avertit encore", " ex af,af ; c\n", "ex af,af'\n", true);
+    chk("ex af,af' : instruction suivante", " ex af,af' : ld a,1\n", "ex af,af'\n    ld a,1\n");
+    chk("ex af,af' /* bloc */ ne mange pas la suite", " ex af,af' /* c */\n nop\n ex af,af'\n ld a,1\n",
+        "ex af,af'\nnop\nex af,af'\nld a,1\n");
+    chk("litteral ; : le commentaire suit toujours", " ld a,';' ; c\n", "ld a,';'\n");
     chkWarn("ex hl,de ne dit rien", " ex hl,de\n", "ex de,hl\n", false);
 
     // (4) La repetition : du DEROULAGE, pas de la canonisation.

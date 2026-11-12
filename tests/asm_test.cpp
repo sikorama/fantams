@@ -825,6 +825,16 @@ int main() {
     chk("ex hl,(sp) tolere", "  ex hl,(sp)\n", {0xE3});
     chk("ex ix,(sp) tolere", "  ex ix,(sp)\n", {0xDD, 0xE3});
     chk("ex af,af tolere",   "  ex af,af\n",   {0x08});
+    chk("ex af,af' avec commentaire", "  ex af,af' ; commentaire\n", {0x08});
+    chk("ex af,af' // style C", "  ex af,af' // commentaire\n", {0x08});
+    chk("EX AF,AF' majuscules", "  EX AF,AF' ; commentaire\n", {0x08});
+    chk("ex af , af' espaces", "  ex af , af'   ; commentaire\n", {0x08});
+    chk("ex af,af' avec etiquette", "swap: ex af,af' ; commentaire\n", {0x08});
+    chk("ex af,af avec commentaire", "  ex af,af ; commentaire\n", {0x08});
+    chk("litteral ; garde son point-virgule", "  ld a,';' ; commentaire\n", {0x3E, 0x3B});
+    chk("chaine 'a;b' puis commentaire", "  db 'a;b' ; commentaire\n", {0x61, 0x3B, 0x62});
+    chk("apostrophe dans une chaine \"\"", "  db \"it's\" ; commentaire\n", {0x69, 0x74, 0x27, 0x73});
+    chk("ex de,hl avec commentaire", "  ex de,hl ; commentaire\n", {0xEB});
     chk("jp hl tolere",      "  jp hl\n",      {0xE9});
     chk("jp ix tolere",      "  jp ix\n",      {0xDD, 0xE9});
     chk("le canon marche toujours", "  ex de,hl\n  jp (hl)\n  ex af,af'\n", {0xEB, 0xE9, 0x08});
