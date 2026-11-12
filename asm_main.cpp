@@ -25,6 +25,8 @@
 //     --beautify : mettre en forme le source et l'ecrire dans -o, sans
 //          preprocesseur ni assemblage. C'est ce que le bouton « Mettre en
 //          forme » de l'editeur appelle. Preserve le nombre de lignes (ADR 0013).
+//     -I dir : un dossier ou chercher les `include` et `incbin` relatifs, apres le
+//          dossier du fichier qui les ecrit ; repetable, relatif a l'invocation.
 //     --strict : refuser tout ce qui n'est pas du Z80 canonique — sucre
 //          un-vers-plusieurs et orthographes obsoletes (ADR 0017). N'ajoute rien,
 //          refuse. C'est le drapeau du PIPELINE, pas d'une couche.
@@ -116,6 +118,7 @@ int main(int argc, char **argv) {
     // quel sur la sortie standard, un par ligne. Meme esprit que
     // --dump-profile : une donnee que le preprocesseur connait deja.
     bool wantListFiles = false;
+    std::vector<std::string> includeDirs; // les -I, dans l'ordre donne
     bool wantSym = false;
     std::string symPath;
     bool wantTiming = false;
@@ -194,6 +197,14 @@ int main(int argc, char **argv) {
         else if (a == "--dump-profile" && i + 1 < argc) dumpProfile = argv[++i];
         else if (a.rfind("--dump-profile=", 0) == 0) dumpProfile = a.substr(15);
         else if (a == "--list-files") wantListFiles = true;
+        // Chemin d'inclusion : « -I dir » ou « -Idir », repetable, dans l'ordre donne.
+        else if (a == "-I") {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: -I demande un dossier\n");
+                return 2;
+            }
+            includeDirs.push_back(argv[++i]);
+        } else if (a.rfind("-I", 0) == 0) includeDirs.push_back(a.substr(2));
         else inputs.push_back(a);
     }
     // --- Le profil de cible ------------------------------------------------
@@ -304,7 +315,8 @@ int main(int argc, char **argv) {
         return p.size() >= 3 && p.substr(p.size() - 3) == ".fo";
     };
     if (path.empty()) {
-        fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]]\n"
+        fprintf(stderr, "usage: fantams (file.asm | file.fo...) [-o out] [-s] [-E] [--strict] [--beautify] [--normalize] [--no-detach-labels] [--no-indent-blocks] [--base base.sna] [--sym[=out.sym]] [--timing[=out.csv]] [-I dir]...\n"
+                        "  -I dir     : dossier de recherche des include/incbin relatifs (apres celui du fichier)\n"
                         "  --version  : la date de version et la date de compilation, a lire\n"
                         "  -o out.fo  : assembler SEUL et ecrire l'objet, sans linker\n"
                         "  file.fo... : des objets deja assembles, a linker\n"
@@ -337,7 +349,7 @@ int main(int argc, char **argv) {
         }
         std::string content;
         if (!readFile(path, content)) { fprintf(stderr, "error: file not found: %s\n", path.c_str()); return 2; }
-        const pp::Result pre = pp::preprocess(content, path, readFile, strict);
+        const pp::Result pre = pp::preprocess(content, path, readFile, strict, includeDirs);
         for (auto &w : pre.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
         if (!pre.ok) {
             for (auto &e : pre.errors) fprintf(stderr, "%s:%d: error (preproc): %s\n", e.file.c_str(), e.line, e.message.c_str());
@@ -511,7 +523,7 @@ int main(int argc, char **argv) {
         std::string text = content;
         if (normalizeOnly) text = pp::normalize(text);
         if (beautifyOnly) {
-            const pp::Result probe = pp::preprocess(content, path, readFile, /*strict=*/false);
+            const pp::Result probe = pp::preprocess(content, path, readFile, /*strict=*/false, includeDirs);
             text = beautify::apply(text, kw::Phase::Preprocess, detachLabels, indentBlocks,
                                    probe.macroNames);
         }
@@ -525,7 +537,7 @@ int main(int argc, char **argv) {
     }
 
     // 1) preprocessor
-    pp::Result pre = pp::preprocess(content, path, readFile, strict);
+    pp::Result pre = pp::preprocess(content, path, readFile, strict, includeDirs);
     for (auto &w : pre.warnings) fprintf(stderr, "%s:%d: warning: %s\n", w.file.c_str(), w.line, w.message.c_str());
     if (!pre.ok) {
         for (auto &e : pre.errors) fprintf(stderr, "%s:%d: error (preproc): %s\n", e.file.c_str(), e.line, e.message.c_str());

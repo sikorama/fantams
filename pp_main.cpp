@@ -11,6 +11,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 // FileProvider adossé au système de fichiers (répertoire courant + chemins relatifs).
 static bool readFile(const std::string &path, std::string &out) {
@@ -24,17 +25,28 @@ static bool readFile(const std::string &path, std::string &out) {
 int main(int argc, char **argv) {
     bool withMap = false;
     const char *path = nullptr;
+    std::vector<std::string> includeDirs;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-m") withMap = true;
+        else if (a == "-I") {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "error: -I demande un dossier\n");
+                return 2;
+            }
+            includeDirs.push_back(argv[++i]);
+        } else if (a.rfind("-I", 0) == 0) includeDirs.push_back(a.substr(2));
         else path = argv[i];
     }
-    if (!path) { fprintf(stderr, "usage: ppdump [-m] file.asm\n"); return 2; }
+    if (!path) {
+        fprintf(stderr, "usage: ppdump [-m] [-I dir]... file.asm\n");
+        return 2;
+    }
 
     std::string content;
     if (!readFile(path, content)) { fprintf(stderr, "error: file not found: %s\n", path); return 2; }
 
-    pp::Result r = pp::preprocess(content, path, readFile);
+    pp::Result r = pp::preprocess(content, path, readFile, false, includeDirs);
 
     if (withMap)
         for (const auto &l : r.lines) printf("%-40s ; %s:%d\n", l.text.c_str(), l.file.c_str(), l.line);

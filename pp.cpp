@@ -458,17 +458,19 @@ int stringByteLen(const std::string &p) {
 // ---------------------------------------------------------------------------
 class PP {
 public:
-    PP(const FileProvider &fp, bool strict) : files(fp), strict_(strict) {}
-    Result result;
+  PP(const FileProvider &fp, bool strict, const std::vector<std::string> &dirs)
+      : files(fp), strict_(strict), includeDirs_(dirs) {}
+  Result result;
 
-    void runFile(const std::string &content, const std::string &file) {
-        touchFile(file);
-        run(splitLines(content, file), Env{}, 0);
-    }
+  void runFile(const std::string &content, const std::string &file) {
+      touchFile(file);
+      run(splitLines(content, file), Env{}, 0);
+  }
 
 private:
     FileProvider files;
     bool strict_ = false;
+    std::vector<std::string> includeDirs_;
     std::set<std::string> touchedSeen;
     // Un fichier ouvert avec succès rejoint la Fermeture (pp.h) — une seule
     // fois, dans l'ordre d'ouverture, qu'il laisse une ligne derrière lui ou non.
@@ -1034,6 +1036,70 @@ private:
                          " : ...' if that is what you meant");
     }
 
+    // Le Chemin d'inclusion (CONTEXT.md) : où chercher un chemin relatif écrit dans `from`.
+    static std::string dirOf(const std::string &file) {
+        const size_t p = file.rfind('/');
+        return p == std::string::npos ? "" : file.substr(0, p + 1);
+    }
+    // Ouvre `path` tel que l'écrit un fichier `from`. Rend le chemin TROUVÉ : c'est lui
+    // qui nomme le fichier (lignes, Fermeture, base des includes imbriqués). Le résultat
+    // est mémorisé : `inlineIncludes` a déjà ouvert le fichier, l'exécution n'a qu'à
+    // retrouver son nom.
+    bool openInclude(const std::string &path, const std::string &from, std::string &content, std::string &found) {
+        if (!files) return false;
+        for (const auto &d : searchDirs(path, from)) {
+            const std::string candidate = normalizePath(d + path);
+            if (!files(candidate, content)) continue;
+            found = candidate;
+            resolved_[from + '\n' + path] = found;
+            return true;
+        }
+        return false;
+    }
+    // Les dossiers où `path` se cherche, dans l'ordre : celui du fichier courant, puis
+    // chaque `-I`. Un chemin absolu ne cherche nulle part : il se lit tel qu'écrit.
+    std::vector<std::string> searchDirs(const std::string &path, const std::string &from) const {
+        if (!path.empty() && path[0] == '/') return {""};
+        std::vector<std::string> dirs{dirOf(from)};
+        for (const auto &d : includeDirs_) dirs.push_back(d.empty() || d.back() == '/' ? d : d + "/");
+        return dirs;
+    }
+    // « (searched: ./, inc/) » : où l'on a cherché, pour le message d'un fichier introuvable.
+    std::string searchedMsg(const std::string &path, const std::string &from) const {
+        if (!path.empty() && path[0] == '/') return "";
+        std::string out = " (searched: ";
+        bool first = true;
+        for (const auto &d : searchDirs(path, from)) {
+            out += (first ? "" : ", ") + (d.empty() ? std::string("./") : d);
+            first = false;
+        }
+        return out + ")";
+    }
+    // Replie `./` et `a/..` sans toucher au disque (les liens symboliques ne sont pas
+    // résolus) : un même fichier atteint par deux routes porte un seul nom, donc une seule
+    // entrée de la Fermeture.
+    static std::string normalizePath(const std::string &p) {
+        const bool abs = !p.empty() && p[0] == '/';
+        std::vector<std::string> parts;
+        size_t i = 0;
+        while (i <= p.size()) {
+            size_t j = p.find('/', i);
+            if (j == std::string::npos) j = p.size();
+            const std::string seg = p.substr(i, j - i);
+            if (seg == "..") {
+                if (!parts.empty() && parts.back() != "..") parts.pop_back();
+                else if (!abs) parts.push_back(seg);
+            } else if (!seg.empty() && seg != ".") {
+                parts.push_back(seg);
+            }
+            i = j + 1;
+        }
+        std::string out = abs ? "/" : "";
+        for (size_t k = 0; k < parts.size(); ++k) out += (k ? "/" : "") + parts[k];
+        return out;
+    }
+    std::map<std::string, std::string> resolved_; // (fichier courant, chemin écrit) -> chemin trouvé
+
     // Le chemin d'un `include` : un littéral entre quotes suit la même règle qu'une chaîne
     // de « db » (ADR 0010) — sans quoi « include 'a"b.asm' » se lirait ici autrement
     // qu'ailleurs.
@@ -1061,10 +1127,10 @@ private:
             peelLabel(trim(stripComment(l.text)), label, rest);
             if (upper(firstToken(rest)) != "INCLUDE") continue;
             const std::string path = includePathOf(rest);
-            std::string content;
-            if (path.empty() || path.find('{') != std::string::npos || !files || !files(path, content)) continue;
+            std::string content, found;
+            if (path.empty() || path.find('{') != std::string::npos || !openInclude(path, l.file, content, found)) continue;
             out.back().inlined = true;
-            auto inner = inlineIncludes(splitLines(content, path), level + 1);
+            auto inner = inlineIncludes(splitLines(content, found), level + 1);
             out.insert(out.end(), inner.begin(), inner.end());
         }
         return out;
@@ -1558,13 +1624,17 @@ private:
                 const std::string path = includePathOf(rest);
                 // Contenu déjà inséré par `inlineIncludes` : il suit cette ligne.
                 if (raw.inlined) {
-                    touchFile(path);
+                    const auto it = resolved_.find(raw.file + '\n' + path);
+                    touchFile(it != resolved_.end() ? it->second : path);
                     ++i;
                     continue;
                 }
-                std::string content;
-                if (!files || !files(path, content)) error(raw, "include not found: '" + path + "'");
-                else { touchFile(path); run(splitLines(content, path), env, depth + 1); }
+                std::string content, found;
+                if (!openInclude(path, raw.file, content, found)) error(raw, "include not found: '" + path + "'" + searchedMsg(path, raw.file));
+                else {
+                    touchFile(found);
+                    run(splitLines(content, found), env, depth + 1);
+                }
                 ++i; continue;
             }
 
@@ -1579,9 +1649,13 @@ private:
                 if (lit.present && lit.error.empty() && trim(path.substr(lit.end)).empty())
                     path = lit.bytes;
                 if (parts.size() > 3) { error(raw, "INCBIN: expected 'incbin \"file\"[, offset[, length]]'"); ++i; continue; }
-                std::string content;
-                if (!files || !files(path, content)) { error(raw, "incbin not found: '" + path + "'"); ++i; continue; }
-                touchFile(path);
+                std::string content, found;
+                if (!openInclude(path, raw.file, content, found)) {
+                    error(raw, "incbin not found: '" + path + "'" + searchedMsg(path, raw.file));
+                    ++i;
+                    continue;
+                }
+                touchFile(found);
                 int64_t offset = 0, length = -1;
                 bool bad = false;
                 for (size_t p = 1; p < parts.size() && !bad; ++p) {
@@ -2021,8 +2095,8 @@ std::string normalize(const std::string &src) {
 }
 
 Result preprocess(const std::string &mainContent, const std::string &mainFile,
-                  const FileProvider &files, bool strict) {
-    PP pp(files, strict);
+                  const FileProvider &files, bool strict, const std::vector<std::string> &includeDirs) {
+    PP pp(files, strict, includeDirs);
     pp.runFile(mainContent, mainFile);
     return pp.result;
 }

@@ -23,7 +23,7 @@ _Éviter_ : passe 1 / passe 2 (qui désignent ses sous-étapes, pas la phase)
 
 **Source déroulée** :
 Le texte plat produit par le préprocesseur : macros expansées, boucles
-déroulées, includes insérés, scopes renommés. Elle est réassemblable à
+déroulées, includes insérés (puis, comme tout le reste du texte, soumis au renommage de leur scope), scopes renommés. Elle est réassemblable à
 l'identique, mise en forme, et lisible par un humain. La mise en forme fait
 partie de sa définition : une source déroulée qui déclencherait les
 avertissements de bonnes pratiques contredirait sa propre raison d'être.
@@ -148,6 +148,15 @@ s'écrit qualifié, sans recherche de repli. Les macros sont qualifiées comme l
 définition, ancre le nom à la **racine** (`@toto.CONST`).
 `MODULE nom` ouvre un module, `ENDMODULE` (ou `end`) le ferme ; les modules s'imbriquent (`toto.chose.ADDR`). `MODULE OFF` n'existe plus.
 _Éviter_ : namespace, portée (qui désigne l'espace de noms d'expansion)
+
+**Chemin d'inclusion** :
+La liste ordonnée des dossiers où `include` et `incbin` cherchent un chemin
+relatif : d'abord le dossier du fichier qui contient la directive, puis chaque
+dossier `-I`, dans l'ordre de la ligne de commande (un `-I` relatif se lit depuis
+le répertoire d'invocation). Un chemin absolu ne cherche nulle part. Le répertoire
+courant n'a aucun rôle propre. La Fermeture et les messages portent le chemin
+trouvé, pas celui qui est écrit.
+_Éviter_ : include path, répertoire courant
 
 ### Mémoire
 

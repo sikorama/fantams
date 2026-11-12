@@ -372,6 +372,7 @@ fantams --version
 | `--beautify` | format only — no preprocessing, no assembling |
 | `--normalize` | canonicalize without unrolling |
 | `--strict` | refuse anything that is not canonical Z80 |
+| `-I dir` · `-Idir` | a folder where relative `include`/`incbin` are searched, after the including file's own folder; repeatable |
 | `--no-detach-labels` | keep `label: instruction` on one line |
 | `--no-indent-blocks` | do not indent block bodies |
 | `--base f.sna` | lay the assembled bytes onto a captured machine state (`.sna` output only) |
@@ -391,7 +392,7 @@ fantams --version
 | `--dump-profile name` | print a built-in profile on standard output, as the parser reads it |
 | `--version` | the release date and this artifact's build date, on one line, to be read |
 
-`ppdump` is the preprocessor alone, equivalent to `-E`.
+`ppdump` is the preprocessor alone, equivalent to `-E`; it reads `-I dir` like `fantams` does.
 
 ---
 

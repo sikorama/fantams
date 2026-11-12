@@ -66,8 +66,13 @@ struct Result {
 // un-vers-plusieurs (`push hl,de`, plusieurs opcodes sur une ligne) comme les
 // orthographes non canoniques (`defb`). C'est le drapeau du PIPELINE : l'auteur qui
 // le demande demande « ma source est-elle canonique ? ». Il n'AJOUTE rien, il refuse.
+//
+// `includeDirs` : les dossiers `-I`, dans l'ordre. Un chemin relatif d'`include` ou
+// d'`incbin` se cherche dans le dossier du fichier qui l'écrit, puis dans chacun
+// d'eux (Chemin d'inclusion, CONTEXT.md).
 Result preprocess(const std::string &mainContent, const std::string &mainFile,
-                  const FileProvider &files, bool strict = false);
+                  const FileProvider &files, bool strict = false,
+                  const std::vector<std::string> &includeDirs = {});
 
 // Canoniser SANS dérouler (ADR 0017). Applique la seule canonisation — orthographes
 // non canoniques et opcodes composés — en laissant macros, boucles et conditions

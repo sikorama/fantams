@@ -137,6 +137,7 @@ test: $(TESTS) fantams ppdump
 	@$(T)/accept_aliased.sh
 	@$(T)/accept_const.sh
 	@$(T)/accept_list_files.sh
+	@$(T)/accept_include_path.sh
 	@$(T)/accept_cro.sh
 	@$(T)/accept_cpr.sh
 	@$(T)/accept_sna.sh

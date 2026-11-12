@@ -10,6 +10,9 @@
 
 // Fournisseur de fichiers en mémoire (pour INCLUDE).
 static std::map<std::string, std::string> g_files;
+// Les dossiers `-I` et le nom du fichier principal des helpers ci-dessous.
+static std::vector<std::string> g_dirs;
+static std::string g_main = "test.asm";
 static pp::FileProvider provider = [](const std::string &path, std::string &out) {
     auto it = g_files.find(path);
     if (it == g_files.end()) return false;
@@ -18,7 +21,7 @@ static pp::FileProvider provider = [](const std::string &path, std::string &out)
 
 // Vérifie que `src` se préprocesse exactement en `expected` (lignes jointes \n).
 static void chk(const char *desc, const std::string &src, const std::string &expected) {
-    pp::Result r = pp::preprocess(src, "test.asm", provider);
+    pp::Result r = pp::preprocess(src, g_main, provider, false, g_dirs);
     std::string got = r.dump();
     if (!r.ok || got != expected) {
         ++g_fail;
@@ -82,7 +85,7 @@ static void chkNormStable(const char *desc, const std::string &src) {
 // 0002) : ce que fantams sait déjà en préprocessant, sans nouveau moteur.
 static void chkFiles(const char *desc, const std::string &src,
                       const std::vector<std::string> &expected) {
-    pp::Result r = pp::preprocess(src, "test.asm", provider);
+    pp::Result r = pp::preprocess(src, g_main, provider, false, g_dirs);
     std::vector<std::string> got = r.files();
     if (!r.ok || got != expected) {
         ++g_fail;
@@ -102,7 +105,7 @@ static void chkErr(const char *desc, const std::string &src) {
 // Vérifie qu'un source est refusé avec un message qui contient `needle` (et pas `absent`).
 static void chkErrMsg(const char *desc, const std::string &src, const std::string &needle,
                       const std::string &absent, bool strict = false) {
-    pp::Result r = pp::preprocess(src, "test.asm", provider, strict);
+    pp::Result r = pp::preprocess(src, g_main, provider, strict, g_dirs);
     bool ok = !r.ok && !r.errors.empty();
     std::string msg = ok ? r.errors[0].message : "";
     if (ok && (msg.find(needle) == std::string::npos || msg.find(absent) != std::string::npos)) ok = false;
@@ -630,6 +633,88 @@ int main() {
     g_files["dead.asm"] = "x: nop\n";
     chkFiles("files() : un fichier d'une branche non prise n'y est pas",
              "MODULE m\n IF 0\n  INCLUDE \"dead.asm\"\n ENDIF\nENDMODULE\n", {"test.asm"});
+
+    // Chemin d'inclusion (ticket 02) : un chemin relatif se cherche d'abord dans le
+    // dossier du fichier qui contient la directive.
+    g_files["sub/mid.asm"] = "  INCLUDE \"leaf.asm\"\n";
+    g_files["sub/leaf.asm"] = "  inc a\n";
+    chk("INCLUDE imbriqué : relatif au fichier qui l'écrit",
+        "  INCLUDE \"sub/mid.asm\"\n", "inc a\n");
+
+    g_files["inc/util.asm"] = "  dec a\n";
+    g_dirs = {"inc"};
+    chk("INCLUDE : un dossier -I est cherché", "  INCLUDE \"util.asm\"\n", "dec a\n");
+    g_dirs.clear();
+
+    // Le dossier du fichier courant passe avant les -I ; les -I dans l'ordre donné.
+    g_files["ord/a.asm"] = "  INCLUDE \"twin.asm\"\n";
+    g_files["ord/twin.asm"] = "  nop\n";
+    g_files["inc/twin.asm"] = "  halt\n";
+    g_files["inc2/twin.asm"] = "  ei\n";
+    g_dirs = {"inc", "inc2"};
+    chk("INCLUDE : le dossier du fichier courant avant les -I",
+        "  INCLUDE \"ord/a.asm\"\n", "nop\n");
+    chk("INCLUDE : les -I dans l'ordre donné", "  INCLUDE \"twin.asm\"\n", "halt\n");
+    g_dirs = {"inc2", "inc"};
+    chk("INCLUDE : les -I dans l'ordre donné (inversé)", "  INCLUDE \"twin.asm\"\n", "ei\n");
+    g_dirs = {"inc/"};
+    chk("INCLUDE : un -I écrit avec une barre finale", "  INCLUDE \"twin.asm\"\n", "halt\n");
+    g_dirs.clear();
+
+    // Un chemin absolu ne cherche nulle part, d'où qu'on l'inclue.
+    g_files["/abs/f.asm"] = "  scf\n";
+    g_files["sub//abs/f.asm"] = "  ccf\n";
+    g_files["inc//abs/f.asm"] = "  ccf\n";
+    g_files["sub/abs.asm"] = "  INCLUDE \"/abs/f.asm\"\n";
+    g_dirs = {"inc"};
+    chk("INCLUDE : un chemin absolu ne cherche nulle part",
+        "  INCLUDE \"sub/abs.asm\"\n", "scf\n");
+    g_dirs.clear();
+
+    // incbin suit la même règle.
+    g_files["bin/data.bin"] = std::string("\x01\x02", 2);
+    g_files["bin/user.asm"] = "  INCBIN \"data.bin\"\n";
+    chk("INCBIN : relatif au fichier qui l'écrit", "  INCLUDE \"bin/user.asm\"\n", "db #01,#02\n");
+    g_files["libbin/blob.bin"] = std::string("\x03", 1);
+    g_dirs = {"libbin"};
+    chk("INCBIN : un dossier -I est cherché", "  INCBIN \"blob.bin\"\n", "db #03\n");
+    g_dirs.clear();
+
+    // La Fermeture porte le chemin trouvé : deux fichiers de même nom restent distincts.
+    g_files["da/same.asm"] = "  nop\n";
+    g_files["db/same.asm"] = "  nop\n";
+    chkFiles("files() : deux fichiers de même nom, dossiers différents",
+             "  INCLUDE \"da/same.asm\"\n  INCLUDE \"db/same.asm\"\n",
+             {"test.asm", "da/same.asm", "db/same.asm"});
+    g_dirs = {"inc"};
+    chkFiles("files() : le chemin trouvé par un -I", "  INCLUDE \"util.asm\"\n", {"test.asm", "inc/util.asm"});
+    g_dirs.clear();
+    // Un même fichier atteint par deux routes n'y paraît qu'une fois (normalisation lexicale).
+    g_files["b.asm"] = "  inc a\n";
+    g_files["sub/up.asm"] = "  INCLUDE \"../b.asm\"\n";
+    chkFiles("files() : './' et 'a/../' se replient sur le même fichier",
+             "  INCLUDE \"./b.asm\"\n  INCLUDE \"sub/../b.asm\"\n  INCLUDE \"sub/up.asm\"\n",
+             {"test.asm", "b.asm", "sub/up.asm"});
+
+    // Le fichier principal compte comme les autres : son dossier est cherché.
+    g_files["proj/part.asm"] = "  rra\n";
+    g_main = "proj/main.asm";
+    chk("INCLUDE : le dossier du fichier principal", "  INCLUDE \"part.asm\"\n", "rra\n");
+    g_main = "test.asm";
+
+    // Le corps d'une macro se lit depuis le fichier qui la DÉFINIT, pas depuis l'appelant.
+    g_files["m/mac.asm"] = "MACRO PART\n  INCLUDE \"p.asm\"\nENDM\n";
+    g_files["m/p.asm"] = "  rla\n";
+    chk("INCLUDE dans une macro : relatif au fichier de définition",
+        "  INCLUDE \"m/mac.asm\"\n  PART\n", "rla\n");
+
+    // Un échec dit où l'on a cherché.
+    g_dirs = {"inc", "inc2"};
+    chkErrMsg("include not found : les dossiers cherchés", "  INCLUDE \"sub/none.asm\"\n",
+              "searched: ./, inc/, inc2/", "zzz");
+    chkErrMsg("incbin not found : les dossiers cherchés", "  INCBIN \"none.bin\"\n",
+              "searched: ./, inc/, inc2/", "zzz");
+    g_dirs.clear();
 
     // macro définie dans un include, utilisée après
     g_files["mac.asm"] = "MACRO ZERO\n  xor a\nENDM\n";

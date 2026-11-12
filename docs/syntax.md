@@ -1177,7 +1177,21 @@ leaves them, `--strict` takes both.
 
 ## 12. Inclusion
 
-`include "file"` inserts a source.
+`include "file"` inserts a source. The file is **text pasted in place**: included inside a
+`module`, a `macro` or a loop, its labels, constants and `.local` names follow that scope
+exactly as if they were written there (`m.lbl` inside `module m`).
+
+**Where a relative path is searched** (`include` and `incbin` alike): first in the folder of the
+file that *writes* the directive, then in each `-I` folder, in the order given on the command
+line. A `-I` is read from where `fantams` is launched, relative or absolute. The current
+directory has no role of its own: `-I .` adds it. An absolute path is read as written, with no
+search. For a macro, the file is the one that defines it. The closure (`--list-files`), the
+messages and the lines of an included file carry the path that was *found*, and a failure lists
+the folders searched.
+
+```
+fantams main.asm -I lib -I../shared      ; main.asm: include "util.asm" -> lib/util.asm
+```
 
 `incbin "file"[, offset[, length]]` inserts the bytes of a binary file. `offset` (default 0) skips the start of the
 file, `length` (default: up to the end) limits the count; both are
@@ -1254,6 +1268,7 @@ the section given.
 | `--sym[=file]` | writes the **symbol table** (CSV) for a disassembler or emulator |
 | `-s` | prints the symbol table on the terminal, variables included |
 | `--timing[=file]` | writes the **duration table** (CSV): where the time goes, label by label |
+| `-I dir` · `-Idir` | a folder where relative `include` and `incbin` are searched, after the folder of the file that writes them; repeatable (§12) |
 | `--list-files` | prints the closure — the source, every `include` and `incbin` file — and assembles nothing |
 | `--target name` · `-P file` | the target profile, built-in or a file (§4, §7) |
 | `-T file` | the link script: which section goes where |
