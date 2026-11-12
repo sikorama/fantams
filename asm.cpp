@@ -43,26 +43,7 @@ std::string restAfterFirst(const std::string &s) {
     size_t b = a; while (b < s.size() && !std::isspace((unsigned char)s[b])) ++b;
     return trim(s.substr(b));
 }
-std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
-    std::vector<std::string> out;
-    if (trim(s).empty()) return out;
-    int depth = 0; bool inStr = false; char q = 0; std::string cur;
-    for (char c : s) {
-        if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
-            inStr = true;
-            q = c;
-            cur += c;
-            continue;
-        }
-        if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
-        if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
-        if (c == delim && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
-        cur += c;
-    }
-    out.push_back(trim(cur));
-    return out;
-}
+using kw::splitTopLevel;
 // Texte d'un littéral, ou l'argument tel quel s'il n'en est pas un — pour les
 // messages (ASSERT), où un argument non quoté reste lisible.
 std::string literalText(const std::string &s) {
@@ -358,7 +339,7 @@ public:
         for (size_t i = 0; i < rest.size(); ++i) {
             const char c = rest[i];
             if (quote) { if (c == quote) quote = 0; continue; }
-            if (c == '"' || (c == '\'' && !kw::isShadowAf(rest, i))) {
+            if (kw::opensString(rest, i)) {
                 quote = c;
                 continue;
             }
@@ -1262,7 +1243,7 @@ private:
         // Un second littéral dans la queue n'a pas de lecture : « db 'ab'-'cd' »
         // décalerait deux octets par deux autres, sans règle d'appariement.
         for (size_t k = 0; k < tail.size(); ++k) {
-            if (tail[k] != '"' && tail[k] != '\'') continue;
+            if (!kw::opensString(tail, k)) continue;
             const kw::Literal t2 = kw::readLiteral(tail, k);
             if (t2.error.empty() && t2.bytes.size() > 1) {
                 structErr("two string literals in one element: " + p +

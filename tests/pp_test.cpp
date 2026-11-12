@@ -357,6 +357,9 @@ int main() {
     chk("ex af,af' : instruction suivante", " ex af,af' : ld a,1\n", "ex af,af'\n    ld a,1\n");
     chk("ex af,af' /* bloc */ ne mange pas la suite", " ex af,af' /* c */\n nop\n ex af,af'\n ld a,1\n",
         "ex af,af'\nnop\nex af,af'\nld a,1\n");
+    chk("chaine 'a;b' puis commentaire", " db 'a;b' ; c\n", "db 'a;b'\n");
+    chk("apostrophe dans une chaine \"\"", " db \"it's\" ; c\n", "db \"it's\"\n");
+    chk("af' en argument de macro", "macro swp(x)\n ex af,x\nendmacro\n swp(af') ; c\n nop\n", "ex af,af'\nnop\n");
     chk("litteral ; : le commentaire suit toujours", " ld a,';' ; c\n", "ld a,';'\n");
     chkWarn("ex hl,de ne dit rien", " ex hl,de\n", "ex de,hl\n", false);
 

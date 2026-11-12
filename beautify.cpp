@@ -134,9 +134,10 @@ Delta blockDelta(const std::string &body, kw::Phase ph) {
     std::string cur; bool inStr = false; char q = 0; int par = 0;
     std::vector<std::string> stmts;
     auto flush = [&]() { const std::string t = trim(cur); if (!t.empty()) stmts.push_back(t); cur.clear(); };
-    for (char c : rest) {
+    for (size_t i = 0; i < rest.size(); ++i) {
+        const char c = rest[i];
         if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
+        if (kw::opensString(rest, i)) {
             inStr = true;
             q = c;
             cur += c;

@@ -118,6 +118,7 @@ fantams: $(MANIFEST) $(CORE) asm_main.cpp $(HDRS)
 
 # Tests unitaires seuls (sans les scripts d'acceptation) : la boucle courte, et le hook pre-commit.
 test-fast: $(TESTS) ppdump
+	@scripts/check-quotes.sh
 	@for t in $(TESTS); do ./$$t || exit 1; done
 
 # Format des lignes modifiées (clang-format épinglé) ; `make format` les réécrit.

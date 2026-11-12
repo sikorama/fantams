@@ -37,22 +37,7 @@ std::string restAfterFirst(const std::string &s) {
     size_t b = a; while (b < s.size() && !std::isspace((unsigned char)s[b])) ++b;
     return trim(s.substr(b));
 }
-// Découpe en respectant () [] {} et les littéraux "..." / '...'.
-std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
-    std::vector<std::string> out;
-    if (trim(s).empty()) return out;
-    int depth = 0; bool inStr = false; char q = 0; std::string cur;
-    for (char c : s) {
-        if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; cur += c; continue; }
-        if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
-        if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
-        if (c == delim && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
-        cur += c;
-    }
-    out.push_back(trim(cur));
-    return out;
-}
+using kw::splitTopLevel;
 // Parenthèses englobant la totalité de l'opérande ?  "(a)b" -> non, "(a)" -> oui
 bool fullyEnclosed(const std::string &t) {
     if (t.size() < 2 || t.front() != '(') return false;
@@ -60,7 +45,11 @@ bool fullyEnclosed(const std::string &t) {
     for (size_t i = 0; i < t.size(); ++i) {
         char c = t[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || c == '\'') { inStr = true; q = c; continue; }
+        if (kw::opensString(t, i)) {
+            inStr = true;
+            q = c;
+            continue;
+        }
         if (c == '(') ++depth;
         else if (c == ')') { if (--depth == 0) return i == t.size() - 1; }
     }

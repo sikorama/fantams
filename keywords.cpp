@@ -240,7 +240,7 @@ bool parenCall(const std::string &s, std::string &name, std::string &args) {
     for (size_t i = p; i < t.size(); ++i) {
         const char c = t[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !isShadowAf(t, i))) {
+        if (opensString(t, i)) {
             inStr = true;
             q = c;
             continue;
@@ -284,7 +284,7 @@ size_t findAssign(const std::string &s) {
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !isShadowAf(s, i))) {
+        if (opensString(s, i)) {
             inStr = true;
             q = c;
             continue;
@@ -471,13 +471,59 @@ Literal readLiteral(const std::string &s, size_t pos) {
     return r;
 }
 
-bool isShadowAf(const std::string &s, size_t i) {
+// L'apostrophe qui suit le mot entier `AF` (casse indifférente) nomme le registre
+// fantôme de `ex af,af'` : elle n'ouvre pas de chaîne.
+static bool followsWordAf(const std::string &s, size_t i) {
     if (i < 2) return false;
     const auto low = [](char c) { return (char)std::tolower((unsigned char)c); };
     if (low(s[i - 2]) != 'a' || low(s[i - 1]) != 'f') return false;
-    if (i == 2) return true;
-    const unsigned char b = (unsigned char)s[i - 3];
-    return !(std::isalnum(b) || b == '_' || b == '.' || b == '$' || b == '@');
+    return i == 2 || (!isIdentChar(s[i - 3]) && s[i - 3] != '$');
+}
+
+bool opensString(const std::string &s, size_t i) {
+    if (s[i] == '"') return true;
+    return s[i] == '\'' && !followsWordAf(s, i);
+}
+
+std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
+    std::vector<std::string> out;
+    if (trim(s).empty()) return out;
+    int depth = 0;
+    bool inStr = false;
+    char q = 0;
+    std::string cur;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (inStr) {
+            cur += c;
+            if (c == q) inStr = false;
+            continue;
+        }
+        if (opensString(s, i)) {
+            inStr = true;
+            q = c;
+            cur += c;
+            continue;
+        }
+        if (c == '(' || c == '[' || c == '{') {
+            ++depth;
+            cur += c;
+            continue;
+        }
+        if (c == ')' || c == ']' || c == '}') {
+            --depth;
+            cur += c;
+            continue;
+        }
+        if (c == delim && depth == 0) {
+            out.push_back(trim(cur));
+            cur.clear();
+            continue;
+        }
+        cur += c;
+    }
+    out.push_back(trim(cur));
+    return out;
 }
 
 size_t commentPos(const std::string &s) {
@@ -486,9 +532,10 @@ size_t commentPos(const std::string &s) {
         char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
         // L'apostrophe de `af'` nomme le registre fantôme : elle n'ouvre pas de chaîne.
-        if (c == '\'' && isShadowAf(s, i)) continue;
-        if (c == '"' || c == '\'') { inStr = true; q = c; }
-        else if (c == ';') return i;
+        if (opensString(s, i)) {
+            inStr = true;
+            q = c;
+        } else if (c == ';') return i;
         // Commentaire de ligne C : '//' (le '/' isolé reste la division).
         else if (c == '/' && i + 1 < s.size() && s[i + 1] == '/') return i;
     }

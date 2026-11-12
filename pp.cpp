@@ -52,7 +52,7 @@ std::string stripBlockComments(const std::string &s) {
             while (i < s.size() && s[i] != '\n') out += s[i++];
             continue;
         }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(out, out.size()))) {
+        if (kw::opensString(s, i)) {
             inStr = true;
             q = c;
             out += c;
@@ -105,27 +105,7 @@ void peelLabel(const std::string &code, std::string &label, std::string &rest,
               const std::function<bool(const std::string &)> &isMacro = nullptr) {
     kw::peelLabel(code, label, rest, kw::Phase::Preprocess, nullptr, isMacro);
 }
-// Découpe en respectant () [] {} "" ''.
-std::vector<std::string> splitTopLevel(const std::string &s, char delim) {
-    std::vector<std::string> out;
-    if (trim(s).empty()) return out;
-    int depth = 0; bool inStr = false; char q = 0; std::string cur;
-    for (char c : s) {
-        if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
-            inStr = true;
-            q = c;
-            cur += c;
-            continue;
-        }
-        if (c == '(' || c == '[' || c == '{') { ++depth; cur += c; continue; }
-        if (c == ')' || c == ']' || c == '}') { --depth; cur += c; continue; }
-        if (c == delim && depth == 0) { out.push_back(trim(cur)); cur.clear(); continue; }
-        cur += c;
-    }
-    out.push_back(trim(cur));
-    return out;
-}
+using kw::splitTopLevel;
 // Remplace `from` par `to`, uniquement sur des mots entiers.
 //
 // Un '.' qui SUIT le mot ne le prolonge pas : « plot.x » est une référence au local
@@ -157,9 +137,10 @@ std::vector<std::string> splitStatements(const std::string &s, std::vector<std::
     std::string cur;
     bool inStr = false; char q = 0; int depth = 0; bool firstColon = true;
     auto flush = [&]() { std::string t = trim(cur); if (!t.empty()) out.push_back(t); cur.clear(); firstColon = true; };
-    for (char c : s) {
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
         if (inStr) { cur += c; if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(cur, cur.size()))) {
+        if (kw::opensString(s, i)) {
             inStr = true;
             q = c;
             cur += c;
@@ -326,7 +307,7 @@ inline size_t findRangeKeyword(const std::string &s, bool &inclusive) {
     for (size_t i = 0; i < s.size(); ++i) {
         const char c = s[i];
         if (inStr) { if (c == q) inStr = false; continue; }
-        if (c == '"' || (c == '\'' && !kw::isShadowAf(s, i))) {
+        if (kw::opensString(s, i)) {
             inStr = true;
             q = c;
             continue;
@@ -563,7 +544,7 @@ private:
                 if (c == q) inStr = false;
                 continue;
             }
-            if (c == '"' || (c == '\'' && !kw::isShadowAf(t, i))) {
+            if (kw::opensString(t, i)) {
                 inStr = true;
                 q = c;
                 out += c;
@@ -807,7 +788,7 @@ private:
         size_t i = 0;
         while (i < text.size()) {
             char c = text[i];
-            if (c == '"' || (c == '\'' && !kw::isShadowAf(text, i))) {
+            if (kw::opensString(text, i)) {
                 char q = c; out += text[i++];
                 while (i < text.size()) {
                     if (text[i] == '\\' && i + 1 < text.size()) { out += text[i]; out += text[i + 1]; i += 2; continue; }

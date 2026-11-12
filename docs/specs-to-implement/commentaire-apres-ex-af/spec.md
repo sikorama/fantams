@@ -50,8 +50,9 @@ leur comportement, y compris quand ils contiennent un `;` ou un `//`.
 10. En tant qu'utilisateur de la source déroulée, je veux que `ex af,af' ; c` en
     sorte comme les autres lignes (commentaire retiré ou conservé selon l'option),
     pour qu'elle reste réassemblable à l'identique (ADR 0017).
-11. En tant qu'utilisateur de la mise en forme, je veux que le commentaire de
-    `ex af,af'` s'aligne sur la colonne des commentaires des lignes voisines.
+11. En tant qu'utilisateur de la mise en forme, je veux que la ligne `ex af,af' ; c`
+    soit traitée comme toute autre ligne à commentaire, pour qu'elle ne soit ni
+    réécrite ni tronquée.
 12. En tant que mainteneur, je veux que la règle « `af'` n'est pas une chaîne »
     vive en un seul endroit, pour que l'assembleur, le préprocesseur et la mise
     en forme ne divergent pas.
@@ -70,12 +71,13 @@ leur comportement, y compris quand ils contiennent un `;` ou un `//`.
   écartée : elle changerait la lecture de formes que l'ADR 0010 permet.
 - La canonicalisation de `EX` (ADR 0020) n'est pas modifiée : une fois le
   commentaire correctement séparé, elle reconnaît la ligne.
-- Les autres parcours de ligne qui suivent les guillemets (découpe sur `:`, sur
-  `,`, recherche d'`=`, etc.) ont la même logique d'ouverture de chaîne. Le
-  correctif les sonde avec `ex af,af'` ; ceux qui se trompent à leur tour sont
-  corrigés par la même règle, de préférence en la partageant, sans élargir la
-  règle elle-même. Ce qui reste hors de portée est consigné dans
-  `improvements.md`.
+- Un seul prédicat décide si un guillemet ouvre un littéral (`opensString`,
+  lu à l'index du caractère) ; tout parcours de ligne qui suit les guillemets
+  l'appelle, sans réécrire le test. La découpe sur une virgule hors parenthèses
+  et hors chaîne est de même une fonction unique, partagée par le préprocesseur,
+  l'assembleur et le parseur. Les parcours qui ne portent pas sur du texte
+  d'instruction (lecture d'une expression ou d'un littéral déjà isolé) n'ont pas
+  à la consulter.
 - Aucune syntaxe nouvelle ; la doc de syntaxe n'a pas à changer sauf si un
   passage décrit `af'` comme interdisant le commentaire (à vérifier, et à
   corriger sans historique).
@@ -91,9 +93,8 @@ leur comportement, y compris quand ils contiennent un `;` ou un `//`.
   - le test du préprocesseur, qui porte déjà les cas `ex af,af` / `ex af,af'`
     et leur avertissement — à compléter par la story 10 (commentaire retiré
     ou conservé comme sur une ligne ordinaire).
-- La mise en forme (story 11) se vérifie par son test existant s'il y en a un ;
-  sinon par une sortie du préprocesseur, sans créer de joint.
-- Ordre : le test existant doit échouer avant le correctif, passer après.
+- La mise en forme (story 11) se vérifie par la sortie du préprocesseur et de
+  `--beautify`, sans créer de joint.
 - Tests ciblés seulement pendant le travail (`make test-fast` ou le binaire de
   test concerné) ; `make test` une fois, au commit.
 
@@ -104,10 +105,3 @@ leur comportement, y compris quand ils contiennent un `;` ou un `//`.
 - Les littéraux de caractère : leur règle (ADR 0010) ne bouge pas.
 - Les deux hypothèses non reproduites déjà consignées dans `improvements.md`
   (avertissement parasite sans `run`, morceau de 64 K).
-
-## Further Notes
-
-- Le point correspondant dans `improvements.md` se retire quand la correction
-  est faite.
-- Bug signalé par un utilisateur, reproduit par un test déjà présent dans
-  l'arbre de travail (non commité).
