@@ -13,6 +13,8 @@
 - **Disquette de 41 ou 42 pistes** (`pack.cpp`, chargement d'une disquette existante) : elle est refusée, conformément à la lettre de la spec. Faut-il tolérer les pistes en trop d'une disquette DATA ?
 - **`.cpr` d'une image qui écrit hors de `crom`** (`cpr.cpp`, `bankBytes`) : le CPR ne lit que la banque `crom` et ignore sans rien dire ce que l'image écrit ailleurs (RAM, `rom_lo`…), là où le CRO refuse une image qui remplit plusieurs banques de ROM. Faut-il avertir, ou refuser ?
 
+- **`PP equ $` en section relocalisable** (`asm.cpp`, `noteSymbol`) : exporté dans le `.fo` comme constante (`section=""`, valeur `0xF`), pas comme label rattaché à la section, alors que `syntax.md:388` dit que `$` se comporte comme un label. Un autre module qui ferait `extern PP` verrait une constante. Non comparé à l'état d'avant `cf8618e` ; à reproduire avant de trancher.
+
 ## Bugs à vérifier
 
 - **Avertissement parasite sans `run`** (`pack.cpp`, `link.cpp` défaut de `runAddress`) : hypothèse non reproduite. Un programme sans `run` qui n'écrit qu'en banque d'extension a `runAddress` = `loadAddress` = 0, et produirait « le run &0000 ne tombe dans aucun fichier », alors que le défaut doit marcher (US 5 de la spec DSK).
