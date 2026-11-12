@@ -938,6 +938,12 @@ int main() {
               "MODULE m\nmacro a()\n nop\nend\nENDMODULE\n a()\n", "did you mean 'm.a'", "zzz");
     chk("compteurs de boucle par nom exact",
         "REPEAT 2, k\n db {k}\nREND\nREPEAT 2, K\n db {K}\nREND\n", "db 0\ndb 1\ndb 0\ndb 1\n");
+    chkErrMsg("affectation sur le nom d'une macro : erreur nommee",
+              "macro SL()\n dw 0\nend\nSL = 0\n", "'SL' is a macro, not a variable", "expected 0");
+    chkErrMsg("affectation collee sur le nom d'une macro : erreur nommee",
+              "macro SL()\n dw 0\nend\nSL=0\n", "'SL' is a macro, not a variable", "zzz");
+    chkErrMsg("constante EQU sur le nom d'une macro : erreur nommee",
+              "macro SL()\n dw 0\nend\nSL equ 3\n", "'SL' is a macro, not a variable", "expected 0");
     chkErr("@nom ancre a la casse exacte",
            "macro Foo()\n nop\nend\nMODULE m\n @foo()\nENDMODULE\n");
 

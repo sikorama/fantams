@@ -1991,6 +1991,20 @@ private:
             // --- appel de macro : « nom args » ou « nom(args) » (ADR 0018) ---
             std::string pcName, pcArgs;
             const bool paren = kw::parenCall(rest, pcName, pcArgs);
+            // « NOM = v », « NOM=v » et « NOM EQU v » sur le nom d'une macro : le nom est
+            // pris, une constante de même nom exact se confondrait avec l'appel nu.
+            if (!paren) {
+                const size_t eqAt = kw::findAssign(code);
+                std::string target;
+                if (eqAt != std::string::npos) target = trim(code.substr(0, eqAt));
+                else if (upper(firstToken(restAfterFirst(rest))) == "EQU") target = firstToken(rest);
+                if (!target.empty() && target.back() == ':') target.pop_back();
+                if (!target.empty() && findMacro(target) != macros.end()) {
+                    error(raw, "'" + target + "' is a macro, not a variable: the name is taken — pick another one");
+                    ++i;
+                    continue;
+                }
+            }
             auto mit = findMacro(paren ? pcName : firstToken(rest));
             if (mit == macros.end()) {
                 // `foo()` d'une macro qui n'existe que dans un module : le nom qualifié est proposé.
