@@ -25,6 +25,7 @@ struct SrcLine {
     std::string file;
     int line = 0;
     bool col0 = false;   // true si, dans le fichier source d'origine, la ligne commençait en colonne 1
+    bool inlined = false; // « include » dont le contenu suit déjà, inséré avant le renommage de son scope
 };
 
 // Fourniture du contenu d'un fichier inclus (injectée : testable, WASM-friendly).

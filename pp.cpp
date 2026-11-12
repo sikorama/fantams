@@ -1034,6 +1034,42 @@ private:
                          " : ...' if that is what you meant");
     }
 
+    // Le chemin d'un `include` : un littéral entre quotes suit la même règle qu'une chaîne
+    // de « db » (ADR 0010) — sans quoi « include 'a"b.asm' » se lirait ici autrement
+    // qu'ailleurs.
+    static std::string includePathOf(const std::string &rest) {
+        auto parts = splitTopLevel(restAfterFirst(rest), ',');
+        std::string path = parts.empty() ? "" : parts[0];
+        const kw::Literal lit = kw::readLiteral(path, 0);
+        if (lit.present && lit.error.empty() && trim(path.substr(lit.end)).empty())
+            path = lit.bytes;
+        return path;
+    }
+    // Un fichier inclus est du texte collé sur place : dans un corps qui ouvre un espace
+    // de noms (module, macro, boucle), il doit être là AVANT le renommage, sans quoi ses
+    // noms échappent au scope. Les `include` à chemin littéral sont donc remplacés par
+    // leur contenu, récursivement ; la ligne `include` reste, marquée `inlined`, pour
+    // porter son label et inscrire le fichier dans la Fermeture si elle est exécutée.
+    // Un fichier introuvable laisse la ligne telle quelle : l'erreur est annoncée à
+    // l'exécution, et seulement si la ligne est atteinte.
+    std::vector<SrcLine> inlineIncludes(const std::vector<SrcLine> &body, int level = 0) {
+        std::vector<SrcLine> out;
+        for (const auto &l : body) {
+            out.push_back(l);
+            if (l.inlined || level > 50) continue;
+            std::string label, rest;
+            peelLabel(trim(stripComment(l.text)), label, rest);
+            if (upper(firstToken(rest)) != "INCLUDE") continue;
+            const std::string path = includePathOf(rest);
+            std::string content;
+            if (path.empty() || path.find('{') != std::string::npos || !files || !files(path, content)) continue;
+            out.back().inlined = true;
+            auto inner = inlineIncludes(splitLines(content, path), level + 1);
+            out.insert(out.end(), inner.begin(), inner.end());
+        }
+        return out;
+    }
+
     // Une région qui ouvre son propre espace de noms (ADR 0037, ADR 0038) : ce qu'elle
     // définit lui appartient, et la région qui l'englobe ne le renomme pas.
     static bool opensNameScope(const std::string &kind) {
@@ -1138,7 +1174,7 @@ private:
             t = t.substr(keep);
             for (const auto &name : names) t = replaceWord(t, name, mangle(name));
             t = head + t;
-            out.push_back({t, l.file, l.line, l.col0});
+            out.push_back({t, l.file, l.line, l.col0, l.inlined});
         }
         return out;
     }
@@ -1519,14 +1555,13 @@ private:
             // --- INCLUDE ---
             if (kw == "INCLUDE") {
                 if (!label.empty()) emit(label + ":", raw);
-                auto parts = splitTopLevel(restAfterFirst(rest), ',');
-                std::string path = parts.empty() ? "" : parts[0];
-                // Lecteur partagé (ADR 0010) : un chemin entre quotes suit la même
-                // règle qu'une chaîne de « db » — sans quoi « include 'a"b.asm' »
-                // se lirait ici autrement qu'ailleurs.
-                const kw::Literal lit = kw::readLiteral(path, 0);
-                if (lit.present && lit.error.empty() && trim(path.substr(lit.end)).empty())
-                    path = lit.bytes;
+                const std::string path = includePathOf(rest);
+                // Contenu déjà inséré par `inlineIncludes` : il suit cette ligne.
+                if (raw.inlined) {
+                    touchFile(path);
+                    ++i;
+                    continue;
+                }
                 std::string content;
                 if (!files || !files(path, content)) error(raw, "include not found: '" + path + "'");
                 else { touchFile(path); run(splitLines(content, path), env, depth + 1); }
@@ -1648,7 +1683,7 @@ private:
                     warning(raw, "the index of 'repeat' starts at 0 here, not at 1: "
                                  "a source written for another assembler may need '" + var + "+1' — prefer "
                                  "'for " + var + " = 0 until <count>', where the bounds are written");
-                std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + rend);
+                const std::vector<SrcLine> body = inlineIncludes({lines.begin() + i + 1, lines.begin() + rend});
                 if (!r.ok) error(raw, "REPEAT: " + (parts.empty() ? "missing counter" : r.error));
                 else if (r.value < 0 || r.value > 1000000) error(raw, "REPEAT: counter out of range");
                 else {
@@ -1669,7 +1704,7 @@ private:
                 int endfor = findMatching(lines, i, "FOR");
                 if (endfor < 0) { if (endfor == -1) error(raw, "FOR without ENDFOR or end"); return; }
                 if (!label.empty()) emit(label + ":", raw);
-                std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + endfor);
+                const std::vector<SrcLine> body = inlineIncludes({lines.begin() + i + 1, lines.begin() + endfor});
                 std::string head = restAfterFirst(rest);
                 size_t eq = kw::findAssign(head);
                 if (eq == std::string::npos) {
@@ -1710,7 +1745,7 @@ private:
                 if (wend < 0) { if (wend == -1) error(raw, "WHILE without ENDWHILE or end"); return; }
                 if (!label.empty()) emit(label + ":", raw);
                 std::string condRaw = restAfterFirst(rest);
-                std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + wend);
+                const std::vector<SrcLine> body = inlineIncludes({lines.begin() + i + 1, lines.begin() + wend});
                 long guard = 0;
                 LocalNames names;
                 for (;;) {
@@ -1748,7 +1783,7 @@ private:
                     if (!bad.empty()) error(raw, bad);
                     m.params.push_back(p);
                 }
-                for (int j = i + 1; j < endm; ++j) m.body.push_back(lines[j]);
+                m.body = inlineIncludes({lines.begin() + i + 1, lines.begin() + endm});
                 if (!m.name.empty() && m.name.back() == ':') m.name.pop_back();
                 if (m.name.empty()) error(raw, "MACRO without a name");
                 else {
@@ -1796,7 +1831,7 @@ private:
                     if (endIdx == -1) error(raw, "MODULE without ENDMODULE or end");
                     return;
                 }
-                std::vector<SrcLine> body(lines.begin() + i + 1, lines.begin() + endIdx);
+                const std::vector<SrcLine> body = inlineIncludes({lines.begin() + i + 1, lines.begin() + endIdx});
                 const std::string outerPrefix = modulePrefix_;
                 const std::string prefix = outerPrefix + mname + ".";
                 // Les noms du module sont ceux de TOUS ses blocs frères : une constante définie
@@ -1812,7 +1847,7 @@ private:
                     const int e = matchQuiet(lines, j);
                     if (e < 0) break;
                     if (firstToken(trim(restAfterFirst(trim(stripComment(lines[j].text))))) == mname)
-                        addNames(std::vector<SrcLine>(lines.begin() + j + 1, lines.begin() + e));
+                        addNames(inlineIncludes({lines.begin() + j + 1, lines.begin() + e}));
                     j = e; // les modules imbriqués ne sont pas des frères
                 }
                 addNames(body);

@@ -585,6 +585,52 @@ int main() {
     g_files["lib.asm"] = "  inc a\n  inc b\n";
     chk("INCLUDE", "  nop\n  INCLUDE \"lib.asm\"\n  ret\n", "nop\ninc a\ninc b\nret\n");
 
+    // Un fichier inclus suit le scope de l'endroit où il est inclus : c'est du texte
+    // collé sur place (ticket 01 de l'inclusion).
+    g_files["modlib.asm"] = "lbl: nop\nK equ 5\n";
+    chk("INCLUDE dans un module : préfixe, définitions et références",
+        "MODULE m\n  INCLUDE \"modlib.asm\"\n  jp lbl\n  ld a,K\nENDMODULE\n",
+        "m.lbl: nop\nm.K equ 5\njp m.lbl\nld a,m.K\n");
+
+    chk("INCLUDE dans un module : référence écrite avant l'include",
+        "MODULE m\n  jp lbl\n  INCLUDE \"modlib.asm\"\nENDMODULE\n",
+        "jp m.lbl\nm.lbl: nop\nm.K equ 5\n");
+    chk("INCLUDE dans un module imbriqué : chemin complet",
+        "MODULE a\n MODULE b\n  INCLUDE \"modlib.asm\"\n  jp lbl\n ENDMODULE\nENDMODULE\n",
+        "a.b.lbl: nop\na.b.K equ 5\njp a.b.lbl\n");
+    g_files["innermod.asm"] = "MODULE in\nx: nop\nENDMODULE\n";
+    chk("INCLUDE d'un fichier qui ouvre son module : imbriqué dans celui de l'inclusion",
+        "MODULE m\n  INCLUDE \"innermod.asm\"\nENDMODULE\n", "m.in.x: nop\n");
+    g_files["outerinc.asm"] = "  INCLUDE \"modlib.asm\"\n";
+    chk("INCLUDE imbriqué dans un module : préfixé aussi",
+        "MODULE m\n  INCLUDE \"outerinc.asm\"\n  jp lbl\nENDMODULE\n",
+        "m.lbl: nop\nm.K equ 5\njp m.lbl\n");
+    chk("INCLUDE dans un module rouvert : noms vus par le bloc frère",
+        "MODULE m\n  INCLUDE \"modlib.asm\"\nENDMODULE\nMODULE m\n  jp lbl\nENDMODULE\n",
+        "m.lbl: nop\nm.K equ 5\njp m.lbl\n");
+    chk("INCLUDE : un label devant l'include est conservé dans un module",
+        "MODULE m\nhere: INCLUDE \"modlib.asm\"\nENDMODULE\n",
+        "m.here:\nm.lbl: nop\nm.K equ 5\n");
+    g_files["loc.asm"] = ".again: djnz .again\n";
+    chk("INCLUDE dans une macro : .local renommé par expansion",
+        "MACRO W\n  INCLUDE \"loc.asm\"\nENDM\n  W\n  W\n",
+        "W__1.again: djnz W__1.again\nW__2.again: djnz W__2.again\n");
+    chk("INCLUDE dans un repeat : .local renommé par tour",
+        "REPEAT 2\n  INCLUDE \"loc.asm\"\nENDREPEAT\n",
+        "repeat__1.again: djnz repeat__1.again\nrepeat__2.again: djnz repeat__2.again\n");
+    chk("INCLUDE dans un while : .local renommé par tour",
+        "LET n=0\nWHILE n<2\n  INCLUDE \"loc.asm\"\n  LET n=n+1\nWEND\n",
+        "while__1.again: djnz while__1.again\nwhile__2.again: djnz while__2.again\n");
+    chk("INCLUDE absent dans un if non pris, dans un module : aucune erreur",
+        "MODULE m\n IF 0\n  INCLUDE \"absent.asm\"\n ENDIF\n nop\nENDMODULE\n", "nop\n");
+    chkErr("INCLUDE absent dans un if pris, dans un module : erreur",
+           "MODULE m\n IF 1\n  INCLUDE \"absent.asm\"\n ENDIF\nENDMODULE\n");
+    chkFiles("files() : un include inséré dans un module est dans la Fermeture",
+             "MODULE m\n  INCLUDE \"outerinc.asm\"\nENDMODULE\n", {"test.asm", "outerinc.asm", "modlib.asm"});
+    g_files["dead.asm"] = "x: nop\n";
+    chkFiles("files() : un fichier d'une branche non prise n'y est pas",
+             "MODULE m\n IF 0\n  INCLUDE \"dead.asm\"\n ENDIF\nENDMODULE\n", {"test.asm"});
+
     // macro définie dans un include, utilisée après
     g_files["mac.asm"] = "MACRO ZERO\n  xor a\nENDM\n";
     chk("INCLUDE macro",
