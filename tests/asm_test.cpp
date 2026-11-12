@@ -177,6 +177,18 @@ int main() {
     chk("assign =", "port = 0xFE\n  in a,(port)\n", {0xDB, 0xFE});
     chk("equ forward", "  ld hl,SIZE\nSIZE equ tail-head\nhead:\n  nop\ntail:\n",
         {0x21, 0x01, 0x00, 0x00}); // ld hl,1 (tail-head=1) + nop
+    // Un `$` dans un EQU vaut l'adresse de SA ligne, aussi pour une référence
+    // en avant : la relecture à point fixe ne doit pas le lire en fin de programme.
+    chk("equ forward avec $, octets apres",
+        "  org #4000\n  ld b,LEN\nlab: db 1,2,3\nLEN equ $-lab\n  db 9,9,9,9,9\n",
+        {0x06, 0x03, 1, 2, 3, 9, 9, 9, 9, 9}, 0x4000);
+    chkSym("equ avec $, octets apres", "  org #4000\nlab: db 1,2,3\nLEN equ $-lab\n  ds 100\n", "LEN", 3);
+    chkSym("equ forward avec .local, label global suivant",
+           "  org #4000\n  ld b,LEN\nf1: nop\n.x: db 1,2,3\nLEN equ $-.x\nf2: nop\n.x: nop\n", "LEN", 3);
+    chk("equ forward avec .local, octets",
+        "  org #4000\n  ld b,LEN\nf1: nop\n.x: db 1,2,3\nLEN equ $-.x\nf2: nop\n.x: nop\n",
+        {0x06, 0x03, 0, 1, 2, 3, 0, 0}, 0x4000);
+    chkSym("equ = $ pur, octets apres", "  org #4000\n  nop\nHERE equ $\n  ds 100\n", "HERE", 0x4001);
 
     // $ = adresse courante
     chk("dollar", "  org 0x0100\n  dw $\n", {0x00, 0x01}, 0x0100);

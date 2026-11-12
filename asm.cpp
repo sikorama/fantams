@@ -120,9 +120,17 @@ public:
         for (int iter = 0; iter < 32; ++iter) {
             bool changed = false;
             for (const auto &d : equDefs_) {
-                const expr::Value v = evalExprValue(d.second);
-                auto it = symbols_.find(d.first);
-                if (it == symbols_.end() || !sameValue(it->second, v)) { setSymbol(d.first, v); changed = true; }
+                dollarOverride_ = &d.dollar;
+                const std::string savedGlobal = currentGlobal_;
+                currentGlobal_ = d.global;
+                const expr::Value v = evalExprValue(d.text);
+                currentGlobal_ = savedGlobal;
+                dollarOverride_ = nullptr;
+                auto it = symbols_.find(d.name);
+                if (it == symbols_.end() || !sameValue(it->second, v)) {
+                    setSymbol(d.name, v);
+                    changed = true;
+                }
             }
             if (!changed) break;
         }
@@ -753,7 +761,17 @@ private:
     std::map<std::string, Symbol> symInfo_;      // type, rangement et provenance, pour la table exportable
     std::set<std::string> definedP1_;
     std::map<std::string, std::string> defForm_;               // nom qualifié -> comment il a été défini, pour dire les deux côtés d'une collision
-    std::vector<std::pair<std::string, std::string>> equDefs_; // (nom, texte expr) pour la résolution
+    // Un EQU garde le contexte de SA ligne — la valeur de `$` et le label global
+    // qui qualifie ses `.local` : la relecture à point fixe a lieu une fois la
+    // passe finie, quand pc_ vaut la fin du programme et currentGlobal_ le dernier
+    // label.
+    struct EquDef {
+        std::string name, text;
+        expr::Value dollar;
+        std::string global;
+    };
+    std::vector<EquDef> equDefs_;
+    const expr::Value *dollarOverride_ = nullptr;
     std::set<std::string> badNames_;          // noms refusés déjà signalés (ADR 0015)
     std::vector<Diagnostic> errors_;
     std::vector<Diagnostic> warnings_;
@@ -1111,7 +1129,10 @@ private:
             // `$` se comporte comme un LABEL de la section courante : dans une
             // section relocalisable, il vaut sa base plus l'offset courant, et
             // tous les idiomes qui s'en servent traversent la relocalisation.
-            if (n == "$") { o = here(inInstruction_ ? instrStart_ : pc_); return true; }
+            if (n == "$") {
+                o = dollarOverride_ ? *dollarOverride_ : here(inInstruction_ ? instrStart_ : pc_);
+                return true;
+            }
             std::string qn = qualify(n);
             auto it = symbols_.find(qn);
             if (it != symbols_.end()) { o = it->second; return true; }
@@ -1130,7 +1151,10 @@ private:
             // seul à câbler le hook réel — ailleurs (préprocesseur pur) il reste
             // absent, et opcode() le dit lui-même.
             opcode::Result r = opcode::extract(instrText, index, len);
-            if (!r.ok) { error = r.error; return false; }
+            if (!r.ok) {
+                error = r.error;
+                return false;
+            }
             value = r.value;
             return true;
         }, [&](bool nops, const std::string &from, const std::string &to,
@@ -1827,13 +1851,13 @@ private:
         if (W0 == "EQU") {
             if (label.empty()) { structErr("EQU without a name"); return; }
             defineSymbol(label, evalExprValue(after0));
-            if (pass_ == 1) equDefs_.push_back({qualify(label), after0});
+            if (pass_ == 1) equDefs_.push_back({qualify(label), after0, here(pc_), currentGlobal_});
             return;
         }
         if (W1 == "EQU") {
             std::string e = restAfterFirst(after0);
             defineSymbol(w0, evalExprValue(e));
-            if (pass_ == 1) equDefs_.push_back({qualify(w0), e});
+            if (pass_ == 1) equDefs_.push_back({qualify(w0), e, here(pc_), currentGlobal_});
             return;
         }
         size_t eq = kw::findAssign(rest);
