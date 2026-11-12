@@ -788,6 +788,9 @@ runs; a loader elsewhere does the copying.
   `PC` therefore lands on memory nothing has loaded yet: this **warns**.
 - `align` aligns the **logical** address, the one the code will run at. The storage
   address shifts by the same amount and is not aligned.
+- `$` in the storage parameter is the **current storage address**, the one the next
+  byte would be written at: `org #9000,$` keeps storing right after the previous
+  bytes while labels take `#9000`.
 - The displacement is **not persistent**: a one-address `org` resets it.
 - `loadAddress` and the binary's extent describe the **storage** address, so a raw
   binary no longer loads at the address of its labels.

@@ -489,6 +489,22 @@ int main() {
         ok("deplace : rien a l'adresse logique", o.coverage[0x2000] == 0);
         ok("deplace : loadAddress est le rangement", o.loadAddress == 0x3000);
     }
+    // `$` dans le parametre de rangement est l'adresse de rangement COURANTE,
+    // evaluee avant que l'ORG ne deplace quoi que ce soit : « org L,$ » range
+    // la suite juste apres les octets deja ecrits.
+    {
+        Built o = build("  org #4000\n  db 1,2,3\n  org #9000,$\nblk: db #AA,#BB\n", "t.asm");
+        ok("org L,$ : le label vaut l'adresse logique", o.symbols["blk"] == 0x9000);
+        ok("org L,$ : les octets suivent le bloc precedent",
+           o.image[0x4003] == 0xAA && o.image[0x4004] == 0xBB);
+        ok("org L,$ : rien a l'adresse logique", o.coverage[0x9000] == 0);
+    }
+    // Apres un bloc deja deplace, `$` du rangement reste une adresse de rangement.
+    {
+        Built o = build("  org #2000,#3000\n  db 1,2\n  org #9000,$\n  db #AA\n", "t.asm");
+        ok("org L,$ apres un bloc deplace : suit le rangement",
+           o.image[0x3002] == 0xAA && o.coverage[0x9000] == 0);
+    }
     // ALIGN aligne le LOGIQUE : c'est l'adresse ou le code tournera
     // apres recopie. Le rangement suit du meme ecart, donc n'est pas aligne.
     chkSym("deplace : ALIGN aligne le logique",

@@ -1412,8 +1412,18 @@ private:
             warn("ORG without a bank prefix inherits bank " + std::to_string(orgBank_) +
                  " (write 'org b" + std::to_string(orgBank_) + ":...' to confirm, or 'org b0:...' to leave it)");
         }
+        // `$` du parametre de rangement est l'adresse de rangement COURANTE
+        // (celle ou le prochain octet s'ecrirait), pas la logique neuve : on
+        // l'evalue donc avant de deplacer pc_, avec pc_ ramene au rangement.
+        int64_t storageAddr = 0;
+        if (displaced) {
+            const int logicalPc = pc_;
+            pc_ += displacement_;
+            storageAddr = evalExpr(storage);
+            pc_ = logicalPc;
+        }
         pc_ = (int)evalExpr(logical);
-        displacement_ = displaced ? (int)evalExpr(storage) - pc_ : 0;
+        displacement_ = displaced ? (int)storageAddr - pc_ : 0;
         sawOrg_ = true;
     }
 
