@@ -4,6 +4,7 @@
 // Verifier un recouvrement, une banque derivee ou un point d'entree ne demande
 // plus d'ecrire un source Z80 qui les provoque, mais deux structures de dix
 // lignes — et un test qui echoue nomme le linker, pas l'assembleur.
+#include "asm.h"
 #include "link.h"
 
 #include "profile.h"
@@ -1864,6 +1865,33 @@ int main() {
         ok("deplacer la fenetre seule change le CODE, pas le n", img2.ok);
         okBytes("%101 01 011 = &AB",
                 img2.blocks.empty() ? std::vector<uint8_t>() : img2.blocks[0].bytes, {0xAB, 0x00});
+    }
+
+    // --- `org L,$` dans une section placee a une base non nulle ---------
+    // (revue du correctif de `$` du rangement : la troncature du coefficient
+    // de base est sans effet, la base s'ajoute au linkage.)
+    // Dans une section que le source place par `IN` a une base NON NULLE, l'ORG
+    // vaut un decalage et `$` du rangement un offset : la base s'ajoute au
+    // linkage, des deux cotes. Le rangement reste contigu et l'etiquette vaut
+    // base + decalage.
+    {
+        const asmb::Object obj = asmb::assembleText(
+            "  section main,\"ro\" IN w1 OF linear\nstart: db 1,2,3\n"
+            "  org #100,$\nblk: db #AA,#BB\n",
+            "t.asm");
+        const link::Image img = link::build(
+            {obj}, script::Script(), profile::parse(profile::builtin("cpc6128"), "cpc6128"));
+        int64_t blk = -1, store = -1;
+        for (const auto &sy : img.symbolTable)
+            if (sy.name == "blk") {
+                blk = sy.value;
+                store = sy.store;
+            }
+        ok("org L,$ en section placee : le linkage reussit", obj.ok && img.ok);
+        ok("org L,$ en section placee : etiquette = base + decalage", blk == 0x4100);
+        ok("org L,$ en section placee : rangement contigu apres les 3 octets", store == 0x4003);
+        ok("org L,$ en section placee : le binaire est contigu",
+           img.loadAddress == 0x4000 && img.bin.size() == 5 && img.bin[3] == 0xAA && img.bin[4] == 0xBB);
     }
 
     return summary();

@@ -505,6 +505,12 @@ int main() {
         ok("org L,$ apres un bloc deplace : suit le rangement",
            o.image[0x3002] == 0xAA && o.coverage[0x9000] == 0);
     }
+    // Premiere ligne du fichier : aucun octet avant, `$` du rangement est 0.
+    {
+        Built o = build("  org #9000,$\n  db #AA\n", "t.asm");
+        ok("org L,$ en tete de fichier : rangement a 0",
+           o.image[0] == 0xAA && o.coverage[0x9000] == 0);
+    }
     // ALIGN aligne le LOGIQUE : c'est l'adresse ou le code tournera
     // apres recopie. Le rangement suit du meme ecart, donc n'est pas aligne.
     chkSym("deplace : ALIGN aligne le logique",
